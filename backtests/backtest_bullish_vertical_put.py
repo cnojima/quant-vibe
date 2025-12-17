@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 
 # Add src to path
@@ -33,6 +33,23 @@ class TeeOutput:
         sys.stdout = self.terminal
 
 
+def make_utc_datetime(year, month, day, hour=0, minute=0, second=0):
+    """Create timezone-aware datetime in UTC.
+
+    Args:
+        year: Year
+        month: Month
+        day: Day
+        hour: Hour (default: 0)
+        minute: Minute (default: 0)
+        second: Second (default: 0)
+
+    Returns:
+        datetime: Timezone-aware datetime in UTC
+    """
+    return datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc)
+
+
 def get_date_range():
     """Prompt user to select date range for backtest.
 
@@ -59,51 +76,51 @@ def get_date_range():
             print("Invalid choice. Please enter a number between 1 and 6.")
             continue
 
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         if choice == '1':  # Today
-            start_date = datetime(now.year, now.month, now.day, 0, 0, 0)
-            end_date = datetime(now.year, now.month, now.day, 23, 59, 59)
+            start_date = make_utc_datetime(now.year, now.month, now.day, 0, 0, 0)
+            end_date = make_utc_datetime(now.year, now.month, now.day, 23, 59, 59)
 
         elif choice == '2':  # This week (Monday to Sunday)
             # Calculate Monday of current week
             days_since_monday = now.weekday()
             monday = now - timedelta(days=days_since_monday)
-            start_date = datetime(monday.year, monday.month, monday.day, 0, 0, 0)
+            start_date = make_utc_datetime(monday.year, monday.month, monday.day, 0, 0, 0)
 
             # Calculate Sunday of current week
             sunday = monday + timedelta(days=6)
-            end_date = datetime(sunday.year, sunday.month, sunday.day, 23, 59, 59)
+            end_date = make_utc_datetime(sunday.year, sunday.month, sunday.day, 23, 59, 59)
 
         elif choice == '3':  # This month
-            start_date = datetime(now.year, now.month, 1, 0, 0, 0)
+            start_date = make_utc_datetime(now.year, now.month, 1, 0, 0, 0)
 
             # Calculate last day of month
             if now.month == 12:
-                next_month = datetime(now.year + 1, 1, 1)
+                next_month = make_utc_datetime(now.year + 1, 1, 1)
             else:
-                next_month = datetime(now.year, now.month + 1, 1)
+                next_month = make_utc_datetime(now.year, now.month + 1, 1)
             last_day = next_month - timedelta(days=1)
-            end_date = datetime(last_day.year, last_day.month, last_day.day, 23, 59, 59)
+            end_date = make_utc_datetime(last_day.year, last_day.month, last_day.day, 23, 59, 59)
 
         elif choice == '4':  # This quarter
             # Q1: Jan-Mar, Q2: Apr-Jun, Q3: Jul-Sep, Q4: Oct-Dec
             quarter = (now.month - 1) // 3 + 1
             quarter_start_month = (quarter - 1) * 3 + 1
-            start_date = datetime(now.year, quarter_start_month, 1, 0, 0, 0)
+            start_date = make_utc_datetime(now.year, quarter_start_month, 1, 0, 0, 0)
 
             # Calculate last day of quarter
             quarter_end_month = quarter * 3
             if quarter_end_month == 12:
-                next_quarter_start = datetime(now.year + 1, 1, 1)
+                next_quarter_start = make_utc_datetime(now.year + 1, 1, 1)
             else:
-                next_quarter_start = datetime(now.year, quarter_end_month + 1, 1)
+                next_quarter_start = make_utc_datetime(now.year, quarter_end_month + 1, 1)
             last_day = next_quarter_start - timedelta(days=1)
-            end_date = datetime(last_day.year, last_day.month, last_day.day, 23, 59, 59)
+            end_date = make_utc_datetime(last_day.year, last_day.month, last_day.day, 23, 59, 59)
 
         elif choice == '5':  # This year
-            start_date = datetime(now.year, 1, 1, 0, 0, 0)
-            end_date = datetime(now.year, 12, 31, 23, 59, 59)
+            start_date = make_utc_datetime(now.year, 1, 1, 0, 0, 0)
+            end_date = make_utc_datetime(now.year, 12, 31, 23, 59, 59)
 
         elif choice == '6':  # Custom
             print()
@@ -113,7 +130,7 @@ def get_date_range():
                 try:
                     start_str = input("Start date: ").strip()
                     start_parts = start_str.split('-')
-                    start_date = datetime(int(start_parts[0]), int(start_parts[1]), int(start_parts[2]), 0, 0, 0)
+                    start_date = make_utc_datetime(int(start_parts[0]), int(start_parts[1]), int(start_parts[2]), 0, 0, 0)
                     break
                 except (ValueError, IndexError):
                     print("Invalid date format. Please use YYYY-MM-DD (e.g., 2025-12-01)")
@@ -122,7 +139,7 @@ def get_date_range():
                 try:
                     end_str = input("End date: ").strip()
                     end_parts = end_str.split('-')
-                    end_date = datetime(int(end_parts[0]), int(end_parts[1]), int(end_parts[2]), 23, 59, 59)
+                    end_date = make_utc_datetime(int(end_parts[0]), int(end_parts[1]), int(end_parts[2]), 23, 59, 59)
 
                     if end_date < start_date:
                         print("End date must be after start date. Please try again.")

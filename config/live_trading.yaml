@@ -82,6 +82,32 @@ risk:
   # max_delta_exposure: 1000
   # correlation_limit: 0.70
 
+# OCO (One Cancels Other) Order Protection
+oco:
+  # Enable OCO orders (profit target + stop loss submitted to broker)
+  enabled: false  # Set to true to enable broker-level protection
+
+  # Default profit target (as percentage of entry price)
+  # Position can override this with its own profit_target
+  profit_target_pct: 0.50  # 50% profit
+
+  # Default stop loss (as percentage of entry price, negative)
+  # Position can override this with its own stop_loss
+  stop_loss_pct: -0.30  # -30% loss
+
+  # Use market order for stop loss (faster exit, may get worse price)
+  # If false, uses STOP_LIMIT (safer but might not fill)
+  use_market_on_stop: true
+
+  # Verify OCO child orders were placed after entry fills
+  verify_placement: true
+
+  # Fallback to engine monitoring if OCO placement fails
+  fallback_to_monitoring: true
+
+  # Note: In simulated mode, OCO structures are built and logged
+  # but not actually submitted (engine monitoring is still used)
+
 # Monitoring & Alerts
 monitoring:
   # Status update interval (seconds)

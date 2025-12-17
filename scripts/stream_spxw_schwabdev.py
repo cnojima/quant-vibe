@@ -82,6 +82,10 @@ from dotenv import load_dotenv
 
 from quant_vibe.data.timescale_store import TimescaleStore
 
+# Import enricher for option chain details
+sys.path.insert(0, str(Path(__file__).parent))
+from enrich_stream_with_chain import OptionContractEnricher
+
 load_dotenv()
 
 
@@ -129,8 +133,12 @@ class SPXWOptionsStreamer:
         self.streamer = schwabdev.Stream(self.schwab_client)
         self.ts_store = TimescaleStore()
 
+        # Initialize enricher for contract details (Greeks, strike, etc.)
+        self.enricher = OptionContractEnricher(self.schwab_client)
+
         print("✓ Schwabdev client initialized")
         print("✓ TimescaleDB connected")
+        print("✓ Contract enricher initialized")
 
     def get_spxw_contracts(self) -> List[str]:
         """
@@ -291,8 +299,25 @@ class SPXWOptionsStreamer:
                                     'rho': item.get('32'),
                                 }
 
+                                # Debug: Log first few messages to see what fields are actually populated
+                                if self.message_count <= 3:
+                                    print(f"\n  🔍 DEBUG - Sample message #{self.message_count}")
+                                    print(f"     Symbol: {symbol}")
+                                    print(f"     Fields received in item: {list(item.keys())}")
+                                    print(f"     Strike (field 20): {item.get('20')}")
+                                    print(f"     IV (field 10): {item.get('10')}")
+                                    print(f"     Delta (field 28): {item.get('28')}")
+                                    print(f"     Gamma (field 29): {item.get('29')}")
+                                    print(f"     Theta (field 30): {item.get('30')}")
+                                    print(f"     Vega (field 31): {item.get('31')}")
+                                    print(f"     Rho (field 32): {item.get('32')}")
+
+                                # Enrich quote with contract details from option chain
+                                # (fills in Greeks and strike if missing from stream)
+                                enriched_quote = self.enricher.enrich_quote(quote)
+
                                 # Add to buffer
-                                self.quote_buffer[symbol].append(quote)
+                                self.quote_buffer[symbol].append(enriched_quote)
 
             # Check if we should flush (create 1-min bars)
             elapsed = (datetime.now() - self.last_flush_time).total_seconds()
@@ -467,6 +492,12 @@ class SPXWOptionsStreamer:
 
         self.contracts_subscribed = contracts
 
+        # Refresh enricher cache with full option chain
+        print("\nPopulating contract details cache...")
+        self.enricher.refresh_contract_details("$SPX", strike_count=50)
+        stats = self.enricher.get_cache_stats()
+        print(f"✓ Cached {stats['contracts_cached']} contracts for enrichment")
+
         # Start stream
         print("\nStarting stream...")
         self.streamer.start_auto(
@@ -517,10 +548,13 @@ class SPXWOptionsStreamer:
 
                 # Status update with timestamp
                 now = datetime.now()
+                enricher_stats = self.enricher.get_cache_stats()
                 print(f"\n📊 Status Update [{now.strftime('%Y-%m-%d %H:%M:%S')}]:")
                 print(f"   Messages received: {self.message_count}")
                 print(f"   Contracts streaming: {len(self.contracts_subscribed)}")
                 print(f"   Buffered symbols: {len(self.quote_buffer)}")
+                print(f"   Contract cache: {enricher_stats['contracts_cached']} contracts")
+                print(f"   Cache age: {enricher_stats['cache_age_minutes']:.1f} minutes")
 
         except KeyboardInterrupt:
             print("\n\n⚠️  Stopping stream...")
