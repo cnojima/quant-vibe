@@ -1,0 +1,153 @@
+# Live Trading Engine Configuration
+# ==================================
+# This file configures the live trading engine for options trading.
+#
+# ⚠️  IMPORTANT: Always start with paper_trading: true
+# ⚠️  Only switch to live trading after extensive testing
+#
+# NOTE: Schwab does not offer paper trading accounts via API.
+# When paper_trading: true, orders are simulated internally with
+# realistic slippage models. No real broker orders are submitted.
+
+engine:
+  # Paper trading mode (CRITICAL SAFETY FEATURE)
+  # true = Simulated fills (no real orders)
+  # false = Live orders submitted to Schwab API
+  paper_trading: true
+
+  # Maximum concurrent positions across all strategies
+  max_positions: 5
+
+  # Maximum capital per single trade
+  max_capital_per_trade: 10000
+
+  # Daily loss limit (as percentage of starting capital)
+  # Engine will stop trading if daily loss exceeds this
+  daily_loss_limit_pct: 0.05  # 5%
+
+  # Timeout before considering data stale (seconds)
+  data_stale_timeout_seconds: 300  # 5 minutes
+
+# Strategy Configuration
+# Strategies to run (empty by default - add as needed)
+strategies:
+  enabled: []
+
+  # Example strategy configuration (commented out):
+  # - name: bullish_vertical_put
+  #   enabled: true
+  #   capital_allocation: 50000
+  #   params:
+  #     spread_width: 10
+  #     observation_period: 15
+  #     pullback_amount: 30
+  #     profit_target_min: 0.2
+  #     profit_target_max: 2.0
+  #     trailing_stop_pct: 0.20
+  #     min_dte: 0
+  #     max_dte: 0
+  #     num_spreads: 10
+  #     min_volume: 50
+  #     min_bid_ask_spread_pct: 10.0
+
+# Data Feed Configuration
+data_feed:
+  # Number of bars to keep in memory (sliding window)
+  window_size: 100  # Last 100 minutes
+
+  # Bar aggregation interval (seconds)
+  aggregate_interval_seconds: 60  # 1-minute bars
+
+  # Days to expiration range for streaming
+  max_dte: 45
+  min_dte: 0
+
+  # Strike range as percentage of underlying price
+  # 0.10 = ±10% from ATM
+  strike_range_pct: 0.10
+
+# Risk Management
+risk:
+  # Maximum total exposure (sum of all positions)
+  max_total_exposure: 100000
+
+  # Maximum drawdown before stopping (percentage)
+  max_drawdown_pct: 0.10  # 10%
+
+  # Position concentration limit (single position / total capital)
+  position_concentration_limit: 0.30  # 30%
+
+  # Additional risk limits (for future implementation)
+  # max_contracts_per_symbol: 100
+  # max_delta_exposure: 1000
+  # correlation_limit: 0.70
+
+# Monitoring & Alerts
+monitoring:
+  # Status update interval (seconds)
+  status_update_interval_seconds: 60
+
+  # Health check interval (seconds)
+  health_check_interval_seconds: 30
+
+  # Email alerts (requires SMTP configuration)
+  email_alerts_enabled: false
+  email_recipients: []
+  #   - your.email@example.com
+
+  # Alert conditions
+  alerts:
+    on_position_open: false
+    on_position_close: true
+    on_daily_loss_limit: true
+    on_max_drawdown: true
+    on_data_stale: true
+    on_order_error: true
+
+# Logging Configuration
+logging:
+  # Directory for log files
+  log_dir: logs/live_trading
+
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_level: INFO
+
+  # Rotate logs daily
+  rotation: daily
+
+  # Keep logs for N days
+  retention_days: 30
+
+# Database Configuration (uses TimescaleDB by default)
+database:
+  # Use TimescaleDB from .env settings
+  use_timescale: true
+
+  # Override connection (optional)
+  # host: localhost
+  # port: 5432
+  # database: options_data
+  # user: quantvibe
+  # password: quantvibe_dev
+
+# Emergency Controls
+emergency:
+  # Enable kill switch (close all positions immediately)
+  kill_switch_enabled: true
+
+  # Close all positions at end of day
+  close_all_at_eod: true
+
+  # End of day close time (ET)
+  eod_close_time: "15:55"  # 5 minutes before market close
+
+# Testing & Development
+development:
+  # Enable detailed debug logging
+  debug_mode: false
+
+  # Simulate fills immediately (for testing)
+  instant_fills: false
+
+  # Save raw stream messages to file
+  save_stream_messages: false
