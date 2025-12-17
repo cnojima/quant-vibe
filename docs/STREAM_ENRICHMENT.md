@@ -373,10 +373,163 @@ Use cached Greeks (15-min refresh) + parse strike from symbol as fallback:
 **Pros**: Best balance of accuracy and API efficiency
 **Cons**: Slightly stale Greeks (acceptable for most use cases)
 
+## Backfilling Existing Data
+
+If you have existing streaming data in the database with NULL Greeks/strike/IV (collected before enrichment was added), use the backfill utility:
+
+### Check What Needs Backfilling
+
+```bash
+# Show statistics about missing data
+python scripts/backfill_stream_greeks.py --stats-only
+```
+
+Output:
+```
+======================================================================
+STREAMING DATA STATISTICS
+======================================================================
+
+Total streaming records: 125,482
+
+Records with missing data: 45,203 (36.0%)
+  Missing strike_price: 45,203
+  Missing delta: 45,203
+  Missing gamma: 45,203
+  Missing theta: 45,203
+  Missing vega: 45,203
+  Missing rho: 45,203
+  Missing implied_volatility: 45,203
+```
+
+### Run Backfill
+
+```bash
+# Dry run first (see what would be updated)
+python scripts/backfill_stream_greeks.py --dry-run
+
+# Backfill all missing data
+python scripts/backfill_stream_greeks.py
+
+# Backfill specific date range
+python scripts/backfill_stream_greeks.py --start 2025-12-10 --end 2025-12-17
+
+# Limit to 1000 records (for testing)
+python scripts/backfill_stream_greeks.py --limit 1000
+```
+
+### How Backfill Works
+
+```
+1. Query database for records with NULL Greeks/strike/IV
+   ↓
+2. Fetch current option chain from Schwab REST API
+   ↓
+3. Build enrichment cache (same as streaming)
+   ↓
+4. For each record:
+   - Try to match with cached contract details
+   - If not found, parse strike from symbol (fallback)
+   - Update record using COALESCE (don't override existing data)
+   ↓
+5. Show statistics and sample results
+```
+
+### Backfill Output
+
+```
+======================================================================
+BACKFILLING STREAMING DATA WITH GREEKS
+======================================================================
+Started: 2025-12-17 14:30:00
+======================================================================
+
+======================================================================
+FINDING RECORDS NEEDING ENRICHMENT
+======================================================================
+
+Querying database...
+✓ Found 45,203 records needing enrichment
+  Date range: 2025-12-10 06:30:00+00:00 to 2025-12-16 14:13:00+00:00
+  Unique contracts: 287
+
+======================================================================
+FETCHING CONTRACT DETAILS FROM SCHWAB
+======================================================================
+
+Fetching option chain from Schwab API...
+(This may take a moment for large date ranges)
+✓ Cached 412 contracts from option chain
+
+Building fallback strike mapping from symbols...
+✓ Parsed strikes for 287 symbols
+
+Cache coverage:
+  In cache: 245 / 287 (85.4%)
+  Fallback (strike only): 287
+
+======================================================================
+UPDATING RECORDS
+======================================================================
+
+  Progress: 100/45,203 (0.2%) | Updated: 98 | Skipped: 2
+  Progress: 200/45,203 (0.4%) | Updated: 197 | Skipped: 3
+  ...
+  Progress: 45,203/45,203 (100.0%) | Updated: 43,201 | Skipped: 2,002 | Errors: 0
+
+======================================================================
+BACKFILL COMPLETE
+======================================================================
+✅ Updated: 43,201 records
+⏭️  Skipped: 2,002 records (no data available)
+❌ Errors: 0
+⏱️  Time: 127.3s (339.5 records/sec)
+
+Sample of updated records (showing 5):
+  Timestamp            Symbol                    Strike   Delta   Gamma      IV
+  -------------------- ------------------------- -------- ------- --------   ------
+  2025-12-16 14:13:00  SPXW  251219C06100000    $6100    0.520   0.00120    0.185
+  2025-12-16 14:12:00  SPXW  251219C06110000    $6110    0.480   0.00115    0.182
+  2025-12-16 14:11:00  SPXW  251219P06090000    $6090    -0.380  0.00118    0.192
+  ...
+```
+
+### Fallback Strategy
+
+The backfill script uses a two-tier approach:
+
+1. **Primary**: Match with option chain data
+   - Provides full Greeks, IV, and strike
+   - Coverage: ~85-90% (contracts in current chain)
+
+2. **Fallback**: Parse strike from symbol
+   - Only provides strike price
+   - Coverage: 100% (works for any option symbol)
+   - Format: `SPXW  251219C06100000` → Strike = 6100.0
+
+Records that can't be matched with either method are skipped.
+
+### When to Use Backfill
+
+- **After adding enrichment**: Backfill data collected before enrichment was implemented
+- **After stream crashes**: Fill gaps from downtime
+- **Maintenance**: Periodically fill any missing data
+- **Off-market hours**: Safe to run anytime (uses REST API, not stream)
+
+### Idempotent & Safe
+
+The backfill script:
+- ✅ Uses `COALESCE` - never overrides existing non-NULL data
+- ✅ Can be run multiple times safely
+- ✅ Respects API rate limits (small delays every 500 records)
+- ✅ Shows dry-run option to preview changes
+- ✅ Provides detailed progress and statistics
+
 ## Related Files
 
 - `scripts/stream_spxw_schwabdev.py` - Main streaming script
 - `scripts/enrich_stream_with_chain.py` - Enrichment module
+- `scripts/backfill_stream_greeks.py` - Backfill utility (NEW)
 - `src/quant_vibe/data/timescale_store.py` - Database storage
 - `docs/SPXW_FIX.md` - Original streaming troubleshooting
 

@@ -220,11 +220,16 @@ The system now supports **options backtesting and real-time data collection** fo
 # Backfill 0-2 DTE historical data from Massive API
 python scripts/backfill_0dte_spxw.py
 
-# Real-time streaming (websocket)
-python scripts/stream_spxw_realtime.py
+# Real-time streaming (websocket) - includes auto-enrichment
+python scripts/stream_spxw_schwabdev.py
 
 # Real-time polling (simpler, recommended for testing)
 python scripts/poll_spxw_quotes.py
+
+# Backfill missing Greeks/strike/IV in existing streaming data
+python scripts/backfill_stream_greeks.py --stats-only  # Check status
+python scripts/backfill_stream_greeks.py --dry-run     # Preview changes
+python scripts/backfill_stream_greeks.py               # Run backfill
 ```
 
 **Backtesting**
@@ -243,10 +248,17 @@ python scripts/test_0dte_availability.py
    - Estimates bid/ask spreads based on DTE and price
    - Covers 0-2 DTE for daily SPXW expirations (Mon-Fri)
 
-2. **Real-Time Collection**: Schwab API → `RealtimeOptionsCollector` → TimescaleDB
+2. **Real-Time Collection**: Schwab API → `stream_spxw_schwabdev.py` → TimescaleDB
    - Subscribes to active contracts (0-45 DTE, ±10% ATM)
    - Aggregates quote updates into 1-minute bars
-   - Includes actual bid/ask and Greeks
+   - Auto-enriches with Greeks/strike/IV from option chain API
+   - Includes actual bid/ask and contract details
+
+2b. **Stream Data Enrichment**: Option Chain API → Cache → Enrich Stream
+   - Fetches contract details (Greeks, strike, IV) every 15 minutes
+   - Enriches streaming quotes with cached data
+   - Backfill utility available for existing data: `scripts/backfill_stream_greeks.py`
+   - See `docs/STREAM_ENRICHMENT.md` for details
 
 3. **Backtesting**: TimescaleDB → `OptionsBacktestEngine` → Results
    - Loads options + underlying data
