@@ -409,7 +409,8 @@ class OptionsStrategy(ABC):
         self,
         position: OptionsPosition,
         current_time: datetime,
-        exit_reason: str
+        exit_reason: str,
+        underlying_price: Optional[float] = None
     ) -> None:
         """
         Close a position.
@@ -418,10 +419,24 @@ class OptionsStrategy(ABC):
             position: Position to close
             current_time: Exit timestamp
             exit_reason: Reason for exit
+            underlying_price: Optional underlying price at exit
         """
         position.exit_time = current_time
         position.exit_value = position.current_value
         position.exit_reason = exit_reason
+
+        # Store underlying price at exit
+        if underlying_price is not None:
+            position.underlying_price_at_exit = underlying_price
+
+        # Store exit prices for each leg
+        for leg in position.legs:
+            if leg.current_price is not None:
+                leg.exit_price = leg.current_price
+
+        # Track peak value achieved
+        if position.highest_value is not None:
+            position.peak_value = position.highest_value
 
         if position == self.active_position:
             self.active_position = None

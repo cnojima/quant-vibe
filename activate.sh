@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Activate virtual environment and set PYTHONPATH
 source venv/bin/activate
 export PYTHONPATH="${PYTHONPATH}:${PWD}/src"

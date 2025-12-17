@@ -173,15 +173,19 @@ class OptionsBacktestEngine:
                 )
 
                 if should_exit:
+                    # Get current underlying price
+                    underlying_price = underlying_slice['Close'].iloc[-1] if not underlying_slice.empty else None
+
                     self._close_position(
                         strategy,
                         position,
                         current_time,
                         exit_reason,
-                        cash
+                        cash,
+                        underlying_price
                     )
                     # Update cash with exit value
-                    # current_value is positive for debit spreads (we sell it) 
+                    # current_value is positive for debit spreads (we sell it)
                     # current_value is negative for credit spreads (we buy it back)
                     # So adding it works correctly for both cases
                     cash += position.exit_value
@@ -204,6 +208,9 @@ class OptionsBacktestEngine:
                     )
 
                     if new_position is not None:
+                        # Store entry trigger information
+                        entry_trigger = self._format_entry_trigger(market_analysis)
+
                         # Check if we have enough capital
                         # For debit spreads: entry_cost > 0 (we pay)
                         # For credit spreads: entry_cost < 0 (we receive), but need to reserve max risk
@@ -215,11 +222,13 @@ class OptionsBacktestEngine:
                             # Max risk = spread_width * 100 * num_spreads
                             # For now, reserve the absolute value of entry cost as collateral
                             required_capital = abs(new_position.entry_cost)
-                        
+
                         if required_capital <= cash:
                             # Enter position
                             strategy.active_position = new_position
                             strategy.positions.append(new_position)
+                            # Store entry trigger on position for later reference
+                            new_position.entry_trigger = entry_trigger
                             # Update cash based on actual entry cost (negative = receive, positive = pay)
                             cash -= new_position.entry_cost
 
@@ -244,12 +253,16 @@ class OptionsBacktestEngine:
         # Close any remaining positions at end of backtest
         if strategy.active_position is not None:
             print(f"\n⚠️  Closing position at end of backtest period")
+            # Get final underlying price
+            final_underlying_price = underlying_data['Close'].iloc[-1] if not underlying_data.empty else None
+
             self._close_position(
                 strategy,
                 strategy.active_position,
                 end_date,
                 "End of backtest",
-                cash
+                cash,
+                final_underlying_price
             )
             cash += strategy.active_position.exit_value
 
@@ -285,7 +298,8 @@ class OptionsBacktestEngine:
         position: OptionsPosition,
         current_time: datetime,
         exit_reason: str,
-        current_cash: float
+        current_cash: float,
+        underlying_price: Optional[float] = None
     ) -> None:
         """Close a position and record the trade.
 
@@ -295,12 +309,28 @@ class OptionsBacktestEngine:
             current_time: Exit timestamp
             exit_reason: Reason for exit
             current_cash: Current cash balance
+            underlying_price: Current underlying price at exit
         """
-        strategy.close_position(position, current_time, exit_reason)
+        strategy.close_position(position, current_time, exit_reason, underlying_price)
 
         # Record trade
         pnl = position.exit_value - position.entry_cost
         pnl_pct = (pnl / abs(position.entry_cost)) * 100 if position.entry_cost != 0 else 0
+
+        # Build leg details for trade record
+        leg_details = []
+        for leg in position.legs:
+            leg_info = {
+                'action': 'BUY' if leg.quantity > 0 else 'SELL',
+                'quantity': abs(leg.quantity),
+                'contract_symbol': leg.contract_symbol,
+                'option_type': leg.option_type.value,
+                'strike_price': leg.strike_price,
+                'entry_price': leg.entry_price,
+                'exit_price': getattr(leg, 'exit_price', None),
+                'expiration_date': leg.expiration_date
+            }
+            leg_details.append(leg_info)
 
         trade_record = {
             'position_id': position.position_id,
@@ -311,15 +341,50 @@ class OptionsBacktestEngine:
             'exit_value': position.exit_value,
             'pnl': pnl,
             'pnl_percent': pnl_pct,
+            'entry_trigger': getattr(position, 'entry_trigger', 'N/A'),
             'exit_reason': exit_reason,
             'duration_minutes': (position.exit_time - position.entry_time).total_seconds() / 60,
             'underlying_entry': position.underlying_price_at_entry,
+            'underlying_exit': getattr(position, 'underlying_price_at_exit', None),
+            'legs': leg_details,
+            'max_profit': getattr(position, 'max_profit', None),
+            'peak_value': getattr(position, 'peak_value', None),
         }
 
         self.trades.append(trade_record)
 
         if self.log_trades:
             self._log_position_exit(position, exit_reason, current_cash)
+
+    def _format_entry_trigger(self, market_analysis: Dict) -> str:
+        """Format entry trigger information from market analysis.
+
+        Args:
+            market_analysis: Market analysis dict from strategy
+
+        Returns:
+            Human-readable entry trigger description
+        """
+        trigger_parts = []
+
+        # Direction and momentum
+        direction = market_analysis.get('direction', 'N/A')
+        if direction != 'N/A':
+            trigger_parts.append(f"{direction.capitalize()} direction")
+
+        # Pullback signal
+        if market_analysis.get('pullback_signal', False):
+            current_price = market_analysis.get('current_price', 0)
+            pullback_threshold = market_analysis.get('pullback_threshold', 0)
+            if current_price > 0 and pullback_threshold > 0:
+                pullback_amount = pullback_threshold - current_price
+                trigger_parts.append(f"Pullback ${abs(pullback_amount):.2f}")
+
+        # Observation complete
+        if market_analysis.get('observation_complete', False):
+            trigger_parts.append("Observation period complete")
+
+        return " | ".join(trigger_parts) if trigger_parts else "Strategy entry signal"
 
     def _format_time_et(self, dt: datetime) -> str:
         """Format datetime in Eastern Time for display."""

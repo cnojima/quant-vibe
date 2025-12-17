@@ -1,0 +1,761 @@
+======================================================================
+SELECT DATE RANGE FOR BACKTEST
+======================================================================
+
+Available date range options:
+  1. Today
+  2. This week (Mon-Sun)
+  3. This month
+  4. This quarter
+  5. This year
+  6. Custom date range
+
+Enter your choice (1-6): 
+Selected date range: 2025-12-01 to 2025-12-31
+Is this correct? (y/n): 
+======================================================================
+BULLISH VERTICAL PUT STRATEGY - BACKTEST
+======================================================================
+
+Configuration:
+  Date Range: 2025-12-01 to 2025-12-31
+  Spread Width: $10.0
+  Number of Spreads: 10
+  Observation Period: 15 minutes
+  Pullback: $30.0
+  Profit Target: 20.0% - 200.0%
+  Trailing Stop: 20.0%
+  DTE Range: 0 - 0 days
+  Liquidity Filters:
+    Min Volume: 50
+    Max Bid/Ask Spread: 10.0%
+  Initial Capital: $100,000.00
+
+======================================================================
+LOADING DATA
+======================================================================
+
+1. Loading SPX options data from TimescaleDB...
+✅ Loaded 299,634 options bars
+   Unique timestamps: 4,176
+   Unique contracts: 2,854
+   Date range: 2025-12-01 14:30:00+00:00 to 2025-12-16 14:13:00+00:00
+   Expirations: [Timestamp('2025-12-01 00:00:00'), Timestamp('2025-12-02 00:00:00'), Timestamp('2025-12-03 00:00:00'), Timestamp('2025-12-04 00:00:00'), Timestamp('2025-12-05 00:00:00'), Timestamp('2025-12-08 00:00:00'), Timestamp('2025-12-09 00:00:00'), Timestamp('2025-12-10 00:00:00'), Timestamp('2025-12-11 00:00:00'), Timestamp('2025-12-12 00:00:00'), Timestamp('2025-12-15 00:00:00'), Timestamp('2025-12-16 00:00:00')]
+
+2. Deriving SPX underlying price from options bid/ask data...
+✅ Derived 4,300 underlying price estimates
+   Date range: 2025-12-01 14:30:00+00:00 to 2025-12-16 14:13:00+00:00
+   Price range: $6772.50 - $6912.50
+   Latest close: $6817.50
+
+
+======================================================================
+OPTIONS BACKTEST: BullishVerticalPut_10.0
+======================================================================
+Date Range: 2025-12-01 to 2025-12-31
+Initial Capital: $100,000.00
+Underlying Data Points: 4,300
+Options Timestamps: 4,176
+Options Contracts: 2,854
+======================================================================
+
+
+📅 2025-12-01 (Monday)
+
+  📊 OBSERVATION COMPLETE (after 15 mins)
+     Direction: BULLISH
+     Momentum: 0.1667 pts/bar
+     Price Change: $2.50
+     Opening Range: $6772.50 - $6815.00
+     Opening Mean: $6802.83, Std Dev: $10.73
+     → Waiting for pullback to $6785.00
+  📍 14:45 - Monitoring for pullback
+     Current: $6795.00 | Target: $6785.00 | Distance: $10.00
+
+  🎯 BUY SIGNAL TRIGGERED!
+     Current Price: $6785.00
+     Pullback Threshold: $6785.00
+     Pullback Amount: $0.00 (0.00%)
+     Time: 09:50:00 EST
+
+  📋 Selected Contracts (passed liquidity filters):
+     Short 6785.0 PUT:
+       Volume: 90
+       Bid/Ask: $5.59/$5.71 (spread: 2.12%)
+       Mark: $5.65
+     Long 6775.0 PUT:
+       Volume: 131
+       Bid/Ask: $4.19/$4.41 (spread: 5.12%)
+       Mark: $4.30
+
+  📊 Data Completeness Check:
+     ✅ 6785.0 PUT: 100.0% coverage
+     ✅ 6775.0 PUT: 100.0% coverage
+
+  ✅ POSITION OPENED
+     Position ID: BVP_20251201_145000
+     Spread Type: VERTICAL_PUT
+     Entry Time: 2025-12-01 09:50:00 EST
+     Entry Cost: $-1350.00
+     Underlying Price: $6785.00
+     Cash Remaining: $101,350.00
+     Leg 1: SELL 10 PUT @ $6785.00 for $5.65
+     Leg 2: BUY 10 PUT @ $6775.00 for $4.30
+  📍 15:15 - Monitoring for pullback
+     Current: $6807.50 | Target: $6785.00 | Distance: $22.50
+  📍 15:45 - Monitoring for pullback
+     Current: $6807.50 | Target: $6785.00 | Distance: $22.50
+  📍 16:15 - Monitoring for pullback
+     Current: $6832.50 | Target: $6785.00 | Distance: $47.50
+  📍 16:45 - Monitoring for pullback
+     Current: $6820.00 | Target: $6785.00 | Distance: $35.00
+  📍 17:15 - Monitoring for pullback
+     Current: $6825.00 | Target: $6785.00 | Distance: $40.00
+      ⚠️  Interpolated O:SPXW251201P06785000: $0.66 (from $0.55 @ 6780.0 and $0.77 @ 6790.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06785000
+      ⚠️  Interpolated O:SPXW251201P06785000: $0.66 (from $0.55 @ 6780.0 and $0.77 @ 6790.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06785000
+      ⚠️  Interpolated O:SPXW251201P06775000: $0.41 (from $0.35 @ 6770.0 and $0.47 @ 6780.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06775000
+      ⚠️  Interpolated O:SPXW251201P06775000: $0.41 (from $0.35 @ 6770.0 and $0.47 @ 6780.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06775000
+  📍 17:45 - Monitoring for pullback
+     Current: $6810.00 | Target: $6785.00 | Distance: $25.00
+  📍 18:15 - Monitoring for pullback
+     Current: $6835.00 | Target: $6785.00 | Distance: $50.00
+      ⚠️  Interpolated O:SPXW251201P06775000: $0.24 (from $0.20 @ 6770.0 and $0.28 @ 6780.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06775000
+      ⚠️  Interpolated O:SPXW251201P06775000: $0.24 (from $0.20 @ 6770.0 and $0.28 @ 6780.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06775000
+      ⚠️  Interpolated O:SPXW251201P06785000: $0.30 (from $0.26 @ 6780.0 and $0.35 @ 6790.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06785000
+      ⚠️  Interpolated O:SPXW251201P06785000: $0.30 (from $0.26 @ 6780.0 and $0.35 @ 6790.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06785000
+      ⚠️  Interpolated O:SPXW251201P06785000: $0.25 (from $0.20 @ 6780.0 and $0.29 @ 6790.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06785000
+      ⚠️  Interpolated O:SPXW251201P06785000: $0.25 (from $0.20 @ 6780.0 and $0.29 @ 6790.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06785000
+  📍 18:45 - Monitoring for pullback
+     Current: $6827.50 | Target: $6785.00 | Distance: $42.50
+      ⚠️  Interpolated O:SPXW251201P06785000: $0.26 (from $0.20 @ 6780.0 and $0.32 @ 6790.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06785000
+      ⚠️  Interpolated O:SPXW251201P06785000: $0.26 (from $0.20 @ 6780.0 and $0.32 @ 6790.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06785000
+  📍 19:15 - Monitoring for pullback
+     Current: $6832.50 | Target: $6785.00 | Distance: $47.50
+  📍 19:45 - Monitoring for pullback
+     Current: $6822.50 | Target: $6785.00 | Distance: $37.50
+  📍 20:15 - Monitoring for pullback
+     Current: $6820.00 | Target: $6785.00 | Distance: $35.00
+      ⚠️  Interpolated O:SPXW251201P06775000: $0.08 (from $0.07 @ 6770.0 and $0.10 @ 6780.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06775000
+      ⚠️  Interpolated O:SPXW251201P06775000: $0.08 (from $0.07 @ 6770.0 and $0.10 @ 6780.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06775000
+      ⚠️  Interpolated O:SPXW251201P06775000: $0.07 (from $0.07 @ 6770.0 and $0.07 @ 6780.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06775000
+      ⚠️  Interpolated O:SPXW251201P06775000: $0.07 (from $0.07 @ 6770.0 and $0.07 @ 6780.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06775000
+      ⚠️  Interpolated O:SPXW251201P06775000: $0.07 (from $0.06 @ 6770.0 and $0.07 @ 6780.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06775000
+      ⚠️  Interpolated O:SPXW251201P06775000: $0.07 (from $0.06 @ 6770.0 and $0.07 @ 6780.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251201P06775000
+
+  🟢 POSITION CLOSED
+     Position ID: BVP_20251201_145000
+     Exit Time: 2025-12-01 15:42:00 EST
+     Exit Reason: Trailing stop triggered
+     Duration: 352 minutes
+     Entry Cost: $-1350.00
+     Exit Value: $-10.00
+     P&L: $+1340.00 (+99.26%)
+     Cash After: $101,350.00
+  📍 20:45 - Monitoring for pullback
+     Current: $6822.50 | Target: $6785.00 | Distance: $37.50
+
+📅 2025-12-02 (Tuesday)
+
+  📊 OBSERVATION COMPLETE (after 15 mins)
+     Direction: BULLISH
+     Momentum: 0.6667 pts/bar
+     Price Change: $10.00
+     Opening Range: $6810.00 - $6852.50
+     Opening Mean: $6822.33, Std Dev: $10.96
+     → Waiting for pullback to $6822.50
+  📍 14:45 - Monitoring for pullback
+     Current: $6817.50 | Target: $6822.50 | Distance: $-5.00
+
+  🎯 BUY SIGNAL TRIGGERED!
+     Current Price: $6817.50
+     Pullback Threshold: $6822.50
+     Pullback Amount: $5.00 (0.07%)
+     Time: 09:45:00 EST
+
+  📋 Selected Contracts (passed liquidity filters):
+     Short 6815.0 PUT:
+       Volume: 69
+       Bid/Ask: $5.84/$5.96 (spread: 2.03%)
+       Mark: $5.90
+     Long 6805.0 PUT:
+       Volume: 167
+       Bid/Ask: $4.00/$4.20 (spread: 4.88%)
+       Mark: $4.10
+
+  📊 Data Completeness Check:
+     ✅ 6815.0 PUT: 100.0% coverage
+     ✅ 6805.0 PUT: 100.0% coverage
+
+  ✅ POSITION OPENED
+     Position ID: BVP_20251202_144500
+     Spread Type: VERTICAL_PUT
+     Entry Time: 2025-12-02 09:45:00 EST
+     Entry Cost: $-1800.00
+     Underlying Price: $6817.50
+     Cash Remaining: $103,140.00
+     Leg 1: SELL 10 PUT @ $6815.00 for $5.90
+     Leg 2: BUY 10 PUT @ $6805.00 for $4.10
+  📍 15:15 - Monitoring for pullback
+     Current: $6832.50 | Target: $6822.50 | Distance: $10.00
+  📍 15:45 - Monitoring for pullback
+     Current: $6825.00 | Target: $6822.50 | Distance: $2.50
+  📍 16:15 - Monitoring for pullback
+     Current: $6827.50 | Target: $6822.50 | Distance: $5.00
+  📍 16:45 - Monitoring for pullback
+     Current: $6832.50 | Target: $6822.50 | Distance: $10.00
+  📍 17:15 - Monitoring for pullback
+     Current: $6822.50 | Target: $6822.50 | Distance: $0.00
+  📍 17:45 - Monitoring for pullback
+     Current: $6837.50 | Target: $6822.50 | Distance: $15.00
+  📍 18:15 - Monitoring for pullback
+     Current: $6825.00 | Target: $6822.50 | Distance: $2.50
+  📍 18:45 - Monitoring for pullback
+     Current: $6820.00 | Target: $6822.50 | Distance: $-2.50
+  📍 19:15 - Monitoring for pullback
+     Current: $6830.00 | Target: $6822.50 | Distance: $7.50
+  📍 19:45 - Monitoring for pullback
+     Current: $6830.00 | Target: $6822.50 | Distance: $7.50
+  📍 20:15 - Monitoring for pullback
+     Current: $6827.50 | Target: $6822.50 | Distance: $5.00
+  📍 20:45 - Monitoring for pullback
+     Current: $6832.50 | Target: $6822.50 | Distance: $10.00
+
+  🟢 POSITION CLOSED
+     Position ID: BVP_20251202_144500
+     Exit Time: 2025-12-02 15:45:00 EST
+     Exit Reason: Expiration approaching
+     Duration: 360 minutes
+     Entry Cost: $-1800.00
+     Exit Value: $-10.00
+     P&L: $+1790.00 (+99.44%)
+     Cash After: $103,140.00
+
+📅 2025-12-03 (Wednesday)
+
+  📊 OBSERVATION COMPLETE (after 15 mins)
+     Direction: BEARISH
+     Momentum: -0.6667 pts/bar
+     Price Change: $-10.00
+     Opening Range: $6810.00 - $6825.00
+     Opening Mean: $6817.00, Std Dev: $4.45
+     → No entry - market not bullish
+
+📅 2025-12-04 (Thursday)
+
+  📊 OBSERVATION COMPLETE (after 15 mins)
+     Direction: BULLISH
+     Momentum: 0.5000 pts/bar
+     Price Change: $7.50
+     Opening Range: $6837.50 - $6857.50
+     Opening Mean: $6848.50, Std Dev: $7.25
+     → Waiting for pullback to $6827.50
+  📍 14:45 - Monitoring for pullback
+     Current: $6857.50 | Target: $6827.50 | Distance: $30.00
+
+  🎯 BUY SIGNAL TRIGGERED!
+     Current Price: $6827.50
+     Pullback Threshold: $6827.50
+     Pullback Amount: $0.00 (0.00%)
+     Time: 10:02:00 EST
+
+  📋 Selected Contracts (passed liquidity filters):
+     Short 6825.0 PUT:
+       Volume: 208
+       Bid/Ask: $8.57/$8.75 (spread: 2.08%)
+       Mark: $8.66
+     Long 6815.0 PUT:
+       Volume: 158
+       Bid/Ask: $6.23/$6.35 (spread: 1.91%)
+       Mark: $6.29
+
+  📊 Data Completeness Check:
+     ✅ 6825.0 PUT: 100.0% coverage
+     ✅ 6815.0 PUT: 100.0% coverage
+
+  ✅ POSITION OPENED
+     Position ID: BVP_20251204_150200
+     Spread Type: VERTICAL_PUT
+     Entry Time: 2025-12-04 10:02:00 EST
+     Entry Cost: $-2370.00
+     Underlying Price: $6827.50
+     Cash Remaining: $105,500.00
+     Leg 1: SELL 10 PUT @ $6825.00 for $8.66
+     Leg 2: BUY 10 PUT @ $6815.00 for $6.29
+  📍 15:15 - Monitoring for pullback
+     Current: $6840.00 | Target: $6827.50 | Distance: $12.50
+  📍 15:45 - Monitoring for pullback
+     Current: $6852.50 | Target: $6827.50 | Distance: $25.00
+  📍 16:15 - Monitoring for pullback
+     Current: $6850.00 | Target: $6827.50 | Distance: $22.50
+  📍 16:45 - Monitoring for pullback
+     Current: $6837.50 | Target: $6827.50 | Distance: $10.00
+  📍 17:15 - Monitoring for pullback
+     Current: $6837.50 | Target: $6827.50 | Distance: $10.00
+  📍 17:45 - Monitoring for pullback
+     Current: $6845.00 | Target: $6827.50 | Distance: $17.50
+  📍 18:15 - Monitoring for pullback
+     Current: $6847.50 | Target: $6827.50 | Distance: $20.00
+      ⚠️  Interpolated O:SPXW251204P06815000: $0.45 (from $0.35 @ 6810.0 and $0.55 @ 6820.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251204P06815000
+      ⚠️  Interpolated O:SPXW251204P06815000: $0.45 (from $0.35 @ 6810.0 and $0.55 @ 6820.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251204P06815000
+  📍 18:45 - Monitoring for pullback
+     Current: $6852.50 | Target: $6827.50 | Distance: $25.00
+  📍 19:15 - Monitoring for pullback
+     Current: $6845.00 | Target: $6827.50 | Distance: $17.50
+  📍 19:45 - Monitoring for pullback
+     Current: $6837.50 | Target: $6827.50 | Distance: $10.00
+  📍 20:15 - Monitoring for pullback
+     Current: $6840.00 | Target: $6827.50 | Distance: $12.50
+  📍 20:45 - Monitoring for pullback
+     Current: $6845.00 | Target: $6827.50 | Distance: $17.50
+
+  🟢 POSITION CLOSED
+     Position ID: BVP_20251204_150200
+     Exit Time: 2025-12-04 15:45:00 EST
+     Exit Reason: Expiration approaching
+     Duration: 343 minutes
+     Entry Cost: $-2370.00
+     Exit Value: $-130.00
+     P&L: $+2240.00 (+94.51%)
+     Cash After: $105,500.00
+
+📅 2025-12-05 (Friday)
+
+  📊 OBSERVATION COMPLETE (after 15 mins)
+     Direction: BULLISH
+     Momentum: 1.8333 pts/bar
+     Price Change: $27.50
+     Opening Range: $6842.50 - $6870.00
+     Opening Mean: $6858.33, Std Dev: $9.00
+     → Waiting for pullback to $6840.00
+  📍 14:45 - Monitoring for pullback
+     Current: $6862.50 | Target: $6840.00 | Distance: $22.50
+  📍 15:15 - Monitoring for pullback
+     Current: $6870.00 | Target: $6840.00 | Distance: $30.00
+  📍 15:45 - Monitoring for pullback
+     Current: $6867.50 | Target: $6840.00 | Distance: $27.50
+  📍 16:15 - Monitoring for pullback
+     Current: $6865.00 | Target: $6840.00 | Distance: $25.00
+  📍 16:45 - Monitoring for pullback
+     Current: $6865.00 | Target: $6840.00 | Distance: $25.00
+  📍 17:15 - Monitoring for pullback
+     Current: $6857.50 | Target: $6840.00 | Distance: $17.50
+  📍 17:45 - Monitoring for pullback
+     Current: $6857.50 | Target: $6840.00 | Distance: $17.50
+  📍 18:15 - Monitoring for pullback
+     Current: $6875.00 | Target: $6840.00 | Distance: $35.00
+  📍 18:45 - Monitoring for pullback
+     Current: $6865.00 | Target: $6840.00 | Distance: $25.00
+  📍 19:15 - Monitoring for pullback
+     Current: $6872.50 | Target: $6840.00 | Distance: $32.50
+  📍 19:45 - Monitoring for pullback
+     Current: $6862.50 | Target: $6840.00 | Distance: $22.50
+  📍 20:15 - Monitoring for pullback
+     Current: $6865.00 | Target: $6840.00 | Distance: $25.00
+  📍 20:45 - Monitoring for pullback
+     Current: $6875.00 | Target: $6840.00 | Distance: $35.00
+
+📅 2025-12-08 (Monday)
+
+  📊 OBSERVATION COMPLETE (after 15 mins)
+     Direction: BEARISH
+     Momentum: -1.8333 pts/bar
+     Price Change: $-27.50
+     Opening Range: $6852.50 - $6890.00
+     Opening Mean: $6864.83, Std Dev: $10.63
+     → No entry - market not bullish
+
+📅 2025-12-09 (Tuesday)
+
+  📊 OBSERVATION COMPLETE (after 15 mins)
+     Direction: BULLISH
+     Momentum: 0.5000 pts/bar
+     Price Change: $7.50
+     Opening Range: $6822.50 - $6857.50
+     Opening Mean: $6842.50, Std Dev: $8.13
+     → Waiting for pullback to $6827.50
+  📍 14:45 - Monitoring for pullback
+     Current: $6845.00 | Target: $6827.50 | Distance: $17.50
+  📍 15:15 - Monitoring for pullback
+     Current: $6852.50 | Target: $6827.50 | Distance: $25.00
+  📍 15:45 - Monitoring for pullback
+     Current: $6840.00 | Target: $6827.50 | Distance: $12.50
+  📍 16:15 - Monitoring for pullback
+     Current: $6850.00 | Target: $6827.50 | Distance: $22.50
+  📍 16:45 - Monitoring for pullback
+     Current: $6850.00 | Target: $6827.50 | Distance: $22.50
+  📍 17:15 - Monitoring for pullback
+     Current: $6852.50 | Target: $6827.50 | Distance: $25.00
+  📍 17:45 - Monitoring for pullback
+     Current: $6862.50 | Target: $6827.50 | Distance: $35.00
+  📍 18:15 - Monitoring for pullback
+     Current: $6850.00 | Target: $6827.50 | Distance: $22.50
+  📍 18:45 - Monitoring for pullback
+     Current: $6847.50 | Target: $6827.50 | Distance: $20.00
+  📍 19:15 - Monitoring for pullback
+     Current: $6855.00 | Target: $6827.50 | Distance: $27.50
+  📍 19:45 - Monitoring for pullback
+     Current: $6855.00 | Target: $6827.50 | Distance: $27.50
+  📍 20:15 - Monitoring for pullback
+     Current: $6852.50 | Target: $6827.50 | Distance: $25.00
+  📍 20:45 - Monitoring for pullback
+     Current: $6842.50 | Target: $6827.50 | Distance: $15.00
+
+📅 2025-12-10 (Wednesday)
+
+  📊 OBSERVATION COMPLETE (after 15 mins)
+     Direction: BULLISH
+     Momentum: 0.6667 pts/bar
+     Price Change: $10.00
+     Opening Range: $6822.50 - $6857.50
+     Opening Mean: $6831.67, Std Dev: $9.94
+     → Waiting for pullback to $6827.50
+  📍 14:45 - Monitoring for pullback
+     Current: $6847.50 | Target: $6827.50 | Distance: $20.00
+
+  🎯 BUY SIGNAL TRIGGERED!
+     Current Price: $6827.50
+     Pullback Threshold: $6827.50
+     Pullback Amount: $0.00 (0.00%)
+     Time: 09:48:00 EST
+
+  📋 Selected Contracts (passed liquidity filters):
+     Short 6825.0 PUT:
+       Volume: 94
+       Bid/Ask: $14.16/$14.44 (spread: 1.96%)
+       Mark: $14.30
+     Long 6815.0 PUT:
+       Volume: 86
+       Bid/Ask: $11.19/$11.41 (spread: 1.95%)
+       Mark: $11.30
+
+  📊 Data Completeness Check:
+     ✅ 6825.0 PUT: 100.0% coverage
+     ✅ 6815.0 PUT: 100.0% coverage
+
+  ✅ POSITION OPENED
+     Position ID: BVP_20251210_144800
+     Spread Type: VERTICAL_PUT
+     Entry Time: 2025-12-10 09:48:00 EST
+     Entry Cost: $-3000.00
+     Underlying Price: $6827.50
+     Cash Remaining: $108,370.00
+     Leg 1: SELL 10 PUT @ $6825.00 for $14.30
+     Leg 2: BUY 10 PUT @ $6815.00 for $11.30
+  📍 15:15 - Monitoring for pullback
+     Current: $6850.00 | Target: $6827.50 | Distance: $22.50
+  📍 15:45 - Monitoring for pullback
+     Current: $6832.50 | Target: $6827.50 | Distance: $5.00
+  📍 16:15 - Monitoring for pullback
+     Current: $6837.50 | Target: $6827.50 | Distance: $10.00
+  📍 16:45 - Monitoring for pullback
+     Current: $6837.50 | Target: $6827.50 | Distance: $10.00
+  📍 17:15 - Monitoring for pullback
+     Current: $6847.50 | Target: $6827.50 | Distance: $20.00
+  📍 17:45 - Monitoring for pullback
+     Current: $6842.50 | Target: $6827.50 | Distance: $15.00
+      ⚠️  Interpolated O:SPXW251210P06815000: $8.97 (from $7.85 @ 6810.0 and $10.10 @ 6820.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251210P06815000
+      ⚠️  Interpolated O:SPXW251210P06815000: $8.97 (from $7.85 @ 6810.0 and $10.10 @ 6820.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251210P06815000
+  📍 18:15 - Monitoring for pullback
+     Current: $6857.50 | Target: $6827.50 | Distance: $30.00
+  📍 18:45 - Monitoring for pullback
+     Current: $6832.50 | Target: $6827.50 | Distance: $5.00
+  📍 19:15 - Monitoring for pullback
+     Current: $6857.50 | Target: $6827.50 | Distance: $30.00
+      ⚠️  Interpolated O:SPXW251210P06825000: $4.83 (from $2.55 @ 6805.0 and $5.40 @ 6830.0)
+      ⚠️  Interpolated O:SPXW251210P06815000: $3.69 (from $2.55 @ 6805.0 and $5.40 @ 6830.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251210P06825000, O:SPXW251210P06815000
+      ⚠️  Interpolated O:SPXW251210P06825000: $4.83 (from $2.55 @ 6805.0 and $5.40 @ 6830.0)
+      ⚠️  Interpolated O:SPXW251210P06815000: $3.69 (from $2.55 @ 6805.0 and $5.40 @ 6830.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251210P06825000, O:SPXW251210P06815000
+  📍 19:45 - Monitoring for pullback
+     Current: $6842.50 | Target: $6827.50 | Distance: $15.00
+  📍 20:15 - Monitoring for pullback
+     Current: $6862.50 | Target: $6827.50 | Distance: $35.00
+      ⚠️  Interpolated O:SPXW251210P06825000: $0.06 (from $0.06 @ 6820.0 and $0.06 @ 6830.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251210P06825000
+      ⚠️  Interpolated O:SPXW251210P06825000: $0.06 (from $0.06 @ 6820.0 and $0.06 @ 6830.0)
+   ⚠️  Missing/invalid data for legs: O:SPXW251210P06825000
+
+  🟢 POSITION CLOSED
+     Position ID: BVP_20251210_144800
+     Exit Time: 2025-12-10 15:35:00 EST
+     Exit Reason: Trailing stop triggered
+     Duration: 347 minutes
+     Entry Cost: $-3000.00
+     Exit Value: $0.00
+     P&L: $+3000.00 (+100.00%)
+     Cash After: $108,370.00
+  📍 20:45 - Monitoring for pullback
+     Current: $6877.50 | Target: $6827.50 | Distance: $50.00
+
+📅 2025-12-11 (Thursday)
+
+  📊 OBSERVATION COMPLETE (after 15 mins)
+     Direction: BEARISH
+     Momentum: -0.6667 pts/bar
+     Price Change: $-10.00
+     Opening Range: $6847.50 - $6877.50
+     Opening Mean: $6859.50, Std Dev: $9.07
+     → No entry - market not bullish
+
+📅 2025-12-12 (Friday)
+
+  📊 OBSERVATION COMPLETE (after 15 mins)
+     Direction: BEARISH
+     Momentum: -0.3333 pts/bar
+     Price Change: $-5.00
+     Opening Range: $6865.00 - $6905.00
+     Opening Mean: $6887.67, Std Dev: $10.02
+     → No entry - market not bullish
+
+📅 2025-12-15 (Monday)
+
+  📊 OBSERVATION COMPLETE (after 15 mins)
+     Direction: BEARISH
+     Momentum: -0.5556 pts/bar
+     Price Change: $-5.00
+     Opening Range: $6815.00 - $6820.00
+     Opening Mean: $6817.78, Std Dev: $1.50
+     → No entry - market not bullish
+
+📅 2025-12-16 (Tuesday)
+
+======================================================================
+BACKTEST RESULTS
+======================================================================
+Strategy: BullishVerticalPut_10.0
+Initial Capital: $100,000.00
+Final Capital: $108,370.00
+Total Return: $+8,370.00 (+8.37%)
+
+Trade Statistics:
+  Total Trades: 4
+  Winning Trades: 4 (100.0%)
+  Losing Trades: 0
+  Average Win: $2,092.50
+  Average Loss: $0.00
+  Profit Factor: 0.00
+
+Risk Metrics:
+  Max Drawdown: -4.61%
+  Sharpe Ratio: 4.39
+======================================================================
+
+
+======================================================================
+DETAILED TRADE LOG
+======================================================================
+
+======================================================================
+TRADE #1 - 🟢 WIN
+======================================================================
+
+📥 ENTRY
+  Time:     2025-12-01 14:50:00 ET
+  Trigger:  Bullish direction | Pullback $0.00 | Observation period complete
+  SPX @ Entry: $6785.00
+
+📋 POSITION
+  Type:     VERTICAL_PUT
+  Contracts:
+    Leg 1: 📤 SELL 10 PUT @ $6785.00
+            Entry: $5.65 x 10 x 100 = $5,650.00
+            Exit:  $0.07 x 10 x 100 = $65.00
+    Leg 2: 📥 BUY 10 PUT @ $6775.00
+            Entry: $4.30 x 10 x 100 = $4,300.00
+            Exit:  $0.06 x 10 x 100 = $55.00
+
+  💵 Net Credit:  $1,350.00 (received)
+
+📤 EXIT
+  Time:     2025-12-01 20:42:00 ET
+  Duration: 352 minutes (5.9 hours)
+  Reason:   Trailing stop triggered
+  SPX @ Exit:  $6812.50
+  SPX Move:    $+27.50 (+0.41%)
+
+💰 PERFORMANCE
+  Entry Cost:   $-1,350.00
+  Exit Value:   $-10.00
+  Profit/Loss:  $+1,340.00 (+99.26%)
+  Peak P&L:     $+1,360.00 (+100.74%)
+  Profit Given Back: $20.00
+
+======================================================================
+TRADE #2 - 🟢 WIN
+======================================================================
+
+📥 ENTRY
+  Time:     2025-12-02 14:45:00 ET
+  Trigger:  Bullish direction | Pullback $5.00 | Observation period complete
+  SPX @ Entry: $6817.50
+
+📋 POSITION
+  Type:     VERTICAL_PUT
+  Contracts:
+    Leg 1: 📤 SELL 10 PUT @ $6815.00
+            Entry: $5.90 x 10 x 100 = $5,900.00
+            Exit:  $0.07 x 10 x 100 = $75.00
+    Leg 2: 📥 BUY 10 PUT @ $6805.00
+            Entry: $4.10 x 10 x 100 = $4,100.00
+            Exit:  $0.07 x 10 x 100 = $65.00
+
+  💵 Net Credit:  $1,800.00 (received)
+
+📤 EXIT
+  Time:     2025-12-02 20:45:00 ET
+  Duration: 360 minutes (6.0 hours)
+  Reason:   Expiration approaching
+  SPX @ Exit:  $6832.50
+  SPX Move:    $+15.00 (+0.22%)
+
+💰 PERFORMANCE
+  Entry Cost:   $-1,800.00
+  Exit Value:   $-10.00
+  Profit/Loss:  $+1,790.00 (+99.44%)
+  Peak P&L:     $+1,790.00 (+99.44%)
+
+======================================================================
+TRADE #3 - 🟢 WIN
+======================================================================
+
+📥 ENTRY
+  Time:     2025-12-04 15:02:00 ET
+  Trigger:  Bullish direction | Pullback $0.00 | Observation period complete
+  SPX @ Entry: $6827.50
+
+📋 POSITION
+  Type:     VERTICAL_PUT
+  Contracts:
+    Leg 1: 📤 SELL 10 PUT @ $6825.00
+            Entry: $8.66 x 10 x 100 = $8,660.00
+            Exit:  $0.20 x 10 x 100 = $205.00
+    Leg 2: 📥 BUY 10 PUT @ $6815.00
+            Entry: $6.29 x 10 x 100 = $6,290.00
+            Exit:  $0.07 x 10 x 100 = $75.00
+
+  💵 Net Credit:  $2,370.00 (received)
+
+📤 EXIT
+  Time:     2025-12-04 20:45:00 ET
+  Duration: 343 minutes (5.7 hours)
+  Reason:   Expiration approaching
+  SPX @ Exit:  $6845.00
+  SPX Move:    $+17.50 (+0.26%)
+
+💰 PERFORMANCE
+  Entry Cost:   $-2,370.00
+  Exit Value:   $-130.00
+  Profit/Loss:  $+2,240.00 (+94.51%)
+  Peak P&L:     $+2,335.00 (+98.52%)
+  Profit Given Back: $95.00
+
+======================================================================
+TRADE #4 - 🟢 WIN
+======================================================================
+
+📥 ENTRY
+  Time:     2025-12-10 14:48:00 ET
+  Trigger:  Bullish direction | Pullback $0.00 | Observation period complete
+  SPX @ Entry: $6827.50
+
+📋 POSITION
+  Type:     VERTICAL_PUT
+  Contracts:
+    Leg 1: 📤 SELL 10 PUT @ $6825.00
+            Entry: $14.30 x 10 x 100 = $14,300.00
+            Exit:  $0.06 x 10 x 100 = $55.00
+    Leg 2: 📥 BUY 10 PUT @ $6815.00
+            Entry: $11.30 x 10 x 100 = $11,300.00
+            Exit:  $0.06 x 10 x 100 = $55.00
+
+  💵 Net Credit:  $3,000.00 (received)
+
+📤 EXIT
+  Time:     2025-12-10 20:35:00 ET
+  Duration: 347 minutes (5.8 hours)
+  Reason:   Trailing stop triggered
+  SPX @ Exit:  $6880.00
+  SPX Move:    $+52.50 (+0.77%)
+
+💰 PERFORMANCE
+  Entry Cost:   $-3,000.00
+  Exit Value:   $0.00
+  Profit/Loss:  $+3,000.00 (+100.00%)
+  Peak P&L:     $+3,010.00 (+100.33%)
+  Profit Given Back: $10.00
+
+======================================================================
+EDUCATIONAL METRICS & ANALYSIS
+======================================================================
+
+📅 TRADE TIMING ANALYSIS
+  Average Hold Time: 350 minutes (5.8 hours)
+  Shortest Trade:    343 minutes
+  Longest Trade:     360 minutes
+  Most Common Entry Hour: 14:00 ET
+
+🚪 EXIT REASON BREAKDOWN
+  Trailing stop triggered: 2 trades (50.0%)
+  Expiration approaching: 2 trades (50.0%)
+
+📊 WIN/LOSS PATTERNS
+  Longest Winning Streak:  4 trades
+  Longest Losing Streak:   0 trades
+
+⚖️  RISK/REWARD ANALYSIS
+
+📉 DRAWDOWN ANALYSIS
+  Max Drawdown: $-4,750.00 (-4.61%)
+  Max Drawdown Date: 2025-12-02 16:32:00
+
+💵 PROFIT DISTRIBUTION
+  Median P&L:    $2,015.00
+  Std Dev:       $707.83
+  Best Trade:    $3,000.00
+  Worst Trade:   $1,340.00
+  25th Percentile: $1,677.50
+  75th Percentile: $2,430.00
+
+🎯 ENTRY TRIGGER ANALYSIS
+  Bullish direction | Pullback $0.00 | Observation period complete:
+    Trades: 3, Win Rate: 100.0%, Avg P&L: $2,193.33
+  Bullish direction | Pullback $5.00 | Observation period complete:
+    Trades: 1, Win Rate: 100.0%, Avg P&L: $1,790.00
+
+💰 RETURN METRICS
+  Total Capital Deployed: $8,520.00
+  Total P&L: $+8,370.00
+  ROI on Deployed Capital: +98.24%
+  Total Return: +8.37%
+  Annualized Return: +2504.69% (based on 9 days)
+
+✅ Trades saved to: /Users/curisu/dev/quant-vibe/data/backtest_results/bullish_vertical_put_trades_20251216_212813.csv
+✅ Equity curve saved to: /Users/curisu/dev/quant-vibe/data/backtest_results/bullish_vertical_put_equity_20251216_212813.csv
+
+======================================================================
+BACKTEST COMPLETE
+======================================================================
+
