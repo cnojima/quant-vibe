@@ -1,0 +1,96 @@
+window.DigitalFeedback['https://digitalfeedback.us.confirmit.com/api/digitalfeedback/loader/prod/scenario?programKey=NFFudp&scenarioId=13086&programVersion=39'] = function (api) {
+console.log( 'CONF LOADING 202500217v1' );
+
+pageConfig = {
+  // group 1 - shared quota of xx between all group 1 pages
+  // group 2 - shared quota of xx between all group 2 pages
+  // additional groups can be created.  each group requires 1 scenario script
+
+"p780855097080": {  // Developer Portal 530 ( prod )
+    'group': 'p2',
+    'showLog': true,
+    'reqField': 'ALT_ID',
+	
+	'pages' : { 
+				'p780855097080_p1' : {
+					'page': '.schwab.com/products/advisor-services',
+				},	
+	},
+	
+    'expire': 30,
+    'dailyQuotaLimit': 50,
+    'doCFRCheck': false,
+    'eventSurvey': true,
+    'delay': 15, // 15 in production
+    'eventIncidence': 100,
+    'doIntentToExit': false,
+    'customIntentArea': false,
+    'onClickSurvey': false,
+    'clickIDs': false,
+    'newWindow': false,
+    'feedbackLinkSurvey': true,
+    'feedbackLinkIncidence': 100,
+    'allowExternalTrigger': false,
+    'bypassQuotaCheck': false,
+    'invite': false,
+    'modalInvite': false,
+    'container': false,
+    'pause': false,
+  },
+
+
+"p636596169885" : {  // 529 Schwab.com Accounts
+'group': 'g1',
+'showLog': true,
+'reqField' : 'CUST_ID',
+
+	'pages' : {
+				'p636596169885_p1' : { // 538
+					'page': 'https://client.schwab.com/app/wme/spi/#/home',
+          'feedbackLinkSurvey' : false,
+          'expire' : 60,
+          'delay': 60,
+				},			
+				'p636596169885_p2' : { // 534
+          'page': 'https://client.schwab.com/app/wme/swa/#/home',
+          'intro' : "We'd like to hear from you",
+          'expire' : 90,
+          'delay' : 60,
+          'pause' : false,
+				},
+
+	},
+	
+'expire': 60,
+//'dailyQuotaLimit': 18,
+'weeklyQuotaLimit' : 144,
+'doCFRCheck': false,
+'eventSurvey': true,
+'delay': 25, // 25 in production
+'eventIncidence': 100,
+'doIntentToExit': false,
+'customIntentArea': false,
+'onClickSurvey': false,
+'clickIDs': false,
+'feedbackLinkSurvey': true,
+'feedbackLinkIncidence': 100,
+'allowExternalTrigger': false,
+'newWindow': false,
+'bypassQuotaCheck': false,
+'invite': false,
+'modalInvite': false,
+'container': "UIUX2021",
+'clickInvite' : false,
+'clickNewWindow' : false,
+'intentInvite' : false,
+'intentNewWindow' : false,
+'delayInvite' : false,
+'delayNewWindow' : false,
+'noExternalDelay' : false,
+'pause': false,
+'pageSpecificCookies' : true,
+},
+
+}
+
+};

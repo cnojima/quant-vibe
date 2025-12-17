@@ -1,0 +1,73 @@
+window.DigitalFeedback['https://digitalfeedback.us.confirmit.com/api/digitalfeedback/loader/prod/scenario?programKey=NFFudp&scenarioId=12355&programVersion=39'] = function (api) {
+console.log('load test page code.')
+
+var url = document.location.href;
+
+if( url.indexOf("DF_GlobalsTest") != -1)
+{
+    console.log( 'adding test elements')
+
+// not needed in production ( probably )
+ConfirmitHelper.triggerForstaSurvey = function()
+{
+	var pid = document.getElementById("pid").value
+	var dObj = JSON.parse( document.getElementById("dat").value );
+	console.log(dObj);
+	ForstaSurvey(pid,dObj);
+}
+
+
+// Function to check for the button every 200ms
+function waitForButton() {
+    var button = document.getElementById('CHTFS');
+    if (button) {
+        console.log('Button is ready');
+        button.addEventListener('click', ConfirmitHelper.triggerForstaSurvey);
+    } else {
+        console.log('not here yet');
+        setTimeout(waitForButton, 200); // Check again after 200ms
+    }
+}
+
+// Start checking for the button
+waitForButton();
+
+console.log('test page code loaded.')
+
+
+
+// Function to check for the button every 200ms
+function waitForFBButton1() {
+    var button = document.getElementById('cf-fbt-btn');
+    if (button) {
+        console.log('Button is ready');
+        button.addEventListener('click', ConfirmitHelper.fbdoToggle2);
+    } else {
+        //console.log('not here yet');
+        setTimeout(waitForFBButton1, 200); // Check again after 200ms
+    }
+}
+
+// Function to check for the button every 200ms
+function waitForFBButton2() {
+    var button = document.getElementById('cf-cls-btn');
+    if (button) {
+        console.log('Button is ready');
+        button.addEventListener('click', ConfirmitHelper.fbdoToggle2);
+    } else {
+        //console.log('not here yet');
+        setTimeout(waitForFBButton2, 200); // Check again after 200ms
+    }
+}
+
+
+// Start checking for the button
+waitForFBButton1();
+waitForFBButton2();
+
+}
+else
+{
+ console.log( 'not adding test elements' )
+}
+};

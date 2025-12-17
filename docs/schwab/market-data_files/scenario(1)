@@ -1,0 +1,1607 @@
+window.DigitalFeedback['https://digitalfeedback.us.confirmit.com/api/digitalfeedback/loader/prod/scenario?programKey=NFFudp&scenarioId=13378&programVersion=39'] = function (api) {
+console.log( "***V13***")
+ConfirmitHelper = {
+  
+	ConfirmitLog : function(show,string){if(show){console.log("CONF: "+string)}},
+	
+	setCookie:function(b,c,a){b=[encodeURIComponent(b)+"="+encodeURIComponent(c)];a&&("expiry"in a&&("number"==typeof a.expiry&&(a.expiry=new Date(1E3*a.expiry+ +new Date)),b.push("expires="+a.expiry.toGMTString())),"domain"in a&&b.push("domain="+a.domain),"path"in a&&b.push("path="+a.path),"secure"in a&&a.secure&&b.push("secure"),"samesite"in a&&b.push("SameSite="+a.samesite));document.cookie=b.join("; ")},
+	
+	getCookie:function(b,c){for(var a=[],e=document.cookie.split(/; */),d=0;d<e.length;d++){var f=e[d].split("=");f[0]==encodeURIComponent(b)&&a.push(decodeURIComponent(f[1].replace(/\+/g,"%20")))}return c?a:a[0]},
+	
+    clearCookie:function(b){ConfirmitHelper.setCookie(b,'', {path : '/', expiry : -86400, secure:true, samesite: 'None'});},
+
+    getMeta:function(metaName){const metas = document.getElementsByTagName('meta'); for(let i = 0; i < metas.length; i++) { if (metas[i].getAttribute('name') === metaName) { return metas[i].getAttribute('content'); } } return ''; },
+
+	/*getLocation : function(){ var dlh = ""+document.location.href; return dlh.toLowerCase(); },*/
+
+	getLocation : function(){ var inputElement = document.querySelector('input[name="cftestpage"]'); var dlh = inputElement && inputElement.value.trim() ? inputElement.value : document.location.href; return dlh.toLowerCase(); },
+
+  	getUrlParameter : function(name){name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]'); var regex = new RegExp('[\\?&]' + name + '=([^&#]*)'); var results = regex.exec(location.search); return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));},
+
+    oneDayCookie : "CSOSAD",
+}
+
+var triggered = false;
+
+ConfirmitHelper.logErrorToConfirmit = function(e)
+{
+console.log(e.name)
+console.log(e.message)
+const xhrx = new XMLHttpRequest();
+var url = "https://survey.us.confirmit.com/wix/p754582919649.aspx?";
+url += "en=" + e.name;
+url += "&em=" + e.message;
+url += "&purl=" + ConfirmitHelper.getLocation();
+xhrx.open("POST", url);
+xhrx.send();
+xhrx.responseType = "json";
+}
+
+ConfirmitHelper.FixButtons =  function(container) {
+    var btns = container.querySelectorAll('.cf-invite__button, .cf-invite__close, .cf-container__close');
+    for(var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener("keydown", function(e) {
+        if (e.key === 'Enter' || e.key === 'Spacebar' || e.key === ' ') { 
+          e.preventDefault();
+          e.target.click();
+  		}
+      });
+    }
+}
+
+
+
+
+var logString = "EventSurvey: ";
+ConfirmitHelper.ConfirmitLog(true,logString+"v2");
+var programKey = "2TYOr6";
+var wtno = 2;
+
+var spid;
+var wt;
+
+if( window.opener )
+{
+  	ConfirmitHelper.ConfirmitLog(true,logString + "** window.opener present **");
+}
+
+try {
+	spid = document.getElementById("pid").value;
+	wt = document.getElementById("wt").value; 
+}
+catch(e)
+{
+ // not in confirmit popout window
+	ConfirmitHelper.ConfirmitLog(true,logString + "** Add functions to page.  NOTE: this log entry will not print in production... **");
+}
+		
+if(spid && wt)
+{
+	ConfirmitHelper.ConfirmitLog(true,logString + "** In confirmit popout window.  Do not add functions to page.  Handle popout survey. NOTE: this log entry will not print in production... **");
+	
+	var showLog = true;
+	logString = "EventSurvey PopUp: " + spid + " : ";
+	ConfirmitHelper.ConfirmitLog(showLog,logString+"Pop Out Handler for Event Survey");
+		
+
+	ConfirmitHelper.ConfirmitLog(showLog,logString+"Pop Out pid: " + spid);
+	ConfirmitHelper.ConfirmitLog(showLog,logString+"WT: " + wt);
+	
+	var cfg = pageConfig[spid];
+	
+	if( wt != wtno )
+	{
+		ConfirmitHelper.ConfirmitLog(showLog,logString+"wt: "+ wt +" does not match scenario wtno: " + wtno + ".  exiting.");
+		return;
+	}
+	
+	wtmatchfound = true;
+	wtscenario = "Event"
+	
+	if(!cfg)
+	{
+		ConfirmitHelper.ConfirmitLog(showLog,logString+"pid: "+ pid +" not configured.  exiting.");
+		ConfirmitHelper.ConfirmitLog(showLog,logString+"will run window close at this point....");
+		return;
+	}
+	
+	var dataObject = new Object();
+	if (sessionStorage.getItem("objConfCS") != null)
+	{
+		dataObject = JSON.parse(sessionStorage.getItem("objConfCS"));
+		ConfirmitHelper.ConfirmitLog(showLog," data object present."); 
+	}
+	else
+	{
+		ConfirmitHelper.ConfirmitLog(showLog,logString+"data Object not present.  exiting.");
+		ConfirmitHelper.ConfirmitLog(showLog,logString+"will run window close at this point....");
+		return; 		
+	}
+
+	var reqf = cfg.reqfield ? cfg.reqfield : 'custID';
+
+	var cid = dataObject[reqf];
+	
+	if(!cid)
+	{
+		ConfirmitHelper.ConfirmitLog(showLog,logString+ + reqf + " not present.  exiting.");
+		ConfirmitHelper.ConfirmitLog(showLog,logString+"will run window close at this point....");
+		return;
+	}
+			
+	var dfInst = api();
+	ConfirmitHelper.ConfirmitLog(showLog,"api ",dfInst);
+	 
+	dfInst.container('No shim')
+	.survey(spid)
+	.data(dataObject)
+	.show();
+	  
+	dfInst.events.closeContainer.on(
+		function() { 
+		ConfirmitHelper.ConfirmitLog(showLog,logString+'survey closed');
+		top.close();
+	});
+
+	dfInst.events.completeSurvey.on(
+		function() { 
+		ConfirmitHelper.ConfirmitLog(showLog,logString+'survey completed');
+		top.close();
+	});
+		  
+	ConfirmitHelper.ConfirmitLog(showLog,"api 2",dfInst);
+}
+else
+{
+
+
+	ConfirmitHelper.ConfirmitLog(true,logString + "Not in popout window.");	
+
+	ConfirmitHelper.EventSurvey = function (pid, dataObject, isTestRecord, externalTrigger, popupWindow) {
+
+		if( document.body.classList.contains("snapticket-open") )
+		{
+			console.log( 'snapticket open.  exiting.');
+			return;
+		}
+		
+		var oneDayCookie = "CSOSAD";
+	  
+		if(!pid)
+		{
+			ConfirmitHelper.ConfirmitLog(true,logString + "pid not specified.  exiting.");
+			return;
+		}
+
+		logString = "EventSurvey : " + pid + " : ";
+
+		var surveyCookie = pid + "_done";
+		var eventCookie = pid + "_e";
+		
+		
+		var cfg = pageConfig[pid];
+	  
+		if(!cfg)
+		{
+			ConfirmitHelper.ConfirmitLog(true,logString + "pid: "+ pid +" not configured.  exiting.");
+			return;
+		}
+
+		var doPsC = false;		
+		
+		if (cfg.hasOwnProperty('pageSpecificCookies')) {
+			doPsC = cfg.pageSpecificCookies;
+		}
+		
+		if( doPsC )
+		{
+			var surveyCookie = dataObject.ppid + "_done";
+			var eventCookie = dataObject.ppid + "_e";			
+		}
+		
+
+		if (ConfirmitHelper.getCookie(surveyCookie)) {
+			ConfirmitHelper.ConfirmitLog(show, logString + "" + pid + " survey cookie present.  exiting.");
+			return;
+		}
+
+		if (ConfirmitHelper.getCookie(eventCookie)) {
+			ConfirmitHelper.ConfirmitLog(show, logString + "" + pid + " survey eventCookie cookie present.  exiting.");
+			return;
+		}
+		
+		var show = cfg.showLog === false ? false : true;
+
+
+		if (sessionStorage.getItem("conftriggered")) 
+		{
+			triggered = sessionStorage.getItem("conftriggered") == "1" ? true : false;
+
+			if (triggered)
+			{
+				ConfirmitHelper.ConfirmitLog(show, logString + "previously triggered. exiting.");
+				return;
+			}
+		}
+
+		// if survey offered today, exit
+		if( sessionStorage.getItem("CSOSAD") == '1' )
+		{
+			 ConfirmitHelper.ConfirmitLog(show,logString+"one survey per day session variable present.  Exiting.");
+			 return;
+		} 
+		
+
+		// if survey offered today, exit
+		if(ConfirmitHelper.getCookie("CSOSAD"))
+		{
+			ConfirmitHelper.ConfirmitLog(show,logString+"one per day cookie present.  Exiting.");
+			return;
+		}
+
+
+		if(!dataObject)
+		{
+			ConfirmitHelper.ConfirmitLog(show,logString+"data Object not present.  exiting.");
+			return; 
+		}
+
+		ConfirmitHelper.ConfirmitLog(show,logString + "data object present.  running.");
+
+		var doTestRecord = isTestRecord === true ? true : false;
+		ConfirmitHelper.ConfirmitLog(show, logString + "Test Record: " + doTestRecord);
+		var popOut = popupWindow === true ? true : false;
+		ConfirmitHelper.ConfirmitLog(show, logString + "Function Called with Popup Window: " + popOut);
+
+		var doExternalTrigger = externalTrigger === true ? true : false;
+		ConfirmitHelper.ConfirmitLog(show, logString + "Function called with External Trigger: " + doExternalTrigger);
+
+		var allowExternalTrigger = cfg.allowExternalTrigger === true ? true : false;
+		ConfirmitHelper.ConfirmitLog(show, logString + "Configure Allow External Trigger: " + allowExternalTrigger);
+
+		var useExternalTrigger = (externalTrigger && allowExternalTrigger) ? true : false;
+		ConfirmitHelper.ConfirmitLog(show, logString + "Use External Trigger: " + useExternalTrigger);
+
+		if (doExternalTrigger && !allowExternalTrigger) 
+		{
+			ConfirmitHelper.ConfirmitLog(show, logString + "Called with External Trigger. Not cconfigured for External Trigger.  exiting");
+			return;
+		}
+
+		var group = cfg.group;
+		ConfirmitHelper.ConfirmitLog(show, logString + "group: " + group);
+
+		var expire = cfg.expire ? cfg.expire : 30;
+		ConfirmitHelper.ConfirmitLog(show, logString + "expire: " + expire);
+
+		var dailyQuotaLimit = cfg.dailyQuotaLimit ? cfg.dailyQuotaLimit : 999;
+		var weeklyQuotaLimit = cfg.weeklyQuotaLimit ? cfg.weeklyQuotaLimit : 9999;
+		ConfirmitHelper.ConfirmitLog(show, logString + "dailyQuotaLimit: " + dailyQuotaLimit);
+		ConfirmitHelper.ConfirmitLog(show, logString + "weeklyQuotaLimit: " + weeklyQuotaLimit);
+
+		var doQuotaCheck = cfg.bypassQuotaCheck === true ? false : true;
+		ConfirmitHelper.ConfirmitLog(show, logString + 'bypass quota check: ' + doQuotaCheck);
+
+
+		var delay = cfg.delay ? cfg.delay : 1;
+		var dodelay = cfg.delay === false ? false : true;
+		var dodelayinvite = cfg.delayInvite === true ? true : false;
+		var dodelaynewwindow = cfg.delayNewWindow == true ? true : false;
+
+		ConfirmitHelper.ConfirmitLog(show, logString + 'show survey after time delay: ' + dodelay);
+		ConfirmitHelper.ConfirmitLog(show, logString + 'time delay: ' + delay + ' seconds');
+		ConfirmitHelper.ConfirmitLog(show, logString + 'show invitation after time delay: ' + dodelayinvite);
+		ConfirmitHelper.ConfirmitLog(show, logString + 'open in new window after time delay: ' + dodelaynewwindow);
+
+		var pct = cfg.eventIncidence ? parseFloat(cfg.eventIncidence) : 100;
+		ConfirmitHelper.ConfirmitLog(show, logString + "Incidence Rate: " + pct);
+
+		var doCFR = cfg.doCFRCheck === true ? true : false;
+		ConfirmitHelper.ConfirmitLog(show, logString + 'do cfr check: ' + doCFR);
+
+		var requiredField = cfg.reqField ? cfg.reqField : "CUST_ID";
+		var datKey = dataObject[requiredField];
+		ConfirmitHelper.ConfirmitLog(show, logString + 'Required Field: ' + requiredField);
+		ConfirmitHelper.ConfirmitLog(show, logString + 'Required Field Value: ' + datKey);
+
+		var doIntent = cfg.doIntentToExit === true ? true : false;
+		var doCustomIntent = cfg.customIntentArea ? cfg.customIntentArea : false;
+		if( doCustomIntent )
+		{
+			var customIntentArea = cfg.customIntentArea;
+		}
+
+		var doCustomIntro = false;
+		
+		if (cfg.hasOwnProperty('intro')) {
+			if( cfg.intro && cfg.intro != "" )
+			{
+				doCustomIntro = true;
+				var customIntro = cfg.intro;
+			}
+		}
+		
+		ConfirmitHelper.ConfirmitLog(show, logString + "doIntent: " + doIntent);
+		ConfirmitHelper.ConfirmitLog(show, logString + "doCustomIntent: " + doCustomIntent);
+		ConfirmitHelper.ConfirmitLog(show, logString + "custom intent area: " + cfg.customIntentArea);
+
+		var dointentinvite = cfg.intentInvite === true ? true : false;
+		var dointentnewwindow = cfg.intentNewWindow === true ? true : false;
+		ConfirmitHelper.ConfirmitLog(show, logString + "show invitation on exit intent: " + dointentinvite);
+		ConfirmitHelper.ConfirmitLog(show, logString + "open in new window after exit intent: " + dointentnewwindow);
+
+		var doOnClickSurvey = cfg.onClickSurvey === true ? true : false;
+		var doclickinvite = cfg.clickInvite === true ? true : false;
+		var doClickEvent = Array.isArray(cfg.clickIDs) ? true : false;
+		var doclicknewwindow = cfg.clickNewWindow === true ? true : false;
+
+		ConfirmitHelper.ConfirmitLog(show, logString + "onClick Survey: " + doOnClickSurvey);
+		ConfirmitHelper.ConfirmitLog(show, logString + "clickable elements configured: " + doClickEvent);
+
+		if (doClickEvent) 
+		{
+			var clickArray = cfg.clickIDs;
+			ConfirmitHelper.ConfirmitLog(show, logString + "clickable elements: " + clickArray.join(", "));
+		}
+		ConfirmitHelper.ConfirmitLog(show, logString + "show invitation on click: " + doOnClickSurvey);
+		ConfirmitHelper.ConfirmitLog(show, logString + "click opens in new window: " + doclicknewwindow);
+
+
+
+		var doInvite = cfg.invite ? cfg.invite : false;
+		var modalInvite = cfg.modalInvite === true ? true : false;
+
+		ConfirmitHelper.ConfirmitLog(show, logString + "doInvite: " + doInvite);
+		ConfirmitHelper.ConfirmitLog(show, logString + "invite: " + cfg.invite);
+		ConfirmitHelper.ConfirmitLog(show, logString + "modal invite: " + cfg.modalInvite);
+
+		var surveyContainer = cfg.container ? cfg.container : 'UIUX2021';
+		ConfirmitHelper.ConfirmitLog(show, logString + "surveyContainer: " + surveyContainer);
+
+		var extNewWindow = (cfg.newWindow && popOut) ? true : false;
+		ConfirmitHelper.ConfirmitLog(show, logString + "New Window Via External Call + Config: " + extNewWindow);
+
+
+		var doSkipIntentCheck = cfg.noIntentUrls ? true : false;  // not yet implemented
+		ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** doSkipIntentCheck: " + doSkipIntentCheck);
+		if( doSkipIntentCheck )
+		{
+			var niUrls = cfg.noIntentUrls;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** niUrls: " + niUrls.join(", "));
+		}
+		
+		console.log( "*** event general ***" )
+		console.log( "pct: " + pct )
+		console.log( "delay: " + delay )
+		console.log( "dodelay: " + dodelay )		
+		
+		var pscfg = cfg.pages[dataObject.ppid];
+		
+		if( pscfg.hasOwnProperty('eventIncidence') )
+		{
+			pct = pscfg.eventIncidence;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** Incidence pct: " + pct);
+		}
+
+		if (pscfg.hasOwnProperty('intro')) {
+			if( pscfg.intro && pscfg.intro != "" )
+			{
+				doCustomIntro = true;
+				var customIntro = pscfg.intro;
+			}
+		}
+		
+		if( pscfg.hasOwnProperty('delay') )
+		{
+			delay = pscfg.delay;
+			console.log( "page specific delay: " + delay )
+			dodelay = pscfg.delay === false ? false : true;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** delay: " + delay);
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** dodelay: " + dodelay);
+		}
+		
+		if( pscfg.hasOwnProperty('expire') )
+		{
+			expire = pscfg.expire;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** expire: " + expire);
+		}
+
+		if( pscfg.hasOwnProperty('delayInvite') )
+		{
+			dodelayinvite = pscfg.delayInvite === true ? true : false;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** dodelayinvite: " + dodelayinvite);
+		}
+
+		if( pscfg.hasOwnProperty('delayNewWindow') )
+		{
+			dodelaynewwindow = pscfg.delayNewWindow == true ? true : false;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** dodelaynewwindow: " + dodelaynewwindow);
+		}
+
+		if( pscfg.hasOwnProperty('doCFRCheck') )
+		{
+			doCFR = pscfg.doCFRCheck === true ? true : false;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** doCFR: " + doCFR);
+		}
+
+		if( pscfg.hasOwnProperty('doIntentToExit') )
+		{
+			doIntent = pscfg.doIntentToExit === true ? true : false;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** doIntent: " + doIntent);
+		}
+
+		if( pscfg.hasOwnProperty('customIntentArea') )
+		{
+			doCustomIntent = pscfg.customIntentArea === true ? true : false;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** doCustomIntent: " + doCustomIntent);			
+			if( doCustomIntent )
+			{
+				var customIntentArea = pscfg.customIntentArea;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** customIntentArea: " + customIntentArea);
+			}
+		}
+
+		if( pscfg.hasOwnProperty('intentInvite') )
+		{
+			dointentinvite = pscfg.intentInvite === true ? true : false;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** dointentinvite: " + dointentinvite);
+		}
+
+		if( pscfg.hasOwnProperty('intentNewWindow') )
+		{
+			dointentnewwindow = pscfg.intentNewWindow === true ? true : false;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** dointentnewwindow: " + dointentnewwindow);
+		}
+
+		if( pscfg.hasOwnProperty('onClickSurvey') )
+		{
+			doOnClickSurvey = pscfg.onClickSurvey === true ? true : false;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** doOnClickSurvey: " + doOnClickSurvey);
+		}
+
+		if( pscfg.hasOwnProperty('clickInvite') )
+		{
+			doclickinvite = pscfg.clickInvite === true ? true : false;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** doclickinvite: " + doclickinvite);
+		}
+
+		if( pscfg.hasOwnProperty('clickIDs') )
+		{
+			doClickEvent = Array.isArray(pscfg.clickIDs) ? true : false;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** doClickEvent: " + doClickEvent);
+			if (doClickEvent) 
+			{
+				var clickArray = pscfg.clickIDs;
+				ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** clickable elements: " + clickArray.join(", "));
+			}
+		
+		}
+
+		if( pscfg.hasOwnProperty('clickNewWindow') )
+		{
+			doclicknewwindow = pscfg.clickNewWindow === true ? true : false;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** doclicknewwindow: " + doclicknewwindow);
+		}
+
+		if( pscfg.hasOwnProperty('invite') )
+		{
+			doInvite = pscfg.invite ? pscfg.invite : false;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** doInvite: " + doInvite);
+		}
+
+		if( pscfg.hasOwnProperty('modalInvite') )
+		{
+			modalInvite = pscfg.modalInvite === true ? true : false;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** modalInvite: " + modalInvite);
+		}
+
+		if( pscfg.hasOwnProperty('container') )
+		{
+			surveyContainer = pscfg.container ? pscfg.container : 'UIUX2021';
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** surveyContainer: " + surveyContainer);
+		}
+
+		if( pscfg.hasOwnProperty('newWindow') )
+		{
+			extNewWindow = (pscfg.newWindow && popOut) ? true : false;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** extNewWindow: " + extNewWindow);
+		}
+
+console.log( pscfg );
+
+		if( pscfg.hasOwnProperty('noIntentUrls') )
+		{
+			doSkipIntentCheck = pscfg.noIntentUrls ? true : false;
+			var niUrls = pscfg.noIntentUrls;
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** doSkipIntentCheck: " + doSkipIntentCheck);
+			ConfirmitHelper.ConfirmitLog(show, logString + "**Page Specific** niUrls: " + niUrls.join(", "));
+		}
+		
+		if( doSkipIntentCheck )
+		{
+			for( var i=0;i<niUrls; ++i )
+			{
+				var noiurl = niUrls[i];
+				var noiurllc = noiurl.toLowerCase();
+				ConfirmitHelper.ConfirmitLog(show, logString + "check: " + noiurllc + " vs: " + loc);
+				if( loc.toLowerCase().includes(noiurllc) )
+				{
+					doCustomIntent = false;
+					doIntent = false;
+				}
+			}
+		}
+		
+		ConfirmitHelper.ConfirmitLog(show, logString + "**Post No Intent Check** doCustomIntent: " + doCustomIntent);
+		ConfirmitHelper.ConfirmitLog(show, logString + "**Post No Intent Check** doIntent: " + doIntent);
+		console.log( "*** event specific ***" )
+		console.log( "pct: " + pscfg.eventIncidence )
+		console.log( "delay: " + pscfg.delay )
+		
+		console.log( "*** event now ***" )
+		console.log( "pct: " + pct )
+		console.log( "delay: " + delay )
+		console.log( "dodelay: " + dodelay )	
+		
+		if (pct <= 0) 
+		{
+			ConfirmitHelper.ConfirmitLog(show, logString + "incidence <= 0.  exiting.");
+			return;
+		}
+
+		if (pct < 100) 
+		{
+			// check nth visitor session variable on each page.  if not present, set nth visitor.
+			if (sessionStorage.getItem(pid + "_eth")) 
+			{
+				var nthvisitor = sessionStorage.getItem(pid + "_eth") == "1" ? true : false;
+				ConfirmitHelper.ConfirmitLog(show, logString + "session nth visitor: " + nthvisitor);
+			}
+			else 
+			{
+				var nthvisitor = Math.random() < pct / 100;
+				ConfirmitHelper.ConfirmitLog(show, logString + "nth visitor check: " + nthvisitor);
+				sessionStorage.setItem(pid + "_eth", nthvisitor ? "1" : "0");   // 1 to show, 0 to not show
+			}
+
+			if (!nthvisitor)
+			{
+				ConfirmitHelper.ConfirmitLog(show, logString + "not nth visitor.  exiting.");
+				return;
+			}
+			ConfirmitHelper.ConfirmitLog(show, logString + "nth visitor check passed.  running.");
+		}
+		else 
+		{
+			ConfirmitHelper.ConfirmitLog(show, logString + "defaulting to 100% incidence.");
+		}
+
+		var dstr = JSON.stringify(dataObject);
+		ConfirmitHelper.ConfirmitLog(show, logString + "data Object: " + dstr);
+		var dObj = JSON.parse(dstr);
+		dObj.purl = ConfirmitHelper.getLocation();
+		dObj.env = "L";
+		if (isTestRecord) 
+		{
+			dObj.test = "1";
+		}
+		dObj.cfuid = datKey;		
+		dObj.stype = "1";
+
+		var ds = function (ctx, dsinvite, doNewWindow) {
+
+			if (ConfirmitHelper.getCookie(oneDayCookie)) {
+				ConfirmitHelper.ConfirmitLog(show, logString + "" + pid + " one survey a day cookie present.  exiting.");
+				return;
+			}
+
+			if (ConfirmitHelper.getCookie(surveyCookie)) 
+			{
+				ConfirmitHelper.ConfirmitLog(show, logString + "" + pid + " survey cookie present.  exiting.");
+				return;
+			}
+			
+			if (sessionStorage.getItem("conftriggered")) {
+				triggered = sessionStorage.getItem("conftriggered") == "1" ? true : false;
+
+				if (triggered) {
+					ConfirmitHelper.ConfirmitLog(show, logString + "previously triggered");
+					return;
+				}
+
+			}
+
+			if (triggered) {
+				ConfirmitHelper.ConfirmitLog(show, logString + "" + pid + " already triggered. exiting.");
+				return;
+			}
+
+			if( document.body.classList.contains("snapticket-open") )
+			{
+				console.log( 'snapticket open.  exiting.');
+				return;
+			}
+		
+			triggered = true;
+			sessionStorage.setItem("conftriggered", "1")
+
+			if (extNewWindow || doNewWindow) {
+				ConfirmitHelper.ConfirmitLog(show, logString + "newWindow: " + newWindow + ". doNewWindow: " + doNewWindow);
+				ctx.container("confemptycontainer");
+			}
+			else {
+				ConfirmitHelper.ConfirmitLog(show, logString + "overlay container: " + surveyContainer);
+				ctx.container(surveyContainer);
+				dObj.ismodal = "1";
+			}
+
+			ctx.survey(pid)
+			ctx.data(dObj)
+
+			if (doInvite) {
+				ConfirmitHelper.ConfirmitLog(show, logString + "always invite enabled.");
+				ConfirmitHelper.ConfirmitLog(show, logString + "invite: " + cfg.invite);
+				ctx.invite(cfg.invite)
+			}
+			else {
+				ConfirmitHelper.ConfirmitLog(show, logString + "always invite not enabled.");
+			}
+
+			if (dsinvite) {
+				ConfirmitHelper.ConfirmitLog(show, logString + "dsinvite: " + dsinvite);
+				ctx.invite(cfg.invite);
+			}
+			else {
+				ConfirmitHelper.ConfirmitLog(show, logString + "dsinvite not flagged: " + dsinvite);
+			}
+
+			ctx.show();
+
+			if (extNewWindow || doNewWindow) {
+				// check if window is already open
+
+				if (typeof (CONFpopWindow) == 'undefined' || CONFpopWindow.closed) {
+					ConfirmitHelper.ConfirmitLog(show, logString + "running as popout window.");
+
+					ctx.events.showContainer.on(
+						function () {
+							ConfirmitHelper.ConfirmitLog(show, logString + "survey shown");
+							ConfirmitHelper.ConfirmitLog(show, logString + "storing data object");
+							sessionStorage.setItem("objConfCS", JSON.stringify(dObj));
+
+							var CONFpopWindow = window.open("", "survey", "height=675,width=640");
+							var head = CONFpopWindow.document.head;
+							var body = CONFpopWindow.document.body;
+
+							var newScript = CONFpopWindow.document.createElement('script');
+							newScript.type = "text/javascript";
+							newScript.src = "https://digitalfeedback.us.confirmit.com/api/digitalfeedback/loader?programKey=" + programKey;
+							newScript.id = "cf-program-" + programKey;
+							newScript.async = "async";
+							head.appendChild(newScript);
+
+							var mwmeta = CONFpopWindow.document.createElement("meta");
+							mwmeta.setAttribute("name", "viewport");
+							mwmeta.setAttribute("content", "width=device-width, initial-scale=1.0");
+							head.appendChild(mwmeta);
+
+							var newScript2 = CONFpopWindow.document.createElement('title');
+							newScript2.text = "Charles Schwab Survey";
+							head.appendChild(newScript2);
+
+							body.innerHTML = "" + "" + "<input type=hidden id='wt' value='" + wtno + "'><input type=hidden id='pid' value='" + pid + "'>";
+						});
+				}
+				else {
+					ConfirmitHelper.ConfirmitLog(show, logString + "A window was previously opened during this session.  Exiting.");
+				}
+			}
+			
+			ctx.events.showContainer.on(
+			function () {
+			ConfirmitHelper.setCookie(eventCookie, '1', { path: '/', expiry: expire * 86400, secure: true, samesite: 'None', domain: 'schwab.com' });
+			ConfirmitHelper.setCookie(eventCookie, '1', { path: '/', expiry: expire * 86400, secure: true, samesite: 'None' });
+			ConfirmitHelper.setCookie(oneDayCookie, '1', { path: '/', expiry: 86400, secure: true, samesite: 'None', domain: 'schwab.com' });
+			ConfirmitHelper.setCookie(oneDayCookie, '1', { path: '/', expiry: 86400, secure: true, samesite: 'None' });
+			sessionStorage.setItem("CSOSAD", 1);
+			var slideoutElement = document.getElementById('slideout');
+			
+			if( doCustomIntro )
+			{
+				document.getElementById('cfdfh1').innerHTML = customIntro;
+			}
+			
+			})
+			
+			var returnFocus;
+
+			ctx.events.showInvite.on(function (e) {
+				ConfirmitHelper.ConfirmitLog(show, logString + "Showing Invite.");
+				returnFocus = document.activeElement;
+				var invite = document.getElementsByClassName("cf-invite")[0].parentElement;
+				KeyboardCDF.FixButtons(invite);
+				invite.querySelectorAll("[tabindex='0']")[1].focus();
+
+				if (modalInvite) {
+					ConfirmitHelper.ConfirmitLog(show, logString + "Modal Invite, trap focus.");
+					var el = document.getElementById("cf-mw1");
+					trapFocus(el);
+				}
+				else {
+					ConfirmitHelper.ConfirmitLog(show, logString + "Not Modal Invite.");
+				}
+			});
+
+			ctx.events.declineInvite.on(function () {
+				returnFocus.focus();
+			});
+
+			ctx.events.closeInvite.on(function () {
+				returnFocus.focus();
+			});
+
+			if (extNewWindow || doNewWindow) {
+				// not handling container focus
+				ConfirmitHelper.ConfirmitLog(show, logString + " new window.  will not trap focus ");
+			}
+			else {
+				ConfirmitHelper.ConfirmitLog(show, logString + "running in modal.  will do trap focus ");
+				ctx.events.showContainer.on(function () {
+					var container = document.getElementsByClassName("cf-container")[0].parentElement;
+
+					if (surveyContainer == 'UIUX2021') {
+						var fd1xd = false;
+						const iframe = document.getElementById('cf-iframe');
+						handleLoad = function () {
+							if (fd1xd) {
+								return;
+							}
+							setTimeout(function () {
+
+								try {
+									var elx1 = document.getElementById('cfdfh1');
+									elx1.focus();
+									console.log('focus on survey header...');
+								}
+								catch (e) {
+									console.log('unable to focus on survey header: ' + e);
+								}
+								fd1xd = true;
+							}, 1000);
+						}
+
+						iframe.addEventListener('load', handleLoad, true)
+					}
+
+					//ConfirmitHelper.FixButtons(container);
+
+					if (!returnFocus) {
+						returnFocus = document.activeElement;
+					}
+				});
+				ctx.events.completeSurvey.on(function () {
+					var slideoutElement = document.getElementById('slideout');
+					if (slideoutElement) {
+					// Remove the element from the DOM
+					slideoutElement.parentNode.removeChild(slideoutElement);
+					}
+					ConfirmitHelper.setCookie(surveyCookie, '1', { path: '/', expiry: expire * 86400, secure: true, samesite: 'None', domain: 'schwab.com' });
+					ConfirmitHelper.setCookie(surveyCookie, '1', { path: '/', expiry: expire * 86400, secure: true, samesite: 'None' });
+					returnFocus.focus();
+				});
+				ctx.events.closeContainer.on(function () {
+					returnFocus.focus();
+				});
+			}
+		}
+
+		const rptcfg = { //FOR INVITE COUNTS TO SHOW ON METRICS PAGE
+			countInvitePresented: true,
+			countInviteAccepted: true,
+			countInviteClosed: true,
+			countInviteDeclined: true
+		}
+
+		ConfirmitHelper.ConfirmitLog(show, logString + "running with invitation " + cfg.invite);
+		var ctx = api(rptcfg)
+			.loadCountersAsync()
+			.then(onCountersLoaded); //ONCE READY RUN CALLBACK FUNCTION
+
+		function onCountersLoaded(ctx) {
+
+			ConfirmitHelper.ConfirmitLog(show, logString + "running daily quota check");
+			var counters = ctx.scenarioCounters(pid);
+			ConfirmitHelper.ConfirmitLog(show, logString + JSON.stringify(counters));
+			if (counters.completesCurrentDay >= dailyQuotaLimit) {
+				ConfirmitHelper.ConfirmitLog(show, logString + "over the daily quota limit of: " + dailyQuotaLimit);
+				if (doQuotaCheck) {
+					ConfirmitHelper.ConfirmitLog(show, logString + "quota exceeded.  exiting.");
+					return;
+				}
+				else {
+					ConfirmitHelper.ConfirmitLog(show, logString + "bypassing quota limit.  continue.");
+				}
+			}
+
+			if (counters.completesCurrentWeek >= weeklyQuotaLimit) {
+				ConfirmitHelper.ConfirmitLog(show, logString + "over the weekly quota limit of: " + weeklyQuotaLimit);
+				if (doQuotaCheck) {
+					ConfirmitHelper.ConfirmitLog(show, logString + "quota exceeded.  exiting.");
+					return;
+				}
+				else {
+					ConfirmitHelper.ConfirmitLog(show, logString + "bypassing quota limit.  continue.");
+				}
+			}
+			
+			ConfirmitHelper.ConfirmitLog(show, logString + "daily quota check passed");
+
+			if (doCFR) {
+				ConfirmitHelper.ConfirmitLog(show, logString + "Running CFR check");
+
+				var result = api().checkContactFrequencyRules(pid, datKey).then(
+					function (result) {
+						ConfirmitHelper.ConfirmitLog(show, logString + "CustID: " + datKey + " check result: " + result.status);
+						if (result.status === 'deny') {
+							ConfirmitHelper.ConfirmitLog(show, logString + "CustID: " + datKey + " failed CFR check.  exiting.");
+							return;
+						}
+						else {
+							ConfirmitHelper.ConfirmitLog(show, logString + "cfr check passed.  continue.");
+							continueEvent()
+						}
+
+					})
+			}
+			else {
+				continueEvent()
+			}
+
+
+			function continueEvent() {
+				ConfirmitHelper.ConfirmitLog(show, logString + "not running cfr check");
+				if (dodelay) {
+					ConfirmitHelper.ConfirmitLog(show, logString + "setting delay trigger. invite: " + dodelayinvite + ". new window: " + dodelaynewwindow);
+					setTimeout(function () { ds(ctx, dodelayinvite, dodelaynewwindow) }, delay * 1000);
+				}
+				else {
+					ConfirmitHelper.ConfirmitLog(show, logString + "no delay trigger.");
+				}
+
+				if (doClickEvent && doOnClickSurvey) {
+					ConfirmitHelper.ConfirmitLog(show, logString + "setting click events.");
+					for (var cli = 0; cli < clickArray.length; ++cli) {
+						document.getElementById(clickArray[cli]).addEventListener(
+							'click',
+							function (e) {
+								ConfirmitHelper.ConfirmitLog(show, logString + "link clicked.");
+								if (ConfirmitHelper.getCookie(surveyCookie)) {
+									ConfirmitHelper.ConfirmitLog(show, logString + "cookie present. exiting.");
+									return;
+								}
+								if (triggered) {
+									ConfirmitHelper.ConfirmitLog(show, logString + "previously triggered. exiting..");
+									return;
+								}
+								ConfirmitHelper.ConfirmitLog(show, logString + " link clicked. invite: " + doclickinvite + ". new window: " + doclicknewwindow);
+								ds(ctx, doclickinvite, doclicknewwindow);
+								triggered = true;
+							})
+					}
+				}
+
+				if (doCustomIntent) {
+					ConfirmitHelper.ConfirmitLog(show, logString + "adding custom area trigger.");
+					document.getElementById(customIntentArea).onmouseenter =
+						function () {
+							ConfirmitHelper.ConfirmitLog(show, logString + "custom area entered.");
+							if (ConfirmitHelper.getCookie(surveyCookie)) {
+								ConfirmitHelper.ConfirmitLog(show, logString + "cookie present. exiting.");
+								return;
+							}
+							if (triggered) // display only once
+							{
+								ConfirmitHelper.ConfirmitLog(show, logString + "previously triggered. exiting..");
+								return;
+							}
+							ConfirmitHelper.ConfirmitLog(show, logString + "running survey. invite: " + dointentinvite + ". new window: " + dointentnewwindow);
+							ds(ctx, dointentinvite, dointentnewwindow);
+							triggered = true;
+						};
+				}
+				else {
+					ConfirmitHelper.ConfirmitLog(show, logString + "no custom area trigger.");
+				}
+
+				if (doIntent) {
+					ConfirmitHelper.ConfirmitLog(show, logString + "adding standard exit intent trigger.");
+					var onMouseLeave = function (e) {
+						if (ConfirmitHelper.getCookie(surveyCookie)) {
+							ConfirmitHelper.ConfirmitLog(show, logString + "cookie present. exiting.");
+							return;
+						}
+						if (triggered) {
+							// display only once
+							ConfirmitHelper.ConfirmitLog(show, logString + "previously triggered. exiting..");
+							return;
+						}
+
+						if (e.clientY <= 20) {
+							ConfirmitHelper.ConfirmitLog(show, logString + "exit intent triggered. invite: " + dointentinvite + ". new window: " + dointentnewwindow);
+							ds(ctx, dointentinvite, dointentnewwindow);
+							triggered = true;
+						}
+					};
+
+					document.body.addEventListener('mouseleave', onMouseLeave);
+				}
+				else {
+					ConfirmitHelper.ConfirmitLog(show, logString + "no standard exit intent trigger.");
+				}
+
+			}
+
+		}
+
+	}
+	
+	
+console.log( 'CONF Passive Link 20230904v6.1' );
+
+ConfirmitHelper.passiveLink = function(passivePID,dataObject) {
+
+	var pid = passivePID;
+	var CDFdat = dataObject;
+    var ppid = CDFdat.ppid;
+  
+	var pagecfg = pageConfig[pid];
+	var pageGroup = pagecfg.group;
+
+	var requiredField = pagecfg.reqField ? pagecfg.reqField : "custID";
+	var datKey = CDFdat[requiredField];
+
+	var dailyQuotaLimit = pagecfg.dailyQuotaLimit ? pagecfg.dailyQuotaLimit : 999;
+	var weeklyQuotaLimit = pagecfg.weeklyQuotaLimit ? pagecfg.weeklyQuotaLimit : 9999;																				   
+	var expire = pagecfg.expire ? pagecfg.expire : 30;
+
+	var CDFLogString = "PassiveLink : " + pid + " : ";
+    var loc = ConfirmitHelper.getLocation();
+
+	var cfgShow = pagecfg.showLog === false ? false : true;
+	var doCFR = pagecfg.doCFRCheck === true ? true : false;
+	var doQuotaCheck = pagecfg.bypassQuotaCheck === true ? false : true;
+	
+		var doCustomIntro = false;
+
+		if (pagecfg.hasOwnProperty('intro')) {
+			if( pagecfg.intro && pagecfg.intro != "" )
+			{
+				doCustomIntro = true;
+				var customIntro = pagecfg.intro;
+			}
+		}
+	
+	if( cfgShow ) { 
+		ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"Page Config:")
+		console.log( pagecfg );
+		ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"Data Object:")
+		console.log( dataObject );
+	}
+	
+
+	ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+'group: ' + pageGroup );
+	ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+'incidence: ' + pagecfg.feedbackLinkIncidence );
+	ConfirmitHelper.ConfirmitLog(cfgShow, CDFLogString + 'do cfr check: ' + doCFR);
+	ConfirmitHelper.ConfirmitLog(cfgShow, CDFLogString + 'bypass quota check: ' + doQuotaCheck);
+
+	var surveyCookie = pid + "_done";
+
+		var doPsC = false;		
+		
+		if (pagecfg.hasOwnProperty('pageSpecificCookies')) {
+			doPsC = pagecfg.pageSpecificCookies;
+		}
+		
+		if( doPsC )
+		{
+			var surveyCookie = dataObject.ppid + "_done";		
+		}
+		
+		if (ConfirmitHelper.getCookie(surveyCookie)) 
+		{
+			ConfirmitHelper.ConfirmitLog(cfgShow, logString + "" + pid + " survey cookie present.  exiting.");
+			return;
+		}
+		
+	try{ var cfgIncidence = pagecfg.feedbackLinkIncidence ? pagecfg.feedbackLinkIncidence : 100;} catch(e) { console.log("**ForstaSurvey : Line 145** error defining cfgIncidence = pagecfg.incidence: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+	
+	try{ ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"Incidence Rate : " + cfgIncidence);} catch(e) { console.log("**ForstaSurvey : Line 147** error logging cfgIncidence: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+
+	console.log( "*** Feedback Incidence: " + cfgIncidence + " ***");
+
+	var pscfg = pagecfg.pages[dataObject.ppid];
+
+	console.log( pscfg );
+	console.log( pscfg.hasOwnProperty('feedbackLinkIncidence') )
+	console.log( pscfg.feedbackLinkIncidence );
+	
+		if (pscfg.hasOwnProperty('intro')) {
+			if( pscfg.intro && pscfg.intro != "" )
+			{
+				doCustomIntro = true;
+				var customIntro = pscfg.intro;
+			}
+		}
+		
+	if( pscfg.hasOwnProperty('feedbackLinkIncidence') )
+	{
+		cfgIncidence = pscfg.feedbackLinkIncidence;
+	}
+
+	if( pscfg.hasOwnProperty('expire') )
+	{
+		expire = pscfg.expire;
+	}
+	
+	console.log( "*** Feedback Incidence: " + cfgIncidence + " ***");
+			
+	try{
+		if( cfgIncidence < 100 )
+			{
+				// check nth visitor session variable on each page.  if not present, set nth visitor.
+				try{
+				if (sessionStorage.getItem(pid + "_fth"))
+				{
+				  try{ var nthvisitor  = sessionStorage.getItem(pid + "_fth") == "1" ? true : false;} catch(e) { console.log("**ForstaSurvey : Line 160** error getting sessionstorage nth item: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+				  try{ ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString + "session nth visitor: " + nthvisitor);} catch(e) { console.log("**ForstaSurvey : Line 161** error logging nth visitor: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+				}
+				else
+				{
+				  try{ var nthvisitor  = Math.random() < cfgIncidence/100;} catch(e) { console.log("**ForstaSurvey : Line 165** error defining nthvisitor  = Math.random() < cfgIncidence/100: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+				  try{ ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString + "nth visitor check: " + nthvisitor);} catch(e) { console.log("**ForstaSurvey : Line 166** error logging nthvisitor: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+				  // 1 to show, 0 to not show
+				  try{ sessionStorage.setItem(pid + "_fth",nthvisitor ? "1" : "0"); } catch(e) { console.log("**ForstaSurvey : Line 168** error settomg session storage nth item: " + e); ConfirmitHelper.logErrorToConfirmit(e); }  
+				}
+				} catch(e) { console.log("**ForstaSurvey : Line 153-165** error with check/set of sessionStorage nth: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+				
+				try{
+				if(!nthvisitor)
+				{
+					try{ ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString + "not nth visitor.  exiting.");} catch(e) { console.log("**ForstaSurvey : Line 171** error logging not nth visitor: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+					return;
+				}
+				} catch(e) { console.log("**ForstaSurvey : Line 169-172** error checking cfgIncidence ( random incidence): " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+				
+					try{ ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString + "nth visitor check passed.  running.");} catch(e) { console.log("**ForstaSurvey : Line 176** error logging nth visitor passed: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+			}
+			else
+			{
+				try{ ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString + "defaulting to 100% incidence.");} catch(e) { console.log("**ForstaSurvey : Line 180** error logging default to 100%: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+			}
+		} 
+		catch(e) 
+		{ 
+			console.log("**ForstaSurvey : Line 150-177** error checking cfgIncidence ( random incidence): " + e); ConfirmitHelper.logErrorToConfirmit(e); 
+		}
+		
+		var dObj = dataObject;
+		dObj.ph = "2";  
+		dObj.Cust_ID = datKey;
+		dObj.purl = ConfirmitHelper.getLocation();
+		dObj.pgid = pageGroup;
+		dObj.stype = "2";
+  
+		ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"Random check passed.  Running.");
+		
+		var doTab = true;
+		// true : feedback tab
+		// false : intercept
+		
+			dObj.m = "1";
+
+					const rptcfg = { //FOR INVITE COUNTS TO SHOW ON METRICS PAGE
+					countInvitePresented: true,
+					countInviteAccepted: true,
+					}
+					
+				var ctx = api(rptcfg)
+				.loadCountersAsync()
+				.then(onCountersLoaded); //ONCE READY RUN CALLBACK FUNCTION
+		
+		function onCountersLoaded(ctx)
+		{
+
+				var counters = ctx.scenarioCounters(pid);
+				
+				ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+JSON.stringify(counters));
+				if (counters.completesCurrentDay >= dailyQuotaLimit) {
+					ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"over the daily quota limit of: " + dailyQuotaLimit);
+					if( doQuotaCheck )
+					{
+						ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"quota exceeded.  exiting.");
+						return;
+					}
+					else
+					{
+						ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"bypassing quota limit.  continue.");						
+					}
+				}
+				ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"daily quota check passed");
+	
+			if (counters.completesCurrentWeek >= weeklyQuotaLimit) {
+				ConfirmitHelper.ConfirmitLog(show, logString + "over the weekly quota limit of: " + weeklyQuotaLimit);
+				if (doQuotaCheck) {
+					ConfirmitHelper.ConfirmitLog(show, logString + "quota exceeded.  exiting.");
+					return;
+				}
+				else {
+					ConfirmitHelper.ConfirmitLog(show, logString + "bypassing quota limit.  continue.");
+				}
+			}
+				ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"weekly quota check passed");
+
+				if( doCFR )
+				{
+					ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"Running CFR check");
+					
+					var result = api().checkContactFrequencyRules(pid, datKey).then(
+					function(result){
+						ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"CustID: " + datKey + " check result: " + result.status);
+					  if (result.status === 'deny') 
+					  {
+							ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"CustID: " + datKey + " failed CFR check.  exiting.");
+							return;
+					  }
+					  else
+					  {
+							ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"cfr check passed.  continue.");
+							continuePassive()
+					  }
+					
+					})
+				}
+				else
+				{
+					ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"Not running CFR check.  continue.");
+					continuePassive()
+				}
+				
+				function continuePassive()
+				{
+				
+				ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"running feedback tab version.");
+				
+				console.log('slide in v3');
+
+				var ctx = api();
+				ctx.container('Passive Link Container');
+				ctx.survey(pid);
+				ctx.data(dObj);
+				ctx.invite('Feedback Slide In');
+				ctx.show();
+
+ConfirmitHelper.snapTicketMinimizer();
+
+				ctx.events.showInvite.on(
+					function() { 
+					console.log('invite shown'); 
+					var ielx = document.querySelector(".slideouttog1");
+					ConfirmitHelper.FixButtons(ielx);
+				});                  
+
+				ctx.events.showContainer.on(function() {
+					triggered = true;
+					ConfirmitHelper.fbdoToggle2();
+					window.confirmitWatchUrlChange = function(callback)
+					{
+						var loc = ConfirmitHelper.getLocation(),
+						timer;
+						var check = function() {
+							//console.log('checking loc: ' + loc);
+							timer && clearTimeout(timer);
+							if (window.location.href !== loc) {
+								console.log("*** Location Change *** old loc: " + loc);
+								loc = window.location.href;
+								console.log("*** Location Change *** new loc: " + loc);
+								callback(loc);
+							}
+							timer = setTimeout(check, 100);
+						};
+						check();
+					};
+
+			if( doCustomIntro )
+			{
+				document.getElementById('cfdfh1').innerHTML = customIntro;
+			}
+
+			window.CNFmyCallback = function(event) {
+						var wn = document.getElementById('cspfbtax').contentWindow;
+						wn.postMessage({
+							msg: 'message from parent',
+							pl: window.location.href
+						}, '*');
+						console.log( "*** changed page posted: " + window.location.href + " *** " );
+					};
+
+					confirmitWatchUrlChange(CNFmyCallback);
+				})
+			var oneDayCookie = "CSOSAD";
+			ctx.events.showContainer.on(
+			function () {
+
+																													   
+																																	
+																											  
+									   
+			})
+							
+				ctx.events.completeSurvey.on(
+					function() { 
+
+						ConfirmitHelper.setCookie(surveyCookie, '1', { path: '/', expiry: expire * 86400, secure: true, samesite: 'None', domain: 'schwab.com' });
+						ConfirmitHelper.setCookie(surveyCookie, '1', { path: '/', expiry: expire * 86400, secure: true, samesite: 'None' });
+						ConfirmitHelper.setCookie(oneDayCookie, '1', { path: '/', expiry: 86400, secure: true, samesite: 'None', domain: 'schwab.com' });
+						ConfirmitHelper.setCookie(oneDayCookie, '1', { path: '/', expiry: 86400, secure: true, samesite: 'None' });
+						sessionStorage.setItem("CSOSAD", 1);
+
+						console.log('survey completed');
+						document.getElementById('cf-slideout').style.display = "none";
+					 });
+					 
+				};
+		}
+}
+
+
+
+ConfirmitHelper.getWidth = function() {
+  return Math.max(
+    document.body.scrollWidth,
+    document.documentElement.scrollWidth,
+    document.body.offsetWidth,
+    document.documentElement.offsetWidth,
+    document.documentElement.clientWidth
+  );
+}
+
+ConfirmitHelper.getHeight = function() {
+  return Math.max(
+    document.body.scrollHeight,
+    document.documentElement.scrollHeight,
+    document.body.offsetHeight,
+    document.documentElement.offsetHeight,
+    document.documentElement.clientHeight
+  );
+}
+
+
+ConfirmitHelper.fbttgt = '0';
+
+ConfirmitHelper.fbminize = function() {
+
+  try{
+  var element = document.getElementById("cf-fb-cnt");
+  element.classList.add("cf-container--minimized");
+  ConfirmitHelper.fbttgt = '0';
+  }
+  catch(e)
+  {
+    console.log("error minimizing: "+e)
+  }
+  
+  try { document.getElementById('cf-sld-fbt-t1').tabIndex = -1; } catch(e) { console.log("tabindex 1 "+e); ConfirmitHelper.logErrorToConfirmit(e); }
+  try { document.getElementById('cfdfh1').tabIndex = -1; } catch(e) { console.log("tabindex 2 "+e); ConfirmitHelper.logErrorToConfirmit(e); }
+  try { document.getElementById('cf-cls-btn').tabIndex = -1; } catch(e) { console.log("tabindex 3 "+e); ConfirmitHelper.logErrorToConfirmit(e); }
+  try { document.getElementById('cspfbtax').tabIndex = -1; } catch(e) { console.log("tabindex 4 "+e); ConfirmitHelper.logErrorToConfirmit(e); }
+  try { document.getElementById('cf-sld-fbt-t2').tabIndex = -1; } catch(e) { console.log("tabindex 5 "+e); ConfirmitHelper.logErrorToConfirmit(e); }
+  
+    try { document.getElementById('cspfbtax').setAttribute("aria-atomic", "false"); } catch(e) { console.log(e); ConfirmitHelper.logErrorToConfirmit(e); }
+  try{ document.getElementById("cf-fbt-btn").ariaLabel = "Open the survey dialog"; }catch(e){ ConfirmitHelper.logErrorToConfirmit(e);}
+}
+
+ConfirmitHelper.cffbshow = function() {
+  var element = document.getElementById("cf-fb-cnt");
+  element.classList.remove("cf-container--minimized");
+  ConfirmitHelper.fbttgt = '1';
+  
+  try { document.getElementById('cf-sld-fbt-t1').tabIndex = 0; } catch(e) { console.log("tabindex 1 "+e); ConfirmitHelper.logErrorToConfirmit(e); }
+  try { document.getElementById('cfdfh1').tabIndex = 0; } catch(e) { console.log("tabindex 2 "+e); ConfirmitHelper.logErrorToConfirmit(e); }
+  try { document.getElementById('cf-cls-btn').tabIndex = 0; } catch(e) { console.log("tabindex 3 "+e); ConfirmitHelper.logErrorToConfirmit(e); }
+  try { document.getElementById('cspfbtax').tabIndex = 0; } catch(e) { console.log("tabindex 4 "+e); ConfirmitHelper.logErrorToConfirmit(e); }
+  try { document.getElementById('cf-sld-fbt-t2').tabIndex = 0; } catch(e) { console.log("tabindex 5 "+e); ConfirmitHelper.logErrorToConfirmit(e); }
+  
+  
+  try { document.getElementById('cffbtifm').setAttribute("aria-hidden", "false"); }  catch(e) { console.log(e); ConfirmitHelper.logErrorToConfirmit(e); }
+  try { document.getElementById('cspfbtax').setAttribute("aria-live", "polite"); }  catch(e) { console.log(e); ConfirmitHelper.logErrorToConfirmit(e); }
+  try { document.getElementById('cspfbtax').setAttribute("aria-atomic", "true"); }  catch(e) { console.log(e); ConfirmitHelper.logErrorToConfirmit(e); }
+  
+  try { document.getElementById('cfdfh1').focus() }  catch(e) { console.log(e); ConfirmitHelper.logErrorToConfirmit(e); }
+  
+  try{ document.getElementById("cf-fbt-btn").ariaLabel = "Close the survey dialog"; }catch(e){ ConfirmitHelper.logErrorToConfirmit(e);}
+}
+
+ConfirmitHelper.fbdoToggle = function() {
+  var el = document.getElementById('cf-fb-cnt')
+  //console.log(ConfirmitHelper.fbttgt)
+
+  if (ConfirmitHelper.fbttgt == '0') {
+    ConfirmitHelper.cffbshow();
+  } else {
+    ConfirmitHelper.fbminize();
+    
+  }
+}
+
+ConfirmitHelper.fbdoToggle2 = function() {
+  var el = document.getElementById('cf-fb-cnt')
+  //console.log(ConfirmitHelper.fbttgt)
+
+  if (ConfirmitHelper.fbttgt == '0') {
+    try { ConfirmitHelper.cffbshow(); } catch(e) { console.log('dotoggle - error with cffbshow, line 82'); ConfirmitHelper.logErrorToConfirmit(e); }
+	document.body.classList.add('cf-nbody');
+  } else {
+    try { ConfirmitHelper.fbminize(); } catch(e) { console.log('dotoggle - error with cffbshow, line 85'); ConfirmitHelper.logErrorToConfirmit(e); }
+    
+	// Give the document focus
+
+	// Remove focus from any focused element
+	if (document.activeElement) {
+		document.activeElement.blur();
+	}
+	window.focus();    
+	document.body.classList.remove('cf-nbody');
+  }
+}
+
+
+// ForstaSurvey
+
+console.log('ForstaSurvey v1.6');
+
+try{
+window.ForstaSurvey = function(pid,dataObject,isTestRecord,externalTrigger,popupWindow)
+{
+
+	try{ var CDFLogString = "ForstaSurvey : " + pid + " : ";} catch(e) { console.log("**ForstaSurvey : Line 7** error defining CDFLogSTring: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+	try{ var CDFdat = dataObject;} catch(e) { console.log("**ForstaSurvey : Line 8** error defining CDFdat: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+	try{ var show = true;} catch(e) { console.log("**ForstaSurvey : Line 9** error defining show: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+
+	// check pid
+
+	try{		
+	if( !pid )
+	{
+		try{ ConfirmitHelper.ConfirmitLog(show,CDFLogString+"PID not present.  Exiting.");} catch(e) { console.log("**ForstaSurvey : Line 33** error logging PID not present: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+		return;
+	}
+	} catch(e) { console.log("**ForstaSurvey : Line 30-36** error checking PID: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+
+	// check for data object
+	try{		
+	if( !CDFdat )
+	{
+		try{ ConfirmitHelper.ConfirmitLog(show,CDFLogString+"Data Object not present.  Exiting.");} catch(e) { console.log("**ForstaSurvey : Line 33** error logging dat string not present: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+		return;
+	}
+	} catch(e) { console.log("**ForstaSurvey : Line 30-36** error checking CDFdat: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+	
+
+	// check that project is configured
+	try{ var pagecfg = pageConfig[pid];} catch(e) { console.log("**ForstaSurvey : Line ** error getting pagecfg: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+
+	try{
+	if( !pagecfg )
+	{
+		try{ConfirmitHelper.ConfirmitLog(show,CDFLogString+"page not configured.  Exiting.");} catch(e) { console.log("**ForstaSurvey : Line 68** error logging page not configured: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+		return;
+	}
+	} catch(e) { console.log("**ForstaSurvey : Line 65-71** error checking pagecfg: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+
+
+	var cfgShow = pagecfg.showLog === false ? false : true;
+	
+ 
+											  
+  
+																											
+		  
+   
+ 
+								 
+	 
+										 
+   
+																																																										 
+		  
+   
+																																		   
+  
+	// check for survey cookie
+	var surveyCookie = "" + pid + "_done";
+		try{	
+	  if(ConfirmitHelper.getCookie(surveyCookie))
+	  {
+		try{ConfirmitHelper.ConfirmitLog(show,CDFLogString+"survey cookie present.  Exiting.");} catch(e) { console.log("**doConfirmitFeedback : Line 76** error logging page cookie present: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+		return;
+	  }
+	} catch(e) { console.log("**doConfirmitFeedback : Line 76-82** error checking survey cookie: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+
+	
+	var doTestRecord = isTestRecord === true ? true : false;
+	ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"Test Record: " + doTestRecord)
+	var doExternalTrigger = externalTrigger === true ? true : false;
+	ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"External Trigger: " + doExternalTrigger)
+	var doPopupWindow = popupWindow === true ? true : false;
+	ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"Popup Window: " + doPopupWindow)
+	
+	var requiredField = pagecfg.reqField ? pagecfg.reqField : "custID";
+
+	console.log( 'requiredField: ' + requiredField + " : " + CDFdat[requiredField] );
+
+	try{ var datKey = CDFdat[requiredField];} catch(e) { console.log("**ForstaSurvey : Line 38** error setting datKey from CDFdat.custID: " + e) }
+
+	try{	
+	if( !datKey )
+	{
+		try{ ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"custid not present.  Exiting.");} catch(e) { console.log("**ForstaSurvey : Line 38** error logging custid not present: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+		return;
+	}	
+	} catch(e) { console.log("**ForstaSurvey : Line 43-49** error checking datKey: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+	
+	
+	try{ var passivePID = pid;} catch(e) { console.log("**ForstaSurvey : Line 648** error checking pagecfg.pid: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+
+	
+	try{		
+    if( pagecfg.pause )
+    {
+		try{ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"Survey paused.  Exiting.");} catch(e) { console.log("**ForstaSurvey : Line 84** error logging survey paused: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+		return;      
+    }
+	} catch(e) { console.log("**ForstaSurvey : Line 84-90** error checking pagecfg.pause: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+
+    try{ var loc = ConfirmitHelper.getLocation();} catch(e) { console.log("**ForstaSurvey : Line 89** error defining loc from ConfirmitHelper.getLocation(): " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+	
+	try{ ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"location: " + loc);} catch(e) { console.log("**ForstaSurvey : Line 92** error defining logging location: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+
+	try{ var pages = pagecfg.pages;} catch(e) { console.log("**ForstaSurvey : Line 94** error defining pages from pagecfg.pages: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+	try{ var pgids = pagecfg.pageIDs;} catch(e) { console.log("**ForstaSurvey : Line 95** error defining pgids from pagecfg.pageIDs: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+	try{ var ppid = "";} catch(e) { console.log("**ForstaSurvey : Line 96** error defining ppid = '': " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+	
+	try{ 
+	ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"Check that location above is present in array below: ");
+	ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+": " + pages);
+	} catch(e) { console.log("**ForstaSurvey : Line 99-100** error with logging at lines 99 / 100: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+		
+	try{ var match = false;} catch(e) { console.log("**ForstaSurvey : Line 103** error defining match = false: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+	
+	for (var key in pages) 
+	{
+		if( pages[key].page )
+		{
+			var page = pages[key].page;
+			ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"checking page : " + page)
+			if (page && loc.toLowerCase().includes(page.toLowerCase())) 
+			{
+				ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"match found : " +page);
+				match = true;
+				ppid = key;
+				break; // Exit loop once a match is found.
+				
+				var spause = pages[key].pause;
+				if( spause === true )
+				{
+					ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"pause set for page.  exiting");
+					return;
+				}
+
+			}
+		}
+		else
+		{
+			ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"no page defined for key : " + key);
+		}
+																																	
+	}
+	
+	
+	
+	try{ 
+	ConfirmitHelper.ConfirmitLog(cfgShow, CDFLogString+"*** page id***" )
+    ConfirmitHelper.ConfirmitLog(cfgShow, CDFLogString+ppid )
+	} catch(e) { console.log("**ForstaSurvey : Line 128-129** error logging ppid: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+
+	try{
+	if(!match)
+	{
+		try{ ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"page match not found.  Exiting.");} catch(e) { console.log("**ForstaSurvey : Line 135** error logging page match not found: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+		return;	
+	}
+	} catch(e) { console.log("**ForstaSurvey : Line 130-135** error checking match: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+
+	var pscfg = pages[key];
+	var doEvS = pagecfg.eventSurvey;
+	var doFbS = pagecfg.feedbackLinkSurvey;
+	var doPsC = false;
+
+	if (pagecfg.hasOwnProperty('pageSpecificCookies')) {
+		doPsC = pagecfg.pageSpecificCookies;
+	}
+	
+	if( doPsC )
+	{
+		// check for survey cookie
+		var surveyCookie = "" + key;
+			try{	
+		  if(ConfirmitHelper.getCookie(surveyCookie))
+		  {
+			try{ConfirmitHelper.ConfirmitLog(show,CDFLogString+"*** page specific *** survey cookie present.  Exiting.");} catch(e) { console.log("**doConfirmitFeedback : Line 76** error logging page cookie present: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+			return;
+		  }
+		} catch(e) { console.log("**doConfirmitFeedback : Line 76-82** error checking survey cookie: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+	}
+	
+	if (pscfg.hasOwnProperty('eventSurvey')) {
+		doEvS = pscfg.eventSurvey;
+	}
+
+	if (pscfg.hasOwnProperty('feedbackLinkSurvey')) {
+		doFbS = pscfg.feedbackLinkSurvey;
+	}
+	
+	try{
+	ConfirmitHelper.ConfirmitLog(cfgShow,CDFLogString+"page match found.");
+	} catch(e) { console.log("**ForstaSurvey : Line 141** error logging page match found: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+
+	try{ CDFdat["ppid"] = ppid;} catch(e) { console.log("**ForstaSurvey : Line 145** error setting CDFdat[ppid] = ppid: " + e); ConfirmitHelper.logErrorToConfirmit(e); }
+	
+	if( doFbS )
+	{
+		ConfirmitHelper.passiveLink(pid,CDFdat);
+	}
+	
+	if( doEvS )
+	{
+		ConfirmitHelper.EventSurvey(pid,CDFdat,isTestRecord,externalTrigger,popupWindow);
+	}
+}
+}
+catch(e)
+{
+	console.log("error defining ForstaSurvey function: " + e ); ConfirmitHelper.logErrorToConfirmit(e);
+}
+
+}
+
+
+ConfirmitHelper.snapTicketMinimizer = function () {
+
+	// Set up the MutationObserver to watch the body element
+	const observer = new MutationObserver((mutations) => {
+		mutations.forEach((mutation) => {
+			if (mutation.type === "attributes" && mutation.attributeName === "class") {
+				if (document.body.classList.contains("snapticket-open")) {
+					console.log("Run minimize");
+					ConfirmitHelper.fbminize();
+
+					document.querySelectorAll(".cfdfmodel1").forEach(element => {
+    				element.remove();
+					});
+				}
+			}
+		});
+	});
+
+	// Start observing the <body> element
+	observer.observe(document.body, {
+		attributes: true, // Watch for attribute changes
+		attributeFilter: ["class"], // Only observe class changes
+		subtree: false // Do not observe child elements
+	});
+
+}
+
+console.log( 'survey functions loaded' )
+
+};

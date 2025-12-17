@@ -1,0 +1,68 @@
+[project]
+name = "quant-vibe"
+version = "0.1.0"
+description = "Quantitative trading platform with backtesting, live data, and technical analysis"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+    "massive>=2.0.0",
+    "psycopg2-binary>=2.9.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.7.0",
+    "ruff>=0.0.280",
+    "mypy>=1.4.0",
+]
+backtest = [
+    "backtrader>=1.9.78",
+    "matplotlib>=3.7.0",
+]
+schwab = [
+    "schwab-py>=1.5.0",
+    "schwabdev>=3.0.0",
+]
+stockdata = [
+    "yfinance>=0.2.0",
+]
+all = [
+    "backtrader>=1.9.78",
+    "matplotlib>=3.7.0",
+    "schwab-py>=1.5.0",
+    "schwabdev>=3.0.0",
+    "yfinance>=0.2.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39']
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=src --cov-report=term-missing"

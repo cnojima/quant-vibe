@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: quant-vibe-timescaledb
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: quantvibe
+      POSTGRES_PASSWORD: ${TIMESCALE_PASSWORD:-quantvibe_dev}
+      POSTGRES_DB: options_data
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./scripts/init_timescale.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quantvibe -d options_data"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    shm_size: 1g
+    command: >
+      postgres
+      -c shared_preload_libraries=timescaledb
+      -c max_connections=200
+      -c shared_buffers=512MB
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=128MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+    networks:
+      - quant-vibe-network
+
+  streaming:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: quant-vibe-streaming
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      # Schwab API credentials
+      SCHWAB_API_KEY: ${SCHWAB_API_KEY}
+      SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}
+      SCHWAB_CALLBACK_URL: ${SCHWAB_CALLBACK_URL}
+      SCHWAB_ACCOUNT_NUMBER: ${SCHWAB_ACCOUNT_NUMBER}
+      # TimescaleDB connection (use service name as host)
+      TIMESCALE_HOST: timescaledb
+      TIMESCALE_PORT: 5432
+      TIMESCALE_DB: options_data
+      TIMESCALE_USER: quantvibe
+      TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD:-quantvibe_dev}
+    volumes:
+      # Mount entire repo for live code updates
+      - .:/app
+      # Persist schwabdev tokens across container restarts
+      - schwab_tokens:/app/tokens
+    networks:
+      - quant-vibe-network
+    # Override default CMD if needed
+    command: ["python", "scripts/stream_spxw_schwabdev.py"]
+
+networks:
+  quant-vibe-network:
+    driver: bridge
+
+volumes:
+  timescaledb_data:
+    driver: local
+  schwab_tokens:
+    driver: local
