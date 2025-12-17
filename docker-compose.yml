@@ -125,6 +125,8 @@ services:
       TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD:-quantvibe_dev}
       # Logging
       STREAMING_LOG_LEVEL: ${STREAMING_LOG_LEVEL:-${LOG_LEVEL:-INFO}}
+      # Force unbuffered Python output for logs
+      PYTHONUNBUFFERED: 1
     volumes:
       # Mount entire repo for live code updates
       - .:/app
