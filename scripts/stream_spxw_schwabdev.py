@@ -69,6 +69,7 @@ import sys
 from pathlib import Path
 import time as dt_time
 import json
+import re
 from datetime import datetime, timedelta, time
 from collections import defaultdict
 from typing import Dict, List, Optional
@@ -87,6 +88,54 @@ sys.path.insert(0, str(Path(__file__).parent))
 from enrich_stream_with_chain import OptionContractEnricher
 
 load_dotenv()
+
+
+def parse_expiration_from_ticker(ticker: str) -> Optional[datetime]:
+    """
+    Parse expiration date from SPXW option ticker.
+
+    SPXW option tickers have the format: SPXW  YYMMDDX########
+    Where:
+    - YYMM DD = expiration date (year, month, day)
+    - X = P (put) or C (call)
+    - ######## = strike price
+
+    Example: SPXW  260121P06200000 = Jan 21, 2026 Put at 6200 strike
+
+    Args:
+        ticker: Option ticker in format "SPXW  YYMMDDX########"
+
+    Returns:
+        Expiration date as datetime.date or None if parse fails
+    """
+    # Remove extra spaces
+    ticker = ticker.strip()
+
+    # Pattern: SPXW followed by 6 digits (YYMMDD), then P or C
+    # Example: "SPXW  260121P06200000" or "SPXW260121P06200000"
+    pattern = r'SPXW\s*(\d{6})[PC]'
+    match = re.search(pattern, ticker)
+
+    if not match:
+        return None
+
+    date_str = match.group(1)  # YYMMDD
+
+    try:
+        # Parse YYMMDD
+        yy = int(date_str[0:2])
+        mm = int(date_str[2:4])
+        dd = int(date_str[4:6])
+
+        # Convert YY to YYYY (assume 2000+ for 00-99)
+        yyyy = 2000 + yy
+
+        # Validate and create date
+        exp_date = datetime(yyyy, mm, dd).date()
+        return exp_date
+
+    except (ValueError, IndexError):
+        return None
 
 
 class SPXWOptionsStreamer:
@@ -417,6 +466,10 @@ class SPXWOptionsStreamer:
             except (ValueError, TypeError) as e:
                 # If parsing fails, leave as None
                 pass
+
+            # Fallback: parse expiration date from ticker symbol if not available from quote data
+            if exp_date is None:
+                exp_date = parse_expiration_from_ticker(symbol)
 
             # Get contract type (map Schwab format to our format)
             contract_type_raw = latest_quote.get('contract_type')

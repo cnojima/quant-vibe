@@ -21,6 +21,8 @@ import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_batch, RealDictCursor
 from psycopg2.pool import SimpleConnectionPool
+from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -73,6 +75,21 @@ class TimescaleStore:
             user=self.user,
             password=self.password,
         )
+
+        # SQLAlchemy engine (lazy initialization)
+        self._engine = None
+
+    @property
+    def engine(self):
+        """Get SQLAlchemy engine for pandas operations (lazy initialization)."""
+        if self._engine is None:
+            connection_string = (
+                f"postgresql://{self.user}:{self.password}@"
+                f"{self.host}:{self.port}/{self.database}"
+            )
+            # Use NullPool to avoid connection pool conflicts with psycopg2 pool
+            self._engine = create_engine(connection_string, poolclass=NullPool)
+        return self._engine
 
     @contextmanager
     def get_connection(self):
@@ -339,10 +356,9 @@ class TimescaleStore:
         ORDER BY {time_col} ASC
         """
 
-        with self.get_connection() as conn:
-            df = pd.read_sql_query(
-                query, conn, params=(option_ticker, start_time, end_time), parse_dates=["timestamp"]
-            )
+        df = pd.read_sql_query(
+            query, self.engine, params=(option_ticker, start_time, end_time), parse_dates=["timestamp"]
+        )
 
         if not df.empty:
             df.set_index("timestamp", inplace=True)
@@ -394,8 +410,7 @@ class TimescaleStore:
 
         query += " ORDER BY strike_price, contract_type"
 
-        with self.get_connection() as conn:
-            df = pd.read_sql_query(query, conn, params=params)
+        df = pd.read_sql_query(query, self.engine, params=tuple(params))
 
         return df
 
@@ -458,8 +473,7 @@ class TimescaleStore:
 
         query += " ORDER BY timestamp, expiration_date, strike_price, contract_type"
 
-        with self.get_connection() as conn:
-            df = pd.read_sql_query(query, conn, params=params, parse_dates=['timestamp', 'expiration_date'])
+        df = pd.read_sql_query(query, self.engine, params=tuple(params), parse_dates=['timestamp', 'expiration_date'])
 
         # Convert contract_type to uppercase for consistency
         if not df.empty and 'option_type' in df.columns:
@@ -523,13 +537,12 @@ class TimescaleStore:
         ORDER BY timestamp, mark_price DESC
         """
 
-        with self.get_connection() as conn:
-            df = pd.read_sql_query(
-                query,
-                conn,
-                params=(underlying_ticker, start_time, end_time, underlying_ticker),
-                parse_dates=['timestamp']
-            )
+        df = pd.read_sql_query(
+            query,
+            self.engine,
+            params=(underlying_ticker, start_time, end_time, underlying_ticker),
+            parse_dates=['timestamp']
+        )
 
         if df.empty:
             return pd.DataFrame()
@@ -691,9 +704,11 @@ class TimescaleStore:
         return stats
 
     def close(self) -> None:
-        """Close all connections in the pool."""
+        """Close all connections in the pool and dispose of SQLAlchemy engine."""
         if self.pool:
             self.pool.closeall()
+        if self._engine is not None:
+            self._engine.dispose()
 
     def __enter__(self):
         """Context manager entry."""
