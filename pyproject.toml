@@ -34,7 +34,6 @@ all = [
     "matplotlib>=3.7.0",
     "schwab-py>=1.5.0",
     "schwabdev>=3.0.0",
-    "yfinance>=0.2.0",
 ]
 
 [build-system]

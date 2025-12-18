@@ -18,7 +18,7 @@ COPY src ./src
 
 # Install Python dependencies in editable mode
 # This layer will be cached unless pyproject.toml or src changes
-RUN pip install --no-cache-dir -e ".[dev,backtest,indicators,schwab]"
+RUN pip install --no-cache-dir -e ".[all,schwab]"
 
 # The actual source code will be mounted as a volume at runtime
 # This allows live code updates during development
