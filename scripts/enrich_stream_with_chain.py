@@ -177,8 +177,8 @@ class OptionContractEnricher:
             # Parse expiration date if missing
             if enriched.get('exp_year') is None and cached.get('expiration_date'):
                 exp_date_str = cached['expiration_date']
-                # Format: "2025-12-19:0" (date:DTE)
-                exp_date = datetime.strptime(exp_date_str.split(':')[0], '%Y-%m-%d')
+                # Format: "2025-12-19:0" or "2025-12-19T21:00:00:0" (date with optional timestamp)
+                exp_date = datetime.strptime(exp_date_str.split('T')[0], '%Y-%m-%d')
                 enriched['exp_year'] = exp_date.year
                 enriched['exp_month'] = exp_date.month
                 enriched['exp_day'] = exp_date.day
