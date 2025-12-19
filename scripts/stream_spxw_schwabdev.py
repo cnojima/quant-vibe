@@ -415,7 +415,7 @@ class SPXWOptionsStreamer:
             print(f"\n🔄 [{now.strftime('%Y-%m-%d %H:%M:%S')}] Refreshing Schwab OAuth token...")
 
             # Call token refresh
-            self.schwab_client.update_tokens_auto()
+            self.schwab_client.update_tokens()
 
             self.last_token_refresh = now
             print(f"  ✓ Token refresh successful")
