@@ -6,16 +6,16 @@ This utility connects to the TimescaleDB options_bars table and identifies
 missing 1-minute bars during market hours (9:30 AM - 4:00 PM ET).
 
 Usage:
-    python data/utils/1-minute-sanity.py --date 2025-12-16
-    python data/utils/1-minute-sanity.py --start 2025-12-15 --end 2025-12-16
-    python data/utils/1-minute-sanity.py --last-24h
+    python data/schema/1-minute-sanity.py --date 2025-12-16
+    python data/schema/1-minute-sanity.py --start 2025-12-15 --end 2025-12-16
+    python data/schema/1-minute-sanity.py --last-24h
 """
 
 import sys
 from pathlib import Path
 
 # Add project root to Python path
-project_root = Path(__file__).parent.parent.parent
+project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import argparse
@@ -25,7 +25,7 @@ import pandas as pd
 import pytz
 from tabulate import tabulate
 
-from src.quant_vibe.data.timescale_store import TimescaleStore
+from quant_vibe.data.timescale_store import TimescaleStore
 
 
 class OptionsGapChecker:

@@ -165,6 +165,7 @@ class SPXWOptionsStreamer:
         # Data storage
         self.quote_buffer: Dict[str, List[Dict]] = defaultdict(list)
         self.last_flush_time = datetime.now()
+        self.last_token_refresh = datetime.now()
         self.message_count = 0
         self.contracts_subscribed = []
 
@@ -201,16 +202,26 @@ class SPXWOptionsStreamer:
         # Get SPX price to filter strikes
         try:
             response = self.schwab_client.quote("$SPX")
-            spx_data = response.json()
 
-            if "$SPX" in spx_data:
-                spx_price = spx_data["$SPX"]["quote"]["lastPrice"]
-                print(f"  SPX price: ${spx_price:.2f}")
-            else:
-                print("  ⚠️  Could not get SPX price, using default")
+            # Check response status
+            if response.status_code != 200:
+                print(f"  ⚠️  SPX quote API error: HTTP {response.status_code}")
+                print(f"  Response: {response.text[:200]}")
                 spx_price = 6000.0
+            else:
+                spx_data = response.json()
+
+                if "$SPX" in spx_data:
+                    spx_price = spx_data["$SPX"]["quote"]["lastPrice"]
+                    print(f"  SPX price: ${spx_price:.2f}")
+                else:
+                    print("  ⚠️  Could not get SPX price, using default")
+                    spx_price = 6000.0
         except Exception as e:
             print(f"  ⚠️  Error getting SPX price: {e}")
+            if hasattr(e, 'response'):
+                print(f"  Response status: {e.response.status_code if hasattr(e.response, 'status_code') else 'unknown'}")
+                print(f"  Response text: {e.response.text[:200] if hasattr(e.response, 'text') else 'none'}")
             spx_price = 6000.0
 
         # Calculate strike range
@@ -228,7 +239,21 @@ class SPXWOptionsStreamer:
             # Note: This uses REST API to discover contracts
             # schwabdev uses camelCase for parameters
             response = self.schwab_client.option_chains("$SPX", strikeCount=50)
-            chain_data = response.json()
+
+            # Check response status before parsing
+            if response.status_code != 200:
+                print(f"  ✗ API Error: HTTP {response.status_code}")
+                print(f"  Response: {response.text[:500]}")
+                return []
+
+            # Try to parse JSON
+            try:
+                chain_data = response.json()
+            except Exception as json_err:
+                print(f"  ✗ JSON Parse Error: {json_err}")
+                print(f"  Response status: {response.status_code}")
+                print(f"  Response text: {response.text[:500]}")
+                return []
 
             # Parse chain to get SPXW contracts
             # schwabdev returns data in different format than schwab-py
@@ -383,6 +408,25 @@ class SPXWOptionsStreamer:
             now = datetime.now()
             print(f"  📊 [{now.strftime('%H:%M:%S')}] Messages: {self.message_count} | Buffered symbols: {len(self.quote_buffer)}")
 
+    def refresh_token(self):
+        """Refresh Schwab OAuth token."""
+        try:
+            now = datetime.now()
+            print(f"\n🔄 [{now.strftime('%Y-%m-%d %H:%M:%S')}] Refreshing Schwab OAuth token...")
+
+            # Call token refresh
+            self.schwab_client.update_tokens_auto()
+
+            self.last_token_refresh = now
+            print(f"  ✓ Token refresh successful")
+            return True
+
+        except Exception as e:
+            print(f"  ✗ Token refresh failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def flush_to_database(self):
         """Aggregate buffered quotes into 1-minute bars and save to database."""
 
@@ -536,6 +580,13 @@ class SPXWOptionsStreamer:
         print(f"Aggregate Interval: {self.aggregate_interval}s")
         print("="*70)
 
+        # Refresh token at startup to ensure authentication
+        print("\nRefreshing authentication token...")
+        if not self.refresh_token():
+            print("\n❌ Failed to refresh token at startup!")
+            print("Please check your authentication credentials and token database.")
+            return
+
         # Get contracts to stream
         contracts = self.get_spxw_contracts()
 
@@ -599,8 +650,14 @@ class SPXWOptionsStreamer:
             while True:
                 dt_time.sleep(60)
 
-                # Status update with timestamp
                 now = datetime.now()
+
+                # Check if token refresh is needed (every 14 minutes)
+                time_since_refresh = (now - self.last_token_refresh).total_seconds() / 60.0
+                if time_since_refresh >= 14:
+                    self.refresh_token()
+
+                # Status update with timestamp
                 enricher_stats = self.enricher.get_cache_stats()
                 print(f"\n📊 Status Update [{now.strftime('%Y-%m-%d %H:%M:%S')}]:")
                 print(f"   Messages received: {self.message_count}")
@@ -608,6 +665,7 @@ class SPXWOptionsStreamer:
                 print(f"   Buffered symbols: {len(self.quote_buffer)}")
                 print(f"   Contract cache: {enricher_stats['contracts_cached']} contracts")
                 print(f"   Cache age: {enricher_stats['cache_age_minutes']:.1f} minutes")
+                print(f"   Token age: {time_since_refresh:.1f} minutes")
 
         except KeyboardInterrupt:
             print("\n\n⚠️  Stopping stream...")
