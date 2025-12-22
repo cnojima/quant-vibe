@@ -1,0 +1,43 @@
+"""Configuration for streaming service."""
+
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class StreamingConfig:
+    """Configuration for SPXW options streaming service.
+
+    Attributes:
+        max_dte: Maximum days to expiration
+        min_dte: Minimum days to expiration
+        strike_range_pct: Strike range as % of underlying (e.g., 0.10 = ±10%)
+        aggregate_interval_seconds: Seconds to aggregate into bars (60 = 1min)
+        token_refresh_minutes: Minutes between token refreshes (default: 14)
+        max_symbols_per_subscription: Max symbols per Schwab subscription (default: 500)
+        tokens_db_path: Path to schwabdev token database
+        enrichment_refresh_minutes: Minutes between contract cache refreshes (default: 15)
+    """
+
+    max_dte: int = 45
+    min_dte: int = 0
+    strike_range_pct: float = 0.10
+    aggregate_interval_seconds: int = 60
+    token_refresh_minutes: int = 14
+    max_symbols_per_subscription: int = 500
+    tokens_db_path: str = "tokens/schwabdev_tokens.db"
+    enrichment_refresh_minutes: int = 15
+
+    def __post_init__(self):
+        """Validate configuration."""
+        if self.max_dte < self.min_dte:
+            raise ValueError(f"max_dte ({self.max_dte}) must be >= min_dte ({self.min_dte})")
+
+        if self.strike_range_pct <= 0 or self.strike_range_pct > 1.0:
+            raise ValueError(f"strike_range_pct must be between 0 and 1.0, got {self.strike_range_pct}")
+
+        if self.aggregate_interval_seconds < 1:
+            raise ValueError(f"aggregate_interval_seconds must be >= 1, got {self.aggregate_interval_seconds}")
+
+        if self.token_refresh_minutes < 1:
+            raise ValueError(f"token_refresh_minutes must be >= 1, got {self.token_refresh_minutes}")
