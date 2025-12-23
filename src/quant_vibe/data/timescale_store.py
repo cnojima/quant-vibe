@@ -14,9 +14,11 @@ Features:
 """
 
 import os
+import logging
 from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timedelta
 from contextlib import contextmanager
+from venv import logger
 import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_batch, RealDictCursor
@@ -27,6 +29,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
 
 class TimescaleStore:
     """
@@ -473,11 +476,15 @@ class TimescaleStore:
 
         query += " ORDER BY timestamp, expiration_date, strike_price, contract_type"
 
+        logging.debug("Executing options backtest query with params: %s", params);
+        logging.debug("Query: %s", query);
+
         df = pd.read_sql_query(query, self.engine, params=tuple(params), parse_dates=['timestamp', 'expiration_date'])
 
         # Convert contract_type to uppercase for consistency
         if not df.empty and 'option_type' in df.columns:
             df['option_type'] = df['option_type'].str.upper()
+
 
         return df
 
