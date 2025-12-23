@@ -89,6 +89,16 @@ The codebase follows a layered architecture:
   - Returns portfolio DataFrame with complete history
 - `PerformanceMetrics`: Calculates analytics (Sharpe ratio, max drawdown, win rate, etc.)
 
+**Utilities Layer** (`src/quant_vibe/utils/`)
+- `TeeOutput`: Dual output writer (console + file logging)
+- `get_date_range()`: Interactive date range selection
+- `make_utc_datetime()`: Timezone-aware datetime creation
+- `setup_logging()`: Application logging configuration
+- `setup_backtest_output()`: One-line backtest logging setup
+- `load_options_backtest_data()`: Load and validate options data from TimescaleDB
+- `save_backtest_results()`: Save backtest outputs to CSV files
+- `BacktestReporter`: Comprehensive trade details and educational metrics reporting
+
 ### Key Design Patterns
 
 **Strategy Pattern**: All trading strategies implement the `Strategy` base class with `generate_signals()` method. This allows easy swapping and testing of different strategies.
@@ -123,6 +133,26 @@ The codebase follows a layered architecture:
 1. Add provider logic to `MarketDataClient._load_credentials()` and `fetch_daily_data()`
 2. Implement private method like `_fetch_provider_name_daily()`
 3. Add required env vars to `.env.example`
+
+**New Backtest Script**:
+1. Create file in `backtests/` directory (e.g., `backtest_my_strategy.py`)
+2. Import utilities:
+   ```python
+   from quant_vibe.utils import (
+       setup_backtest_output,
+       get_date_range,
+       load_options_backtest_data,
+       save_backtest_results,
+   )
+   from quant_vibe.backtesting import BacktestReporter, OptionsBacktestEngine
+   ```
+3. Use `setup_backtest_output()` for logging setup (1 line)
+4. Use `get_date_range()` for interactive date selection
+5. Use `load_options_backtest_data()` to load data with validation (1 line)
+6. Use `BacktestReporter` to display results (2 lines)
+7. Use `save_backtest_results()` to save outputs (1 line)
+8. Follow the complete pattern in "Backtest Utilities" section
+9. See `backtests/backtest_bullish_vertical_put.py` for reference implementation
 
 ## Testing Philosophy
 
@@ -159,6 +189,245 @@ engine = BacktestEngine(initial_capital=100000.0, commission=0.001)
 portfolio = engine.run(strategy, data)
 metrics = PerformanceMetrics.calculate(portfolio)
 ```
+
+## Backtest Utilities
+
+The backtest utilities provide a complete framework for creating consistent, maintainable backtest scripts with minimal code duplication.
+
+### Core Components
+
+**Utilities Layer** (`src/quant_vibe/utils/`)
+
+The utilities module provides reusable components for backtest scripts:
+
+**1. Date & Time Utilities** (`datetime_utils.py`)
+
+**IMPORTANT**: All date/time functions use **US Eastern Time (EST/EDT)** for market hours. This ensures consistent handling of trading days regardless of where you run the backtest.
+
+Core functions:
+- `make_utc_datetime(year, month, day, hour=0, minute=0, second=0)`: Create timezone-aware UTC datetime
+- `trading_day_to_utc(year, month, day)`: Convert a trading day to UTC market hours range
+  - **Market hours**: 9:30 AM - 4:00 PM EST (Eastern Time)
+  - Example: Dec 22, 2025 → 2025-12-22 14:30:00 UTC to 2025-12-22 21:00:00 UTC
+  - Returns tuple of (market_open_utc, market_close_utc)
+- `is_trading_day(year, month, day)`: Check if a date is a trading day (Mon-Fri, excludes weekends)
+- `get_trading_days_in_range(start_y, start_m, start_d, end_y, end_m, end_d)`: Get all trading days in a date range
+- `get_date_range()`: Interactive date range selection with presets:
+  - **Today**: Today's date in EST, market hours only (9:30 AM - 4:00 PM EST)
+  - **This week**: Mon-Fri of current week, market hours for each trading day
+  - **This month**: All trading days (Mon-Fri) in current month, market hours
+  - **This quarter**: All trading days in current quarter, market hours
+  - **This year**: All trading days in current year, market hours
+  - **Custom**: User-specified date range, trading days only, market hours
+  - **All options automatically**:
+    - Use EST timezone (not user's local timezone or UTC)
+    - Constrain to market hours (9:30 AM - 4:00 PM EST)
+    - Exclude weekends (trading days only)
+    - Convert to UTC for database queries
+
+**2. Output Utilities** (`output.py`)
+- `TeeOutput`: Dual output writer for console and log files
+  - Automatically saves all print statements to both terminal and file
+  - Useful for preserving complete backtest execution logs
+
+**3. Backtest Helpers** (`backtest_helpers.py`)
+- `setup_backtest_output(strategy_name, base_dir=None)`: Setup output directory, timestamp, and TeeOutput logger
+  - Returns: `(output_dir, timestamp, tee_output)`
+  - Automatically creates log file: `{strategy_name}_log_{timestamp}.txt`
+
+- `load_options_backtest_data(underlying_ticker, start_date, end_date, min_dte, max_dte, verbose=True, db_profile=None)`: Load options and underlying data from TimescaleDB
+  - Returns: `(options_data, underlying_data)` DataFrames
+  - Includes validation, error handling, and verbose logging
+  - Automatically derives underlying price from options bid/ask data
+  - `db_profile`: Select database (default: auto-detect from `USE_REMOTE_TIMESCALE`)
+    - `None` (default): Auto-selects based on `USE_REMOTE_TIMESCALE` env var
+    - `"local"`: Forces local database using `TIMESCALE_*` environment variables
+    - `"remote"`: Forces remote database using `REMOTE_TIMESCALE_*` environment variables
+
+- `save_backtest_results(results, strategy_name, output_dir, timestamp, verbose=True)`: Save backtest results to CSV files
+  - Returns: `{'trades': Path, 'equity': Path}` dictionary
+  - Saves: `{strategy_name}_trades_{timestamp}.csv` and `{strategy_name}_equity_{timestamp}.csv`
+
+**Backtesting Layer** (`src/quant_vibe/backtesting/`)
+
+**4. Backtest Reporter** (`reporter.py`)
+- `BacktestReporter`: Comprehensive reporting and analytics for backtest results
+
+Methods:
+- `print_trade_details(trades_df)`: Detailed trade-by-trade analysis
+  - Entry/exit information
+  - Position details (legs, strikes, premiums)
+  - Performance metrics
+  - Win/loss indication
+
+- `print_educational_metrics(trades_df, equity_curve, initial_capital)`: Educational analytics
+  - Trade timing analysis
+  - Exit reason breakdown
+  - Win/loss patterns and streaks
+  - Risk/reward analysis
+  - Drawdown analysis
+  - Profit distribution
+  - Entry trigger analysis
+  - Day of week performance
+  - Return metrics (ROI, annualized return)
+
+### Creating a Backtest Script
+
+**Recommended Pattern** (uses all utilities):
+```python
+import sys
+from pathlib import Path
+
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from quant_vibe.backtesting import BacktestReporter, OptionsBacktestEngine
+from quant_vibe.strategies.my_strategy import MyStrategy
+from quant_vibe.utils import (
+    get_date_range,
+    load_options_backtest_data,
+    save_backtest_results,
+    setup_backtest_output,
+)
+
+def main():
+    # Setup output logging (1 line instead of 10)
+    output_dir, timestamp, tee = setup_backtest_output("my_strategy")
+    sys.stdout = tee
+
+    try:
+        # Get date range from user
+        start_date, end_date = get_date_range()
+
+        # Configure strategy parameters
+        strategy = MyStrategy(param1=value1, param2=value2)
+        initial_capital = 100000.0
+
+        # Load data (1 line instead of 60)
+        # Use db_profile="local" (default) or db_profile="remote"
+        options_data, underlying_data = load_options_backtest_data(
+            underlying_ticker="SPX",
+            start_date=start_date,
+            end_date=end_date,
+            min_dte=0,
+            max_dte=45,
+            # db_profile="remote",  # Uncomment to use remote database
+        )
+
+        # Run backtest
+        engine = OptionsBacktestEngine(initial_capital=initial_capital)
+        results = engine.run(
+            strategy=strategy,
+            underlying_data=underlying_data,
+            options_data=options_data,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        # Display results (2 lines instead of 250)
+        reporter = BacktestReporter()
+        reporter.print_trade_details(results["trades"])
+        reporter.print_educational_metrics(
+            results["trades"],
+            results["equity_curve"],
+            initial_capital,
+        )
+
+        # Save results (1 line instead of 20)
+        save_backtest_results(
+            results=results,
+            strategy_name="my_strategy",
+            output_dir=output_dir,
+            timestamp=timestamp,
+        )
+
+    finally:
+        tee.close()
+
+if __name__ == "__main__":
+    main()
+```
+
+**Result**: Backtest scripts reduced from ~470 lines to ~130 lines (~72% code reduction)
+
+### Key Benefits
+
+- **Consistency**: All backtest scripts use the same interfaces and patterns
+- **Reusability**: No duplicate code across backtest scripts
+- **Maintainability**: Changes to reporting/logging happen in one place
+- **Logging**: Complete execution logs saved automatically
+- **Timezone-aware**: All datetimes properly handle UTC timezone
+- **Error Handling**: Built-in validation and error messages
+- **Extensibility**: Easy to add new metrics or output formats
+
+### Database Configuration
+
+**Local vs Remote TimescaleDB**
+
+The backtest utilities automatically detect which database to use based on the `USE_REMOTE_TIMESCALE` environment variable.
+
+**Environment Variables** (`.env`):
+```bash
+# Database selection (set once, applies to all backtests)
+USE_REMOTE_TIMESCALE=true  # or false for local database
+
+# Local TimescaleDB credentials
+TIMESCALE_HOST=localhost
+TIMESCALE_PORT=5432
+TIMESCALE_DB=options_data
+TIMESCALE_USER=quantvibe
+TIMESCALE_PASSWORD=quantvibe_dev
+
+# Remote TimescaleDB credentials
+REMOTE_TIMESCALE_HOST=192.168.100.197  # your remote IP/hostname
+REMOTE_TIMESCALE_PORT=5432
+REMOTE_TIMESCALE_DB=options_data
+REMOTE_TIMESCALE_USER=quantvibe
+REMOTE_TIMESCALE_PASSWORD=your-remote-password
+```
+
+**Automatic Database Selection**:
+```python
+# Database is automatically selected from USE_REMOTE_TIMESCALE env var
+options_data, underlying_data = load_options_backtest_data(
+    underlying_ticker="SPX",
+    start_date=start_date,
+    end_date=end_date,
+    min_dte=0,
+    max_dte=45,
+)
+# If USE_REMOTE_TIMESCALE=true → uses remote database
+# If USE_REMOTE_TIMESCALE=false → uses local database
+```
+
+**Manual Override** (optional):
+```python
+# Override environment variable for a specific call
+options_data, underlying_data = load_options_backtest_data(
+    underlying_ticker="SPX",
+    start_date=start_date,
+    end_date=end_date,
+    min_dte=0,
+    max_dte=45,
+    db_profile="local",  # Force local database (ignores USE_REMOTE_TIMESCALE)
+)
+
+# Or force remote
+options_data, underlying_data = load_options_backtest_data(
+    underlying_ticker="SPX",
+    start_date=start_date,
+    end_date=end_date,
+    min_dte=0,
+    max_dte=45,
+    db_profile="remote",  # Force remote database (ignores USE_REMOTE_TIMESCALE)
+)
+```
+
+**Benefits**:
+- ✅ Set once in `.env`, applies to all backtest scripts
+- ✅ No code changes needed to switch between local/remote
+- ✅ Can still override per-call if needed
+- ✅ Verbose output shows which database is being used
 
 ## Code Style
 
