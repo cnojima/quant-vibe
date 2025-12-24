@@ -60,7 +60,7 @@ def main():
         min_bid_ask_spread_pct = 10.0  # maximum 10% bid/ask spread
 
         # Backtest parameters
-        initial_capital = 100000.0
+        initial_capital = 25000.0
 
         print("Configuration:")
         print(f"  Date Range: {start_date.date()} to {end_date.date()}")
@@ -87,6 +87,7 @@ def main():
             end_date=end_date,
             min_dte=min_dte,
             max_dte=max_dte,
+            verbose=True,
             # db_profile auto-detected from USE_REMOTE_TIMESCALE env var
         )
 

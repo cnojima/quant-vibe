@@ -74,7 +74,7 @@ class SchwabDevClient:
                 app_key=self.api_key,
                 app_secret=self.app_secret,
                 callback_url=self.callback_url,
-                tokens_file=self.tokens_db
+                tokens_db=self.tokens_db
             )
             print("✓ Schwab client authenticated successfully!")
         except Exception as e:
@@ -177,12 +177,28 @@ class SchwabDevClient:
             if frequency is None:
                 frequency = 1
 
+            # Convert datetime to milliseconds timestamp for Schwab API
+            start_ms = None
+            end_ms = None
+
+            if start_datetime is not None:
+                if isinstance(start_datetime, datetime):
+                    start_ms = int(start_datetime.timestamp() * 1000)
+                else:
+                    raise ValueError(f"start_datetime must be datetime object, got {type(start_datetime)}")
+
+            if end_datetime is not None:
+                if isinstance(end_datetime, datetime):
+                    end_ms = int(end_datetime.timestamp() * 1000)
+                else:
+                    raise ValueError(f"end_datetime must be datetime object, got {type(end_datetime)}")
+
             response = self.client.price_history(
                 symbol,
                 frequencyType=frequency_type,
                 frequency=frequency,
-                startDate=int(start_datetime.timestamp() * 1000) if start_datetime else None,
-                endDate=int(end_datetime.timestamp() * 1000) if end_datetime else None
+                startDate=start_ms,
+                endDate=end_ms
             )
         response.raise_for_status()
 
@@ -191,7 +207,25 @@ class SchwabDevClient:
         # Convert to DataFrame
         if "candles" in data:
             df = pd.DataFrame(data["candles"])
-            df["datetime"] = pd.to_datetime(df["datetime"], unit="ms")
+
+            # Debug: print available columns
+            if df.empty:
+                print(f"Warning: No candles returned from API")
+                print(f"Response data: {data}")
+                return pd.DataFrame()
+
+            # Schwab API uses different timestamp field names depending on the endpoint
+            # Try 'datetime' first, fall back to other common names
+            time_col = None
+            for col_name in ['datetime', 'timestamp', 'date']:
+                if col_name in df.columns:
+                    time_col = col_name
+                    break
+
+            if time_col is None:
+                raise ValueError(f"No timestamp column found. Available columns: {df.columns.tolist()}")
+
+            df["datetime"] = pd.to_datetime(df[time_col], unit="ms")
             df.set_index("datetime", inplace=True)
 
             # Rename columns to match our format
@@ -223,7 +257,7 @@ class SchwabDevClient:
         - DJX (Dow Jones): $DJX.X
 
         Args:
-            index_symbol: Index symbol without $ or .X (e.g., 'SPX', 'NDX')
+            index_symbol: Index symbol (accepts 'SPX', '$SPX', or '$SPX.X')
             start_datetime: Start date/time
             end_datetime: End date/time
             frequency_minutes: Bar frequency in minutes (1, 5, 10, 15, 30)
@@ -236,17 +270,25 @@ class SchwabDevClient:
             >>> # Get 1-minute SPX data for Dec 23, 2025
             >>> from datetime import datetime
             >>> data = client.get_index_price_history(
-            ...     "SPX",
+            ...     "SPX",  # or "$SPX" or "$SPX.X"
             ...     start_datetime=datetime(2025, 12, 23, 9, 30),
             ...     end_datetime=datetime(2025, 12, 23, 16, 0),
             ...     frequency_minutes=1
             ... )
         """
-        # Convert to Schwab index symbol format
-        schwab_symbol = f"${index_symbol}.X"
+        # Normalize symbol to Schwab index format: $SYMBOL.X
+        # Remove any existing $ prefix and .X suffix, then add them back
+        # clean_symbol = index_symbol.strip()
+        # if clean_symbol.startswith('$'):
+        #     clean_symbol = clean_symbol[1:]
+        # if clean_symbol.endswith('.X'):
+        #     clean_symbol = clean_symbol[:-2]
+
+        # schwab_symbol = f"${clean_symbol}.X"
 
         return self.get_price_history(
-            schwab_symbol,
+            # schwab_symbol,
+            index_symbol,
             frequency_type="minute",
             frequency=frequency_minutes,
             start_datetime=start_datetime,

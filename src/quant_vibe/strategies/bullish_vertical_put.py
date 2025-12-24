@@ -553,8 +553,11 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         - We want the spread value to decrease (ideally to 0)
         - Profit = credit received - current spread value
         """
-        # Update position value (with underlying data for intrinsic value)
-        self.update_position_value(position, options_data, underlying_data)
+        # Get current underlying price for intrinsic value calculation
+        underlying_price = underlying_data['Close'].iloc[-1] if not underlying_data.empty else None
+
+        # Update position value (with underlying price for intrinsic value)
+        self.update_position_value(position, options_data, underlying_price)
 
         # Check profit target
         if self.check_profit_target(position):

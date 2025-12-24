@@ -193,10 +193,35 @@ class OptionsStrategy(ABC):
         """
         pass
 
+    def _calculate_intrinsic_value(
+        self,
+        leg: OptionLeg,
+        underlying_price: float
+    ) -> float:
+        """
+        Calculate intrinsic value of an option.
+
+        Args:
+            leg: Option leg to value
+            underlying_price: Current underlying asset price
+
+        Returns:
+            Intrinsic value (max of 0 or in-the-money amount)
+        """
+        if leg.option_type == OptionType.CALL:
+            # Call: max(0, underlying - strike)
+            intrinsic = max(0, underlying_price - leg.strike_price)
+        else:  # PUT
+            # Put: max(0, strike - underlying)
+            intrinsic = max(0, leg.strike_price - underlying_price)
+
+        return intrinsic
+
     def update_position_value(
         self,
         position: OptionsPosition,
-        options_data: pd.DataFrame
+        options_data: pd.DataFrame,
+        underlying_price: Optional[float] = None
     ) -> None:
         """
         Update current value of position based on options prices.
@@ -204,6 +229,7 @@ class OptionsStrategy(ABC):
         Args:
             position: Position to update
             options_data: Current options data
+            underlying_price: Current underlying asset price (for intrinsic value calculation)
         """
         current_value = 0.0
         missing_legs = []
@@ -220,12 +246,17 @@ class OptionsStrategy(ABC):
 
                 # Validate mark price
                 if pd.isna(current_price) or current_price < 0:
-                    # Mark price invalid - try to estimate from intrinsic value
+                    # Mark price invalid - try to calculate intrinsic value
                     missing_legs.append(leg.contract_symbol)
-                    # For now, use entry price as fallback
-                    current_price = leg.entry_price if leg.entry_price else 0
-                    if current_price <= 0:
-                        continue
+                    if underlying_price is not None:
+                        # Use intrinsic value (conservative estimate)
+                        current_price = self._calculate_intrinsic_value(leg, underlying_price)
+                        print(f"      ⚠️  Using intrinsic value for {leg.contract_symbol}: ${current_price:.2f} (invalid mark price)")
+                    else:
+                        # No underlying price - use entry price as last resort
+                        current_price = leg.entry_price if leg.entry_price else 0
+                        if current_price <= 0:
+                            continue
 
                 leg.current_price = current_price
 
@@ -267,9 +298,16 @@ class OptionsStrategy(ABC):
                             print(f"      ⚠️  Interpolated {leg.contract_symbol}: ${estimated_price:.2f} (from ${strike_below['mark']:.2f} @ {strike_below['strike_price']} and ${strike_above['mark']:.2f} @ {strike_above['strike_price']})")
                             continue
 
-                # Fallback: use entry price (conservative estimate)
-                print(f"      ⚠️  Using entry price for {leg.contract_symbol}: ${leg.entry_price:.2f} (NO CURRENT DATA)")
-                current_price = leg.entry_price if leg.entry_price else 0
+                # Fallback: use intrinsic value if we have underlying price, else entry price
+                if underlying_price is not None:
+                    # Calculate intrinsic value (conservative, no time value)
+                    current_price = self._calculate_intrinsic_value(leg, underlying_price)
+                    print(f"      ⚠️  Using intrinsic value for {leg.contract_symbol}: ${current_price:.2f} (NO CURRENT DATA, underlying=${underlying_price:.2f})")
+                else:
+                    # Last resort: use entry price
+                    print(f"      ⚠️  Using entry price for {leg.contract_symbol}: ${leg.entry_price:.2f} (NO CURRENT DATA)")
+                    current_price = leg.entry_price if leg.entry_price else 0
+
                 leg.current_price = current_price
                 leg_value = leg.quantity * current_price * 100
                 current_value += leg_value

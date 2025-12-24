@@ -10,16 +10,16 @@ Safe to run during off-market hours. Idempotent (can run multiple times).
 
 Usage:
     # Backfill all missing data
-    python scripts/backfill_stream_greeks.py
+    python scripts/backfill/backfill_stream_greeks.py
 
     # Backfill specific date range
-    python scripts/backfill_stream_greeks.py --start 2025-12-10 --end 2025-12-17
+    python scripts/backfill/backfill_stream_greeks.py --start 2025-12-10 --end 2025-12-17
 
     # Dry run (show what would be updated)
-    python scripts/backfill_stream_greeks.py --dry-run
+    python scripts/backfill/backfill_stream_greeks.py --dry-run
 
     # Limit number of records
-    python scripts/backfill_stream_greeks.py --limit 1000
+    python scripts/backfill/backfill_stream_greeks.py --limit 1000
 """
 
 import sys
@@ -98,8 +98,7 @@ class StreamDataBackfiller:
         query = """
             SELECT DISTINCT timestamp, option_ticker
             FROM options_bars
-            WHERE data_source = 'schwabdev_stream'
-            AND (
+            WHERE (
                 strike_price IS NULL
                 OR delta IS NULL
                 OR gamma IS NULL

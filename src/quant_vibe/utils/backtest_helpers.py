@@ -171,27 +171,50 @@ def load_options_backtest_data(
             print(f"   Expirations: {sorted(options_data['expiration_date'].unique())}")
 
         # Load underlying price data
+        # Try loading from underlying_bars table first (more accurate)
         if verbose:
             print(
-                f"\n2. Deriving {underlying_ticker} underlying price from options "
-                f"bid/ask data..."
+                f"\n2. Loading {underlying_ticker} underlying price data from "
+                f"underlying_bars table..."
             )
 
-        underlying_data = ts_store.get_underlying_price_from_options(
-            underlying_ticker=underlying_ticker,
+        underlying_data = ts_store.get_underlying_bars(
+            ticker=underlying_ticker,
             start_time=start_date,
             end_time=end_date,
         )
 
+        # Fall back to deriving from options if underlying_bars is empty
         if underlying_data.empty:
-            error_msg = (
-                "No underlying price data could be derived from options!\n"
-                "   Check that options data has valid bid/ask prices"
+            if verbose:
+                print(
+                    f"⚠️  No data in underlying_bars table, falling back to deriving "
+                    f"from options bid/ask..."
+                )
+
+            underlying_data = ts_store.get_underlying_price_from_options(
+                underlying_ticker=underlying_ticker,
+                start_time=start_date,
+                end_time=end_date,
             )
-            raise ValueError(error_msg)
+
+            if underlying_data.empty:
+                error_msg = (
+                    f"No underlying price data available!\n"
+                    f"   - underlying_bars table is empty for {underlying_ticker}\n"
+                    f"   - Could not derive from options bid/ask data\n"
+                    f"\nTroubleshooting:\n"
+                    f"  1. Run backfill script: python scripts/backfill_spx_underlying_1min.py\n"
+                    f"  2. Check that options data has valid bid/ask prices"
+                )
+                raise ValueError(error_msg)
+
+            data_source = "options (inferred)"
+        else:
+            data_source = "underlying_bars (actual)"
 
         if verbose:
-            print(f"✅ Derived {len(underlying_data):,} underlying price estimates")
+            print(f"✅ Loaded {len(underlying_data):,} underlying price bars ({data_source})")
             print(f"   Date range: {underlying_data.index[0]} to {underlying_data.index[-1]}")
             print(
                 f"   Price range: ${underlying_data['Low'].min():.2f} - "

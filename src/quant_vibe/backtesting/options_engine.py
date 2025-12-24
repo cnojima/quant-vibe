@@ -161,8 +161,11 @@ class OptionsBacktestEngine:
             if strategy.active_position is not None:
                 position = strategy.active_position
 
-                # Update position value (pass underlying_data for intrinsic value calculation)
-                strategy.update_position_value(position, options_slice, underlying_slice)
+                # Get current underlying price for intrinsic value calculation
+                underlying_price = underlying_slice['Close'].iloc[-1] if not underlying_slice.empty else None
+
+                # Update position value (pass underlying_price for intrinsic value calculation)
+                strategy.update_position_value(position, options_slice, underlying_price)
 
                 # Check exit conditions
                 should_exit, exit_reason = strategy.should_exit(

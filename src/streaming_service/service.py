@@ -20,6 +20,7 @@ from quant_vibe.data.timescale_store import TimescaleStore
 from streaming_service.config import StreamingConfig
 from streaming_service.token_manager import TokenManager
 from streaming_service.aggregator import BarAggregator
+from streaming_service.underlying_aggregator import UnderlyingBarAggregator
 from enrich_stream_with_chain import OptionContractEnricher
 
 
@@ -70,11 +71,15 @@ class StreamingService:
         self.aggregator = BarAggregator(
             aggregate_interval_seconds=self.config.aggregate_interval_seconds
         )
+        self.underlying_aggregator = UnderlyingBarAggregator(
+            aggregate_interval_seconds=self.config.aggregate_interval_seconds
+        )
         self.ts_store = TimescaleStore()
         self.enricher = OptionContractEnricher(self.schwab_client)
 
         print("  ✓ Token manager initialized")
         print("  ✓ Bar aggregator initialized")
+        print("  ✓ Underlying bar aggregator initialized")
         print("  ✓ TimescaleDB connected")
         print("  ✓ Contract enricher initialized")
 
@@ -254,9 +259,39 @@ class StreamingService:
                                 # Add to aggregator
                                 self.aggregator.add_quote(enriched_quote)
 
+                        # Handle underlying asset quotes (SPX, etc.)
+                        elif service == 'LEVELONE_EQUITIES' and content:
+                            timestamp = datetime.now()
+
+                            for item in content:
+                                symbol = item.get('key', '')
+                                if not symbol:
+                                    continue
+
+                                # Create underlying quote record
+                                quote = {
+                                    'timestamp': timestamp,
+                                    'symbol': symbol,
+                                    'bid': item.get('2'),
+                                    'ask': item.get('3'),
+                                    'last': item.get('4'),
+                                    'high': item.get('9'),
+                                    'low': item.get('10'),
+                                    'close': item.get('50'),
+                                    'volume': item.get('8'),
+                                    'open': item.get('28'),
+                                }
+
+                                # Add to underlying aggregator
+                                self.underlying_aggregator.add_quote(quote)
+
             # Check if we should flush (create 1-min bars)
             if self.aggregator.should_flush():
                 self._flush_bars()
+
+            # Also check underlying aggregator
+            if self.underlying_aggregator.should_flush():
+                self._flush_underlying_bars()
 
         except Exception as e:
             print(f"Error handling message: {e}")
@@ -269,15 +304,26 @@ class StreamingService:
             print(f"  📊 [{now.strftime('%H:%M:%S')}] Messages: {self.message_count} | Buffered symbols: {self.aggregator.get_buffered_symbol_count()}")
 
     def _flush_bars(self):
-        """Flush aggregated bars to database."""
+        """Flush aggregated option bars to database."""
         bars = self.aggregator.flush()
 
         if bars:
             try:
                 inserted = self.ts_store.bulk_insert_option_bars(bars)
-                print(f"  ✓ Inserted {inserted} bars")
+                print(f"  ✓ Inserted {inserted} option bars")
             except Exception as e:
-                print(f"  ✗ Database error: {e}")
+                print(f"  ✗ Database error (options): {e}")
+
+    def _flush_underlying_bars(self):
+        """Flush aggregated underlying bars to database."""
+        bars = self.underlying_aggregator.flush()
+
+        if bars:
+            try:
+                inserted = self.ts_store.bulk_insert_underlying_bars(bars)
+                print(f"  ✓ Inserted {inserted} underlying bars")
+            except Exception as e:
+                print(f"  ✗ Database error (underlying): {e}")
 
     def start(self):
         """Start the streaming service."""
@@ -327,6 +373,9 @@ class StreamingService:
         # Subscribe to options
         self._subscribe_to_contracts(contracts)
 
+        # Subscribe to underlying asset ($SPX)
+        self._subscribe_to_underlying()
+
         print("\n✅ All subscriptions active")
         print("Streaming data... (Press Ctrl+C to stop)")
 
@@ -357,6 +406,21 @@ class StreamingService:
             print(f"  ✓ Subscribed to batch {i//MAX_PER_SUB + 1} ({len(batch)} contracts)")
             dt_time.sleep(0.5)
 
+    def _subscribe_to_underlying(self):
+        """Subscribe to underlying asset quotes ($SPX)."""
+        print("\nSubscribing to underlying asset ($SPX)...")
+
+        # Subscribe to $SPX with equity level one data
+        # Fields: https://developer.schwabapi.com/products/trader-api--individual/details/documentation/Market-Data
+        # 0=Symbol, 2=Bid, 3=Ask, 4=Last, 8=Volume, 9=High, 10=Low, 28=Open, 50=Close
+        fields = "0,2,3,4,8,9,10,28,50"
+
+        self.streamer.send(
+            self.streamer.level_one_equities("$SPX", fields)
+        )
+
+        print("  ✓ Subscribed to $SPX equity quotes")
+
     def _run_main_loop(self):
         """Run main service loop."""
         try:
@@ -376,7 +440,8 @@ class StreamingService:
                 print(f"\n📊 Status Update [{now.strftime('%Y-%m-%d %H:%M:%S')}]:")
                 print(f"   Messages received: {self.message_count}")
                 print(f"   Contracts streaming: {len(self.contracts_subscribed)}")
-                print(f"   Buffered symbols: {self.aggregator.get_buffered_symbol_count()}")
+                print(f"   Buffered option symbols: {self.aggregator.get_buffered_symbol_count()}")
+                print(f"   Buffered underlying symbols: {self.underlying_aggregator.get_buffered_symbol_count()}")
                 print(f"   Contract cache: {enricher_stats['contracts_cached']} contracts")
                 print(f"   Cache age: {enricher_stats['cache_age_minutes']:.1f} minutes")
                 print(f"   Token age: {token_age:.1f} minutes")
@@ -389,6 +454,7 @@ class StreamingService:
         """Stop the streaming service."""
         print("Flushing remaining data...")
         self._flush_bars()
+        self._flush_underlying_bars()
 
         print("Stopping stream...")
         self.streamer.stop()
