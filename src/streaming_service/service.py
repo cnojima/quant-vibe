@@ -21,7 +21,7 @@ from streaming_service.config import StreamingConfig
 from streaming_service.token_manager import TokenManager
 from streaming_service.aggregator import BarAggregator
 from streaming_service.underlying_aggregator import UnderlyingBarAggregator
-from enrich_stream_with_chain import OptionContractEnricher
+from streaming_service.enrich_stream_with_chain import OptionContractEnricher
 
 
 class StreamingService:
