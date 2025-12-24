@@ -8,8 +8,7 @@ import sqlite3
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from quant_vibe.data.schwab_py_client import SchwabPyClient
-from schwab.client import Client
+from quant_vibe.data.schwab_dev_client import SchwabDevClient
 
 def fetch_spx_10years():
     """Fetch 10 years of daily bars for $SPX."""
@@ -20,7 +19,7 @@ def fetch_spx_10years():
     
     # Initialize Schwab client
     print("\nConnecting to Schwab API...")
-    schwab = SchwabPyClient()
+    schwab = SchwabDevClient()
     print("✅ Connected!\n")
     
     # Calculate date range
@@ -39,10 +38,10 @@ def fetch_spx_10years():
     try:
         data = schwab.get_price_history(
             "$SPX",
-            period_type=Client.PriceHistory.PeriodType.YEAR,
-            period=Client.PriceHistory.Period.TEN_YEARS,
-            frequency_type=Client.PriceHistory.FrequencyType.DAILY,
-            frequency=Client.PriceHistory.Frequency.DAILY
+            period_type="year",
+            period=10,
+            frequency_type="daily",
+            frequency=1
         )
         
         if data.empty:

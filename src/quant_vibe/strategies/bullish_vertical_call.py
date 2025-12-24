@@ -336,11 +336,11 @@ class BullishVerticalCallStrategy(OptionsStrategy):
         max_date = pd.Timestamp(max_date).normalize().tz_localize(None)
 
         # Filter for CALL options within DTE range
-        # Option type is 'C' for calls, 'P' for puts (single letter format)
+        # Option type is 'CALL' for calls, 'PUT' for puts (uppercase word)
         valid_options = options_data[
             (options_data['expiration_date'] >= target_date) &
             (options_data['expiration_date'] <= max_date) &
-            (options_data['option_type'] == 'C')
+            (options_data['option_type'] == 'CALL')
         ]
 
         if valid_options.empty:
@@ -450,7 +450,7 @@ class BullishVerticalCallStrategy(OptionsStrategy):
             Tuple of (should_exit, exit_reason)
         """
         # Update position value
-        self.update_position_value(position, options_data)
+        self.update_position_value(position, options_data, underlying_data)
 
         # Check profit target
         if self.check_profit_target(position):

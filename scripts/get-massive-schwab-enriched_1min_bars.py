@@ -482,8 +482,8 @@ def main():
     schwab_client = None
     if args.enrich_schwab:
         try:
-            from quant_vibe.data.schwab_py_client import SchwabPyClient
-            schwab_client = SchwabPyClient()
+            from quant_vibe.data.schwab_dev_client import SchwabDevClient
+            schwab_client = SchwabDevClient()
             print("  ✓ Schwab client initialized")
         except ImportError:
             print("  ⚠ Schwab client not available (install with: pip install -e '.[schwab]')")

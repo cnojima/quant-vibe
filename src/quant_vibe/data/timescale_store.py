@@ -42,6 +42,36 @@ class TimescaleStore:
     - Bulk operations for efficient data loading
     """
 
+    @staticmethod
+    def normalize_contract_symbol(symbol: str) -> str:
+        """
+        Normalize option contract symbols to a canonical format.
+
+        Handles multiple formats:
+        - Massive API: "O:SPXW251223P06865000" → "SPXW251223P06865000"
+        - Schwab API: "SPXW  260122C07025000" → "SPXW260122C07025000"
+
+        Canonical format: {UNDERLYING}{YYMMDD}{C|P}{STRIKE8DIGITS}
+        Example: "SPXW251223P06865000"
+
+        Args:
+            symbol: Raw contract symbol from any data source
+
+        Returns:
+            Normalized contract symbol
+        """
+        if not symbol:
+            return symbol
+
+        # Remove "O:" prefix (Massive format)
+        if symbol.startswith("O:"):
+            symbol = symbol[2:]
+
+        # Remove extra spaces (Schwab format)
+        symbol = symbol.replace(" ", "")
+
+        return symbol
+
     def __init__(
         self,
         host: Optional[str] = None,
@@ -193,6 +223,9 @@ class TimescaleStore:
             data_source = EXCLUDED.data_source
         """
 
+        # Normalize contract symbol to canonical format
+        option_ticker = self.normalize_contract_symbol(option_ticker)
+
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -274,10 +307,13 @@ class TimescaleStore:
 
         rows = []
         for bar in bars:
+            # Normalize contract symbol to canonical format
+            option_ticker = self.normalize_contract_symbol(bar["option_ticker"])
+
             rows.append(
                 (
                     bar["timestamp"],
-                    bar["option_ticker"],
+                    option_ticker,
                     bar["underlying_ticker"],
                     bar.get("open"),
                     bar.get("high"),
@@ -485,6 +521,9 @@ class TimescaleStore:
         if not df.empty and 'option_type' in df.columns:
             df['option_type'] = df['option_type'].str.upper()
 
+        # Normalize contract symbols to canonical format
+        if not df.empty and 'contract_symbol' in df.columns:
+            df['contract_symbol'] = df['contract_symbol'].apply(self.normalize_contract_symbol)
 
         return df
 
@@ -709,6 +748,214 @@ class TimescaleStore:
                 stats["max_timestamp"] = row["max_time"]
 
         return stats
+
+    # ========================================================================
+    # UNDERLYING PRICE DATA METHODS
+    # ========================================================================
+
+    def insert_underlying_bar(
+        self,
+        timestamp: datetime,
+        ticker: str,
+        open_price: float,
+        high: float,
+        low: float,
+        close: float,
+        volume: int = 0,
+        vwap: Optional[float] = None,
+        transactions: Optional[int] = None,
+        data_source: str = 'schwab'
+    ) -> None:
+        """
+        Insert a single underlying price bar.
+
+        Args:
+            timestamp: Bar timestamp
+            ticker: Ticker symbol (e.g., 'SPX', 'SPY')
+            open_price: Opening price
+            high: High price
+            low: Low price
+            close: Closing price
+            volume: Volume (default: 0)
+            vwap: Volume-weighted average price (optional)
+            transactions: Number of transactions (optional)
+            data_source: Source of data (default: 'schwab')
+        """
+        query = """
+        INSERT INTO underlying_bars (
+            timestamp, ticker,
+            open, high, low, close, volume, vwap, transactions,
+            data_source
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        )
+        ON CONFLICT (timestamp, ticker) DO UPDATE SET
+            open = EXCLUDED.open,
+            high = EXCLUDED.high,
+            low = EXCLUDED.low,
+            close = EXCLUDED.close,
+            volume = EXCLUDED.volume,
+            vwap = EXCLUDED.vwap,
+            transactions = EXCLUDED.transactions,
+            data_source = EXCLUDED.data_source
+        """
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, (
+                    timestamp, ticker,
+                    open_price, high, low, close, volume, vwap, transactions,
+                    data_source
+                ))
+            conn.commit()
+
+    def bulk_insert_underlying_bars(self, bars: List[Dict[str, Any]], batch_size: int = 1000) -> int:
+        """
+        Bulk insert underlying price bars.
+
+        Args:
+            bars: List of bar dictionaries with keys:
+                  - timestamp: datetime
+                  - ticker: str
+                  - open: float
+                  - high: float
+                  - low: float
+                  - close: float
+                  - volume: int (optional, default: 0)
+                  - vwap: float (optional)
+                  - transactions: int (optional)
+                  - data_source: str (optional, default: 'schwab')
+            batch_size: Number of bars per batch (default: 1000)
+
+        Returns:
+            Number of bars inserted
+
+        Example:
+            >>> bars = [
+            ...     {
+            ...         'timestamp': datetime(2025, 12, 23, 9, 30),
+            ...         'ticker': 'SPX',
+            ...         'open': 6850.0,
+            ...         'high': 6855.0,
+            ...         'low': 6848.0,
+            ...         'close': 6852.0,
+            ...         'volume': 0,
+            ...     },
+            ...     ...
+            ... ]
+            >>> store.bulk_insert_underlying_bars(bars)
+        """
+        query = """
+        INSERT INTO underlying_bars (
+            timestamp, ticker,
+            open, high, low, close, volume, vwap, transactions,
+            data_source
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        )
+        ON CONFLICT (timestamp, ticker) DO UPDATE SET
+            open = EXCLUDED.open,
+            high = EXCLUDED.high,
+            low = EXCLUDED.low,
+            close = EXCLUDED.close,
+            volume = EXCLUDED.volume,
+            vwap = EXCLUDED.vwap,
+            transactions = EXCLUDED.transactions,
+            data_source = EXCLUDED.data_source
+        """
+
+        total_inserted = 0
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                for i in range(0, len(bars), batch_size):
+                    batch = bars[i:i + batch_size]
+
+                    values = []
+                    for bar in batch:
+                        values.append((
+                            bar['timestamp'],
+                            bar['ticker'],
+                            bar.get('open'),
+                            bar.get('high'),
+                            bar.get('low'),
+                            bar.get('close'),
+                            bar.get('volume', 0),
+                            bar.get('vwap'),
+                            bar.get('transactions'),
+                            bar.get('data_source', 'schwab')
+                        ))
+
+                    cur.executemany(query, values)
+                    total_inserted += len(batch)
+
+            conn.commit()
+
+        return total_inserted
+
+    def get_underlying_bars(
+        self,
+        ticker: str,
+        start_time: datetime,
+        end_time: datetime
+    ) -> pd.DataFrame:
+        """
+        Get underlying price bars for a ticker and time range.
+
+        Args:
+            ticker: Ticker symbol (e.g., 'SPX', 'SPY')
+            start_time: Start timestamp
+            end_time: End timestamp
+
+        Returns:
+            DataFrame with OHLCV data, indexed by timestamp
+
+        Example:
+            >>> store = TimescaleStore()
+            >>> df = store.get_underlying_bars(
+            ...     'SPX',
+            ...     datetime(2025, 12, 23, 9, 30),
+            ...     datetime(2025, 12, 23, 16, 0)
+            ... )
+        """
+        query = """
+        SELECT
+            timestamp,
+            open,
+            high,
+            low,
+            close,
+            volume,
+            vwap,
+            transactions
+        FROM underlying_bars
+        WHERE ticker = %s
+            AND timestamp >= %s
+            AND timestamp <= %s
+        ORDER BY timestamp ASC
+        """
+
+        df = pd.read_sql_query(
+            query,
+            self.engine,
+            params=(ticker, start_time, end_time),
+            parse_dates=['timestamp']
+        )
+
+        if df.empty:
+            return pd.DataFrame()
+
+        # Set index and rename columns to match expected format
+        df.set_index('timestamp', inplace=True)
+        df = df.rename(columns={
+            'open': 'Open',
+            'high': 'High',
+            'low': 'Low',
+            'close': 'Close',
+            'volume': 'Volume'
+        })
+
+        return df[['Open', 'High', 'Low', 'Close', 'Volume']]
 
     def close(self) -> None:
         """Close all connections in the pool and dispose of SQLAlchemy engine."""

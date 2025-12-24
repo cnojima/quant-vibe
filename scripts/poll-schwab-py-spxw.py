@@ -24,9 +24,8 @@ from collections import defaultdict
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from quant_vibe.data.schwab_py_client import SchwabPyClient
+from quant_vibe.data.schwab_dev_client import SchwabDevClient
 from quant_vibe.data.timescale_store import TimescaleStore
-from schwab.client import Client
 
 
 class OptionsQuotePoller:
@@ -58,7 +57,7 @@ class OptionsQuotePoller:
         self.strike_range_pct = strike_range_pct
 
         # Clients
-        self.schwab = SchwabPyClient()
+        self.schwab = SchwabDevClient()
         self.ts_store = TimescaleStore()
 
         # Tracking
@@ -103,11 +102,9 @@ class OptionsQuotePoller:
 
         for attempt in range(max_retries):
             try:
-                response = self.schwab.client.get_option_chain(
+                response = self.schwab.client.option_chains(
                     "$SPX",
-                    contract_type=Client.Options.ContractType.ALL,
-                    strike_count=strike_count,
-                    include_underlying_quote=True,
+                    strikeCount=strike_count
                 )
 
                 if response.status_code == 200:

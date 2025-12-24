@@ -268,6 +268,105 @@ class MassiveClient:
 
         return df
 
+    def get_index_bars(
+        self,
+        index_ticker: str = "I:SPX",
+        multiplier: int = 1,
+        timespan: str = "minute",
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        limit: int = 50000,
+        adjusted: bool = True,
+    ) -> pd.DataFrame:
+        """
+        Get historical aggregate bars for an index (e.g., SPX).
+
+        Args:
+            index_ticker: Index ticker (default: 'I:SPX' for S&P 500)
+                         Use 'I:' prefix for indices in Polygon/Massive API
+            multiplier: Size of timespan multiplier (e.g., 1 for 1 minute)
+            timespan: Timespan ('minute', 'hour', 'day', 'week', 'month')
+            from_date: Start date (YYYY-MM-DD or datetime)
+            to_date: End date (YYYY-MM-DD or datetime)
+            limit: Maximum number of results (default 50000)
+            adjusted: Whether results are adjusted for splits
+
+        Returns:
+            DataFrame with OHLCV data for the index
+            Columns: Open, High, Low, Close, Volume
+            Index: timestamp (datetime)
+
+        Example:
+            >>> client = MassiveClient()
+            >>> # Get 1-minute SPX bars for a specific day
+            >>> bars = client.get_index_bars(
+            ...     index_ticker="I:SPX",
+            ...     multiplier=1,
+            ...     timespan="minute",
+            ...     from_date="2025-12-23",
+            ...     to_date="2025-12-23"
+            ... )
+        """
+        # Set default dates if not provided
+        if not to_date:
+            to_date = datetime.now().strftime("%Y-%m-%d")
+        if not from_date:
+            from_dt = datetime.now() - timedelta(days=7)
+            from_date = from_dt.strftime("%Y-%m-%d")
+
+        # Get aggregates from Massive API
+        aggs: List[Agg] = self.client.get_aggs(
+            ticker=index_ticker,
+            multiplier=multiplier,
+            timespan=timespan,
+            from_=from_date,
+            to=to_date,
+            adjusted=adjusted,
+            limit=limit,
+        )
+
+        if not aggs:
+            return pd.DataFrame()
+
+        # Convert to list of dicts
+        agg_list = []
+        for agg in aggs:
+            agg_dict = {
+                "timestamp": agg.timestamp,
+                "open": agg.open,
+                "high": agg.high,
+                "low": agg.low,
+                "close": agg.close,
+                "volume": agg.volume if hasattr(agg, 'volume') else 0,
+            }
+
+            # Add optional fields if they exist
+            if hasattr(agg, "vwap"):
+                agg_dict["vwap"] = agg.vwap
+            if hasattr(agg, "transactions"):
+                agg_dict["transactions"] = agg.transactions
+
+            agg_list.append(agg_dict)
+
+        df = pd.DataFrame(agg_list)
+
+        # Convert timestamp to datetime
+        if "timestamp" in df.columns:
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+            df = df.set_index("timestamp")
+
+        # Capitalize standard OHLCV columns
+        rename_map = {
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "volume": "Volume",
+        }
+        df = df.rename(columns=rename_map)
+
+        return df
+
     def get_snapshot_option(self, underlying_ticker: str, option_ticker: str) -> dict:
         """
         Get snapshot data for a specific option contract.

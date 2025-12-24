@@ -17,11 +17,11 @@ APPROACH 1: Direct API (Current - Python 3.9+)
 Uses direct HTTP requests with bearer token authentication.
 Works with your current Python 3.9 setup.
 
-APPROACH 2: schwab-py Library (Future - Python 3.10+)
------------------------------------------------------
-Uses the official schwab-py wrapper with OAuth2 flow.
-Requires upgrading to Python 3.10+.
-See: https://github.com/alexgolec/schwab-py
+APPROACH 2: schwabdev Library (Recommended - Python 3.9+)
+----------------------------------------------------------
+Uses the schwabdev library with OAuth2 flow and automatic token management.
+Works with Python 3.9+.
+See: https://github.com/tylerebowers/Schwab-API-Python
 
 Setup Instructions:
 ==================
@@ -48,7 +48,7 @@ class SchwabClient:
     Client for Schwab API integration using direct HTTP requests.
     
     This uses bearer token authentication for simplicity.
-    For production, consider using schwab-py library with OAuth2.
+    For production, use SchwabDevClient with OAuth2 instead (schwabdev library).
     """
     
     BASE_URL = "https://api.schwabapi.com"

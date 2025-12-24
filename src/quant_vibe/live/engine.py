@@ -22,6 +22,10 @@ from dotenv import load_dotenv
 
 from .data_feed import RealtimeDataFeed
 from .state_store import StateStore
+from .order_manager import OrderManager
+from .position_manager import PositionManager
+from .strategy_executor import StrategyExecutor
+from .strategy_loader import StrategyLoader
 from .utils import (
     setup_logging, TradingState, EventType,
     is_market_open, get_market_hours
@@ -67,10 +71,12 @@ class LiveTradingEngine:
         self.state_store: Optional[StateStore] = None
         self.schwab_client: Optional[schwabdev.Client] = None
         self.streamer: Optional[schwabdev.Stream] = None
+        self.order_manager: Optional[OrderManager] = None
+        self.position_manager: Optional[PositionManager] = None
+        self.strategy_executor: Optional[StrategyExecutor] = None
 
-        # Strategies (to be loaded)
-        self.strategies: Dict[str, any] = {}
-        self.active_positions: Dict[str, List] = {}  # strategy_name -> [positions]
+        # Strategies (loaded from config)
+        self.strategies: List = []
 
         # Statistics
         self.start_time: Optional[datetime] = None
@@ -176,10 +182,43 @@ class LiveTradingEngine:
         self.streamer = schwabdev.Stream(self.schwab_client)
         self.logger.info("    ✓ Schwab client ready")
 
+        # Initialize OrderManager
+        self.logger.info("  - Initializing OrderManager...")
+        oco_config = self.config.get('oco', {})
+        self.order_manager = OrderManager(
+            schwab_client=self.schwab_client,
+            state_store=self.state_store,
+            paper_trading=self.paper_trading,
+            use_oco=oco_config.get('enabled', False),
+            oco_profit_target_pct=oco_config.get('profit_target_pct', 0.50),
+            oco_stop_loss_pct=oco_config.get('stop_loss_pct', -0.30),
+        )
+        self.logger.info("    ✓ OrderManager ready")
+
+        # Initialize PositionManager
+        self.logger.info("  - Initializing PositionManager...")
+        self.position_manager = PositionManager(
+            state_store=self.state_store,
+            logger=self.logger,
+        )
+        self.logger.info("    ✓ PositionManager ready")
+
         # Load strategies
         self.logger.info("  - Loading strategies...")
         self._load_strategies()
         self.logger.info(f"    ✓ Loaded {len(self.strategies)} strategies")
+
+        # Initialize StrategyExecutor
+        self.logger.info("  - Initializing StrategyExecutor...")
+        self.strategy_executor = StrategyExecutor(
+            strategies=self.strategies,
+            order_manager=self.order_manager,
+            position_manager=self.position_manager,
+            state_store=self.state_store,
+            underlying_ticker="SPX",
+            enabled=True,
+        )
+        self.logger.info("    ✓ StrategyExecutor ready")
 
         # Save initial state
         self.state_store.save_engine_state(
@@ -191,27 +230,11 @@ class LiveTradingEngine:
 
     def _load_strategies(self):
         """Load and initialize strategies from configuration."""
-        # TODO: Implement dynamic strategy loading
-        # For now, this is a placeholder
+        # Use StrategyLoader to load strategies from config
+        self.strategies = StrategyLoader.load_strategies(self.config)
 
-        enabled_strategies = self.config['strategies'].get('enabled', [])
-
-        for strategy_config in enabled_strategies:
-            strategy_name = strategy_config.get('name')
-            if not strategy_name:
-                continue
-
-            self.logger.info(f"    Loading strategy: {strategy_name}")
-
-            # Initialize position tracking for strategy
-            self.active_positions[strategy_name] = []
-
-            # Store strategy config
-            self.strategies[strategy_name] = {
-                'config': strategy_config,
-                'instance': None,  # Will be created later
-                'enabled': strategy_config.get('enabled', True)
-            }
+        for strategy in self.strategies:
+            self.logger.info(f"    Loaded strategy: {strategy.name}")
 
     def start(self):
         """Start the live trading engine."""
@@ -362,14 +385,46 @@ class LiveTradingEngine:
         """
         self.total_bars_processed += len(new_bars)
 
-        # TODO: Execute strategies on new bars
-        # For now, just log
         self.logger.debug(f"Received {len(new_bars)} new bars")
 
         # Check data staleness
         if self.data_feed.is_data_stale():
             self.logger.warning("Data is stale! Pausing new entries.")
-            # TODO: Implement pause logic
+            if self.strategy_executor:
+                self.strategy_executor.disable()
+            return
+        else:
+            if self.strategy_executor and not self.strategy_executor.enabled:
+                self.logger.info("Data recovered, re-enabling strategies")
+                self.strategy_executor.enable()
+
+        # Execute strategies on new bars
+        if self.strategy_executor and new_bars:
+            for bar in new_bars:
+                try:
+                    # Get current timestamp
+                    current_time = bar.get('timestamp')
+                    if not current_time:
+                        continue
+
+                    # Get underlying data (historical + current bar)
+                    underlying_data = self.data_feed.get_underlying_history(
+                        ticker="SPX",
+                        lookback_bars=100
+                    )
+
+                    # Get options data (current snapshot)
+                    options_data = self.data_feed.get_current_options_snapshot()
+
+                    # Execute strategy
+                    self.strategy_executor.on_bar(
+                        underlying_data=underlying_data,
+                        options_data=options_data,
+                        current_time=current_time,
+                    )
+
+                except Exception as e:
+                    self.logger.error(f"Error executing strategies on bar: {e}", exc_info=True)
 
     def _run_main_loop(self):
         """Main event loop."""

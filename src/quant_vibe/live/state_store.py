@@ -20,22 +20,44 @@ load_dotenv()
 class StateStore:
     """Manages persistence of trading engine state."""
 
-    def __init__(self, db_config: Optional[Dict] = None):
+    def __init__(self, db_config: Optional[Dict] = None, db_profile: Optional[str] = None):
         """
         Initialize state store.
 
         Args:
             db_config: Database configuration (defaults to TimescaleDB config from .env)
+            db_profile: Database profile to use ('local' or 'remote').
+                       If None, auto-detects from USE_REMOTE_TIMESCALE env var.
         """
         if db_config is None:
-            # Use TimescaleDB config from environment
-            db_config = {
-                'host': os.getenv('TIMESCALE_HOST', 'localhost'),
-                'port': int(os.getenv('TIMESCALE_PORT', '5432')),
-                'database': os.getenv('TIMESCALE_DB', 'options_data'),
-                'user': os.getenv('TIMESCALE_USER', 'quantvibe'),
-                'password': os.getenv('TIMESCALE_PASSWORD', 'quantvibe_dev')
-            }
+            # Determine which database to use
+            use_remote = os.getenv('USE_REMOTE_TIMESCALE', 'false').lower() == 'true'
+
+            # Allow manual override via db_profile parameter
+            if db_profile == 'remote':
+                use_remote = True
+            elif db_profile == 'local':
+                use_remote = False
+
+            # Use remote or local TimescaleDB config from environment
+            if use_remote:
+                db_config = {
+                    'host': os.getenv('REMOTE_TIMESCALE_HOST', '192.168.100.197'),
+                    'port': int(os.getenv('REMOTE_TIMESCALE_PORT', '5432')),
+                    'database': os.getenv('REMOTE_TIMESCALE_DB', 'options_data'),
+                    'user': os.getenv('REMOTE_TIMESCALE_USER', 'quantvibe'),
+                    'password': os.getenv('REMOTE_TIMESCALE_PASSWORD', 'quantvibe_dev')
+                }
+                print(f"🌐 Using REMOTE TimescaleDB: {db_config['host']}:{db_config['port']}")
+            else:
+                db_config = {
+                    'host': os.getenv('TIMESCALE_HOST', 'localhost'),
+                    'port': int(os.getenv('TIMESCALE_PORT', '5432')),
+                    'database': os.getenv('TIMESCALE_DB', 'options_data'),
+                    'user': os.getenv('TIMESCALE_USER', 'quantvibe'),
+                    'password': os.getenv('TIMESCALE_PASSWORD', 'quantvibe_dev')
+                }
+                print(f"💻 Using LOCAL TimescaleDB: {db_config['host']}:{db_config['port']}")
 
         # Create direct connection (simpler than pool for now)
         self.conn = psycopg2.connect(**db_config)

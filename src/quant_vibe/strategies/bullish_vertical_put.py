@@ -357,11 +357,11 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         max_date = pd.Timestamp(max_date).normalize().tz_localize(None)
 
         # Filter for PUT options within DTE range
-        # Option type is 'P' for puts (single letter format)
+        # Option type is 'PUT' for puts (uppercase word)
         valid_options = options_data[
             (options_data['expiration_date'] >= target_date) &
             (options_data['expiration_date'] <= max_date) &
-            (options_data['option_type'] == 'P')
+            (options_data['option_type'] == 'PUT')
         ]
 
         if valid_options.empty:
@@ -461,6 +461,10 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         # Use full dataset if available, otherwise fall back to current slice
         data_for_validation = full_options_data if full_options_data is not None else options_data
 
+        # DEBUG: Show what dataset is being used
+        print(f"     [DEBUG] Validation dataset: {len(data_for_validation)} rows, {data_for_validation['timestamp'].nunique()} unique timestamps")
+        print(f"     [DEBUG] Using {'FULL dataset' if full_options_data is not None else 'CURRENT SLICE only'}")
+
         is_valid, completeness = self.validate_data_completeness(
             contract_symbols=contract_symbols,
             options_data=data_for_validation,
@@ -549,8 +553,8 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         - We want the spread value to decrease (ideally to 0)
         - Profit = credit received - current spread value
         """
-        # Update position value
-        self.update_position_value(position, options_data)
+        # Update position value (with underlying data for intrinsic value)
+        self.update_position_value(position, options_data, underlying_data)
 
         # Check profit target
         if self.check_profit_target(position):

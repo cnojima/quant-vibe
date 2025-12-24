@@ -254,10 +254,13 @@ def parse_spxw_ticker(ticker: str) -> Dict[str, Any]:
         # Parse strike price (last 3 digits are decimals)
         strike_price = float(strike_str) / 1000.0
 
+        # Convert single letter to full word
+        contract_type_full = 'call' if contract_type.upper() == 'C' else 'put'
+
         return {
             'underlying': underlying,
             'expiration_date': exp_date,
-            'contract_type': contract_type.lower(),  # 'call' or 'put'
+            'contract_type': contract_type_full,  # 'call' or 'put'
             'strike_price': strike_price,
         }
     except Exception as e:

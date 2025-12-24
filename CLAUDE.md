@@ -11,7 +11,7 @@ python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install package in editable mode with all dependencies
-pip install -e ".[dev,backtest,indicators]"
+pip install -e ".[dev,backtest,schwab]"
 ```
 
 ### Testing
@@ -448,8 +448,8 @@ The system now supports **options backtesting and real-time data collection** fo
   - Automatic compression for historical data
   - Continuous aggregates (5min, 15min, 1hour, daily)
 - `MassiveClient`: Historical options data from Massive.io (formerly Polygon)
-- `SchwabPyClient`: Real-time quotes and OAuth2 authentication
-- `RealtimeOptionsCollector`: Websocket streaming for live options data
+- `SchwabDevClient`: Real-time quotes and OAuth2 authentication using schwabdev
+- Streaming service: Websocket streaming for live options data (uses schwabdev)
 - Database schema: `scripts/init_timescale.sql`
 
 **Options Strategy Layer** (`src/quant_vibe/strategies/`)
@@ -630,7 +630,7 @@ MASSIVE_API_KEY=your_massive_api_key
 SCHWAB_API_KEY=your_schwab_api_key
 SCHWAB_API_SECRET=your_schwab_secret
 SCHWAB_CALLBACK_URL=https://127.0.0.1:8182/
-SCHWAB_TOKEN_PATH=./tokens/schwab_token.json
+SCHWAB_TOKENS_DB=./tokens/schwabdev_tokens.db
 SCHWAB_ACCOUNT_NUMBER=your_account_number
 
 # TimescaleDB
