@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import schwabdev
 from dotenv import load_dotenv
-from enrich_stream_with_chain import OptionContractEnricher
+from streaming_service.enrich_stream_with_chain import OptionContractEnricher
 from quant_vibe.data.timescale_store import TimescaleStore
 
 load_dotenv()
@@ -81,7 +81,7 @@ class StreamDataBackfiller:
         limit: Optional[int] = None
     ) -> List[Tuple]:
         """
-        Find records from schwabdev_stream with missing Greeks/strike/IV.
+        Find records with missing Greeks/strike/IV.
 
         Args:
             start_date: Optional start date filter
