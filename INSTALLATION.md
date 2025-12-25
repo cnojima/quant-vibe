@@ -17,6 +17,7 @@ Includes:
 - Massive API client (options data)
 - TimescaleDB support (high-frequency data storage)
 - PostgreSQL connectivity (psycopg2)
+- **Redis messaging** (pub/sub for microservices)
 - Basic data utilities (numpy, pandas, requests)
 
 ```bash
@@ -89,23 +90,39 @@ After installation, verify it works:
 python -c "from quant_vibe.data import MassiveClient, TimescaleStore; print('✓ Installation successful')"
 ```
 
-### For TimescaleDB Setup
+### Infrastructure Setup (Redis + TimescaleDB)
 
-If using TimescaleDB for high-frequency options data:
+For live trading and real-time data streaming:
 
 ```bash
-# 1. Install core package
+# 1. Install core package (includes Redis client)
 pip install -e .
 
-# 2. Start TimescaleDB
-docker-compose up -d
+# 2. Start infrastructure services
+docker compose up -d redis timescaledb
 
-# 3. Verify connection
+# 3. Verify services are running
+docker compose ps
+# Should show: quant-vibe-redis and quant-vibe-timescaledb as "running"
+
+# 4. Test Redis connection
+docker exec quant-vibe-redis redis-cli ping
+# Expected output: PONG
+
+# 5. Test TimescaleDB connection
 docker exec -it quant-vibe-timescaledb psql -U quantvibe -d options_data
+# Should connect to database prompt
 
-# 4. Start collecting data
-python scripts/collect_options_1min_data.py --ticker SPX
+# 6. Test Redis messaging (pub/sub)
+python scripts/test_redis_messaging.py
+# Expected output:
+# ✅ SUCCESS: All messages received!
+# ✅ SUCCESS: Correct topics received!
 ```
+
+**What's Running:**
+- **Redis** (port 6379): Message broker for real-time data distribution
+- **TimescaleDB** (port 5432): Time-series database for historical data
 
 See [docs/TIMESCALE_SETUP.md](docs/TIMESCALE_SETUP.md) for detailed TimescaleDB documentation.
 
@@ -130,11 +147,38 @@ This package requires Python 3.9+. Check your version:
 python --version
 ```
 
+### Microservices Architecture
+
+The platform uses a **microservices architecture** with Redis pub/sub:
+
+```
+┌──────────────────────────────────────┐
+│  StreamingService                    │
+│  (Schwab API → Redis → TimescaleDB)  │
+└──────────────────────────────────────┘
+              ↓ Redis Topics
+┌──────────────────────────────────────┐
+│  LiveTradingService(s)               │
+│  (Redis → Strategies → Orders)       │
+└──────────────────────────────────────┘
+```
+
+**Start Order:**
+1. Infrastructure: `docker compose up -d redis timescaledb`
+2. StreamingService: `python scripts/stream_spxw_schwabdev.py`
+3. LiveTradingService: `python scripts/run_live_trading.py`
+
+**Why this architecture?**
+- ✅ Single Schwab API connection (no duplicate websockets)
+- ✅ Lower rate limits and API load
+- ✅ Multiple trading instances can share data
+- ✅ Services are decoupled and independently deployable
+
 ## Summary
 
 The package is now **modular and compatible with Python 3.14**. Install only what you need:
 
-- **Core**: Options data collection with Massive + TimescaleDB ✅
+- **Core**: Options data + **Redis messaging** + TimescaleDB ✅
 - **Backtest**: Add backtesting capabilities (optional)
 - **Indicators**: Add technical analysis (optional)
 - **Schwab**: Add Schwab API integration (optional)

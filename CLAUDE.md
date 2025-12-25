@@ -78,17 +78,80 @@ logger.error("Error with stack trace", exc_info=True)
 
 ### Peer Component Architecture
 
-The codebase is organized into three peer components at the `src/` level:
+The codebase is organized into four peer components at the `src/` level:
 
 1. **`src/backtest/`** - Top-level backtesting orchestrator (config-driven)
-2. **`src/streaming_service/`** - Real-time data streaming service
-3. **`src/quant_vibe/`** - Core library with reusable components
+2. **`src/streaming_service/`** - Real-time data streaming service (Schwab API → Redis → TimescaleDB)
+3. **`src/live_trading_service/`** - Live trading engine (Redis → Strategy Execution → Orders)
+4. **`src/quant_vibe/`** - Core library with reusable components
 
 This peer structure promotes:
 - ✅ **Separation of concerns**: Each component has a specific responsibility
 - ✅ **Reusability**: Components can import from quant_vibe library
 - ✅ **Independent deployment**: Each can be deployed/scaled separately
 - ✅ **Clear boundaries**: Top-level orchestrators vs. core framework
+
+### Messaging Architecture (Redis Pub/Sub)
+
+The system uses **Redis pub/sub** for real-time communication between services:
+
+**StreamingService** (Publisher):
+- Subscribes to Schwab API websocket once
+- Aggregates quotes into 1-minute bars
+- Publishes to Redis topics: `streaming.options_bars` and `streaming.underlying_bars`
+- Also persists to TimescaleDB for historical analysis
+
+**LiveTradingEngine** (Subscriber):
+- Subscribes to Redis topics (no direct Schwab connection)
+- Receives real-time bars from StreamingService
+- Executes strategies and places orders via Schwab REST API
+
+**Benefits**:
+- ✅ **Single streaming connection**: Avoids duplicate Schwab websocket connections
+- ✅ **Lower API load**: One connection shared across multiple consumers
+- ✅ **Retry mechanism**: Exponential backoff for API errors
+- ✅ **Decoupled services**: StreamingService and LiveTradingEngine run independently
+- ✅ **Scalable**: Multiple live trading instances can subscribe to same feed
+
+**Configuration**:
+```yaml
+# config/live_trading.yaml
+engine:
+  use_redis_feed: true  # Use Redis (recommended)
+  # use_redis_feed: false  # Legacy: direct Schwab connection
+
+redis:
+  host: null  # Uses REDIS_HOST env var or 'localhost'
+  port: null  # Uses REDIS_PORT env var or 6379
+  db: null    # Uses REDIS_DB env var or 0
+```
+
+**Message Broker API** (`src/quant_vibe/messaging/`):
+```python
+from quant_vibe.messaging import RedisMessageBroker, Topic
+
+# Publisher
+broker = RedisMessageBroker()
+broker.publish(Topic.OPTIONS_BARS, bar_data)
+
+# Subscriber
+def on_message(topic, data):
+    print(f"Received {topic}: {data}")
+
+broker.subscribe([Topic.OPTIONS_BARS], callback=on_message)
+broker.listen()  # Blocking
+```
+
+**Retry Utilities** (`src/quant_vibe/utils/retry.py`):
+```python
+from quant_vibe.utils import retry_with_backoff
+
+@retry_with_backoff(max_retries=3, backoff_base=2.0)
+def fetch_data():
+    response = client.quote("$SPX")
+    response.raise_for_status()
+    return response.json()
+```
 
 ### Core Module Structure
 
@@ -126,11 +189,13 @@ The codebase follows a layered architecture within `quant_vibe/`:
 - CLI entry point: `scripts/run_backtest.py`
 - Configuration: `config/backtest.yaml`
 
-**Live Trading Layer** (`src/quant_vibe/live/`)
-- `LiveTradingEngine`: Real-time trading orchestrator
-  - Coordinates data streaming, strategy execution, order management
+**Live Trading Service** (`src/live_trading_service/`)
+- `LiveTradingEngine`: Real-time trading orchestrator (peer component)
+  - Subscribes to Redis for market data from StreamingService
+  - Coordinates strategy execution, order management
   - Supports paper trading and live trading modes
   - Position tracking, risk management, state persistence
+- `RedisDataFeed`: Consumes data from Redis pub/sub
 - CLI entry point: `scripts/run_live_trading.py`
 - Configuration: `config/live_trading.yaml`
 

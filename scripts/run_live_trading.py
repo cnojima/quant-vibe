@@ -30,7 +30,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from quant_vibe.live import LiveTradingEngine
+from live_trading_service import LiveTradingEngine
 
 
 def print_banner():

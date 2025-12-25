@@ -1,0 +1,303 @@
+"""Message broker abstraction for inter-service communication.
+
+This module provides a message broker abstraction that can be implemented
+by different message queue backends (Redis, RabbitMQ, etc.).
+"""
+
+import json
+import os
+import time
+from abc import ABC, abstractmethod
+from typing import Any, Callable, Dict, List, Optional
+from datetime import datetime
+
+import redis
+
+from .topics import Topic
+
+
+class MessageBroker(ABC):
+    """Abstract base class for message brokers.
+
+    Provides pub/sub messaging between services with retry logic.
+    """
+
+    @abstractmethod
+    def publish(self, topic: Topic, message: Dict[str, Any]) -> bool:
+        """Publish a message to a topic.
+
+        Args:
+            topic: Topic to publish to
+            message: Message data (will be JSON serialized)
+
+        Returns:
+            True if published successfully, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    def subscribe(self, topics: List[Topic], callback: Callable[[Topic, Dict[str, Any]], None]) -> None:
+        """Subscribe to topics and process messages with callback.
+
+        Args:
+            topics: List of topics to subscribe to
+            callback: Function to call for each message (topic, message_data)
+        """
+        pass
+
+    @abstractmethod
+    def unsubscribe(self, topics: Optional[List[Topic]] = None) -> None:
+        """Unsubscribe from topics.
+
+        Args:
+            topics: Topics to unsubscribe from (all if None)
+        """
+        pass
+
+    @abstractmethod
+    def close(self) -> None:
+        """Close broker connection."""
+        pass
+
+
+class RedisMessageBroker(MessageBroker):
+    """Redis-based message broker implementation.
+
+    Uses Redis pub/sub for real-time messaging between services.
+    Provides automatic reconnection and exponential backoff.
+    """
+
+    def __init__(
+        self,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        password: Optional[str] = None,
+        db: Optional[int] = None,
+        max_retries: int = 5,
+        retry_backoff_base: float = 2.0,
+    ):
+        """Initialize Redis message broker.
+
+        Args:
+            host: Redis host (defaults to REDIS_HOST env var or 'localhost')
+            port: Redis port (defaults to REDIS_PORT env var or 6379)
+            password: Redis password (defaults to REDIS_PASSWORD env var)
+            db: Redis database number (defaults to REDIS_DB env var or 0)
+            max_retries: Maximum number of retry attempts
+            retry_backoff_base: Base for exponential backoff (seconds)
+        """
+        self.host = host or os.getenv("REDIS_HOST", "localhost")
+        self.port = int(port or os.getenv("REDIS_PORT", 6379))
+        self.password = password or os.getenv("REDIS_PASSWORD", None)
+        self.db = int(db or os.getenv("REDIS_DB", 0))
+
+        self.max_retries = max_retries
+        self.retry_backoff_base = retry_backoff_base
+
+        # Connection
+        self.client: Optional[redis.Redis] = None
+        self.pubsub: Optional[redis.client.PubSub] = None
+
+        # Subscription state
+        self._subscribed_topics: List[Topic] = []
+        self._callback: Optional[Callable[[Topic, Dict[str, Any]], None]] = None
+
+        # Connect with retry
+        self._connect()
+
+    def _connect(self) -> None:
+        """Connect to Redis with retry logic."""
+        for attempt in range(self.max_retries):
+            try:
+                self.client = redis.Redis(
+                    host=self.host,
+                    port=self.port,
+                    password=self.password if self.password else None,
+                    db=self.db,
+                    decode_responses=True,
+                    socket_connect_timeout=5,
+                    socket_keepalive=True,
+                )
+
+                # Test connection
+                self.client.ping()
+                return
+
+            except (redis.ConnectionError, redis.TimeoutError) as e:
+                if attempt == self.max_retries - 1:
+                    raise ConnectionError(
+                        f"Failed to connect to Redis at {self.host}:{self.port} "
+                        f"after {self.max_retries} attempts: {e}"
+                    )
+
+                # Exponential backoff
+                wait_time = self.retry_backoff_base ** attempt
+                time.sleep(wait_time)
+
+    def publish(self, topic: Topic, message: Dict[str, Any]) -> bool:
+        """Publish a message to a topic.
+
+        Args:
+            topic: Topic to publish to
+            message: Message data (will be JSON serialized)
+
+        Returns:
+            True if published successfully, False otherwise
+        """
+        if not self.client:
+            return False
+
+        try:
+            # Add metadata
+            enriched_message = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "topic": str(topic),
+                "data": message,
+            }
+
+            # Serialize and publish
+            serialized = json.dumps(enriched_message)
+            self.client.publish(str(topic), serialized)
+            return True
+
+        except (redis.ConnectionError, redis.TimeoutError):
+            # Retry connection
+            try:
+                self._connect()
+                serialized = json.dumps(enriched_message)
+                self.client.publish(str(topic), serialized)
+                return True
+            except Exception:
+                return False
+
+        except Exception:
+            return False
+
+    def subscribe(self, topics: List[Topic], callback: Callable[[Topic, Dict[str, Any]], None]) -> None:
+        """Subscribe to topics and process messages with callback.
+
+        Args:
+            topics: List of topics to subscribe to
+            callback: Function to call for each message (topic, message_data)
+        """
+        if not self.client:
+            raise ConnectionError("Not connected to Redis")
+
+        self._subscribed_topics = topics
+        self._callback = callback
+
+        # Create pubsub instance
+        self.pubsub = self.client.pubsub()
+
+        # Subscribe to all topics
+        topic_strs = {str(topic) for topic in topics}
+        self.pubsub.subscribe(*topic_strs)
+
+    def listen(self, timeout: Optional[float] = None) -> None:
+        """Listen for messages and invoke callback.
+
+        This is a blocking call that listens for messages indefinitely.
+
+        Args:
+            timeout: Timeout in seconds for each message poll (None = block forever)
+        """
+        if not self.pubsub:
+            raise RuntimeError("Not subscribed to any topics")
+
+        if not self._callback:
+            raise RuntimeError("No callback registered")
+
+        try:
+            for message in self.pubsub.listen():
+                if message["type"] == "message":
+                    try:
+                        # Deserialize message
+                        data = json.loads(message["data"])
+
+                        # Extract topic and message data
+                        topic_str = data.get("topic")
+                        message_data = data.get("data", {})
+
+                        # Find matching topic enum
+                        topic = None
+                        for t in self._subscribed_topics:
+                            if str(t) == topic_str:
+                                topic = t
+                                break
+
+                        if topic:
+                            # Invoke callback
+                            self._callback(topic, message_data)
+
+                    except (json.JSONDecodeError, KeyError, TypeError):
+                        # Skip malformed messages
+                        continue
+
+        except KeyboardInterrupt:
+            pass
+
+    def get_message(self, timeout: float = 0.1) -> Optional[tuple[Topic, Dict[str, Any]]]:
+        """Get a single message without blocking (non-blocking mode).
+
+        Args:
+            timeout: Timeout in seconds (0.1 = 100ms)
+
+        Returns:
+            (topic, message_data) if message received, None otherwise
+        """
+        if not self.pubsub:
+            return None
+
+        message = self.pubsub.get_message(timeout=timeout)
+
+        if message and message["type"] == "message":
+            try:
+                # Deserialize message
+                data = json.loads(message["data"])
+
+                # Extract topic and message data
+                topic_str = data.get("topic")
+                message_data = data.get("data", {})
+
+                # Find matching topic enum
+                for topic in self._subscribed_topics:
+                    if str(topic) == topic_str:
+                        # Invoke callback if registered
+                        if self._callback:
+                            self._callback(topic, message_data)
+
+                        return (topic, message_data)
+
+            except (json.JSONDecodeError, KeyError, TypeError):
+                return None
+
+        return None
+
+    def unsubscribe(self, topics: Optional[List[Topic]] = None) -> None:
+        """Unsubscribe from topics.
+
+        Args:
+            topics: Topics to unsubscribe from (all if None)
+        """
+        if not self.pubsub:
+            return
+
+        if topics is None:
+            # Unsubscribe from all
+            self.pubsub.unsubscribe()
+            self._subscribed_topics = []
+        else:
+            # Unsubscribe from specific topics
+            topic_strs = [str(t) for t in topics]
+            self.pubsub.unsubscribe(*topic_strs)
+            self._subscribed_topics = [t for t in self._subscribed_topics if t not in topics]
+
+    def close(self) -> None:
+        """Close broker connection."""
+        if self.pubsub:
+            self.pubsub.close()
+            self.pubsub = None
+
+        if self.client:
+            self.client.close()
+            self.client = None

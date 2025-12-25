@@ -15,6 +15,11 @@ engine:
   # false = Live orders submitted to Schwab API
   paper_trading: true
 
+  # Data feed mode (RECOMMENDED: use_redis_feed = true)
+  # true = Subscribe to StreamingService via Redis (single connection, lower load)
+  # false = Create direct schwabdev connection (legacy mode, duplicate connections)
+  use_redis_feed: true
+
   # Maximum concurrent positions across all strategies
   max_positions: 5
 
@@ -77,15 +82,27 @@ data_feed:
   window_size: 100  # Last 100 minutes
 
   # Bar aggregation interval (seconds)
+  # NOTE: Only used if use_redis_feed = false
   aggregate_interval_seconds: 60  # 1-minute bars
 
   # Days to expiration range for streaming
+  # NOTE: Only used if use_redis_feed = false
+  # If using Redis feed, configure these in StreamingService
   max_dte: 45
   min_dte: 0
 
   # Strike range as percentage of underlying price
-  # 0.10 = ±10% from ATM
-  strike_range_pct: 0.10
+  # NOTE: Only used if use_redis_feed = false
+  # If using Redis feed, configure this in StreamingService
+  strike_range_pct: 0.10  # ±10% from ATM
+
+# Redis Configuration (for use_redis_feed = true)
+redis:
+  # Redis connection settings
+  # Leave as null to use environment variables (REDIS_HOST, REDIS_PORT, REDIS_DB)
+  host: null  # Defaults to REDIS_HOST env var or 'localhost'
+  port: null  # Defaults to REDIS_PORT env var or 6379
+  db: null    # Defaults to REDIS_DB env var or 0
 
 # Risk Management
 risk:

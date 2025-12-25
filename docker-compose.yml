@@ -1,6 +1,21 @@
-version: '3.8'
-
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: quant-vibe-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    networks:
+      - quant-vibe-network
+
   timescaledb:
     image: timescale/timescaledb:latest-pg16
     container_name: quant-vibe-timescaledb
@@ -45,6 +60,8 @@ services:
     container_name: quant-vibe-streaming
     restart: unless-stopped
     depends_on:
+      redis:
+        condition: service_healthy
       timescaledb:
         condition: service_healthy
     environment:
@@ -53,6 +70,9 @@ services:
       SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}
       SCHWAB_CALLBACK_URL: ${SCHWAB_CALLBACK_URL}
       SCHWAB_ACCOUNT_NUMBER: ${SCHWAB_ACCOUNT_NUMBER}
+      # Redis connection (use service name as host)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       # TimescaleDB connection (use service name as host)
       TIMESCALE_HOST: timescaledb
       TIMESCALE_PORT: 5432
@@ -62,19 +82,59 @@ services:
     volumes:
       # Mount entire repo for live code updates
       - .:/app
-      # Persist schwabdev tokens across container restarts
-      - schwab_tokens:/app/tokens
+      # Bind mount tokens for easy sharing across services (development)
+      - ./tokens:/app/tokens
     networks:
       - quant-vibe-network
-    # Override default CMD if needed
     command: ["python", "scripts/stream_spxw_schwabdev.py"]
+
+  live_trading:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: quant-vibe-live-trading
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      streaming:
+        condition: service_started
+    environment:
+      # Schwab API credentials (for order execution only)
+      SCHWAB_API_KEY: ${SCHWAB_API_KEY}
+      SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}
+      SCHWAB_CALLBACK_URL: ${SCHWAB_CALLBACK_URL}
+      SCHWAB_ACCOUNT_NUMBER: ${SCHWAB_ACCOUNT_NUMBER}
+      # Redis connection (use service name as host)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # TimescaleDB connection (use service name as host)
+      TIMESCALE_HOST: timescaledb
+      TIMESCALE_PORT: 5432
+      TIMESCALE_DB: options_data
+      TIMESCALE_USER: quantvibe
+      TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD:-quantvibe_dev}
+    volumes:
+      # Mount entire repo for live code updates
+      - .:/app
+      # Bind mount tokens for easy sharing across services (development)
+      - ./tokens:/app/tokens
+      # Persist state across container restarts
+      - live_trading_state:/app/state
+    networks:
+      - quant-vibe-network
+    command: ["python", "scripts/run_live_trading.py"]
 
 networks:
   quant-vibe-network:
     driver: bridge
 
 volumes:
+  redis_data:
+    driver: local
   timescaledb_data:
     driver: local
-  schwab_tokens:
+  live_trading_state:
     driver: local

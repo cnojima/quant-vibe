@@ -18,6 +18,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from quant_vibe.data.timescale_store import TimescaleStore
 from quant_vibe.config.logging_config import setup_normalized_logging
+from quant_vibe.messaging import RedisMessageBroker, Topic
+from quant_vibe.utils.retry import retry_with_backoff
 from streaming_service.config import StreamingConfig
 from streaming_service.token_manager import TokenManager
 from streaming_service.aggregator import BarAggregator
@@ -84,6 +86,21 @@ class StreamingService:
         )
         self.ts_store = TimescaleStore()
         self.enricher = OptionContractEnricher(self.schwab_client)
+
+        # Initialize message broker (Redis) if enabled
+        self.message_broker: Optional[RedisMessageBroker] = None
+        if self.config.enable_redis:
+            try:
+                self.message_broker = RedisMessageBroker(
+                    host=self.config.redis_host,
+                    port=self.config.redis_port,
+                    db=self.config.redis_db,
+                )
+                self.logger.info("  ✓ Redis message broker connected")
+            except Exception as e:
+                self.logger.warning(f"  ⚠️  Redis connection failed: {e}")
+                self.logger.warning("  ⚠️  Continuing without Redis pub/sub")
+                self.message_broker = None
 
         self.logger.info("  ✓ Token manager initialized")
         self.logger.info("  ✓ Bar aggregator initialized")
@@ -179,8 +196,9 @@ class StreamingService:
 
         return contracts
 
+    @retry_with_backoff(max_retries=3, backoff_base=2.0, exceptions=(Exception,))
     def _get_spx_price(self) -> float:
-        """Get current SPX price.
+        """Get current SPX price with retry logic.
 
         Returns:
             SPX price (or default 6000.0 if fetch fails)
@@ -312,24 +330,38 @@ class StreamingService:
             self.logger.info(f"  📊 [{now.strftime('%H:%M:%S')}] Messages: {self.message_count} | Buffered symbols: {self.aggregator.get_buffered_symbol_count()}")
 
     def _flush_bars(self):
-        """Flush aggregated option bars to database."""
+        """Flush aggregated option bars to database and publish to Redis."""
         bars = self.aggregator.flush()
 
         if bars:
             try:
+                # Save to TimescaleDB
                 inserted = self.ts_store.bulk_insert_option_bars(bars)
                 self.logger.info(f"  ✓ Inserted {inserted} option bars")
+
+                # Publish to Redis for real-time consumers
+                if self.message_broker:
+                    for bar in bars:
+                        self.message_broker.publish(Topic.OPTIONS_BARS, bar)
+
             except Exception as e:
                 self.logger.error(f"  ✗ Database error (options): {e}", exc_info=True)
 
     def _flush_underlying_bars(self):
-        """Flush aggregated underlying bars to database."""
+        """Flush aggregated underlying bars to database and publish to Redis."""
         bars = self.underlying_aggregator.flush()
 
         if bars:
             try:
+                # Save to TimescaleDB
                 inserted = self.ts_store.bulk_insert_underlying_bars(bars)
                 self.logger.info(f"  ✓ Inserted {inserted} underlying bars")
+
+                # Publish to Redis for real-time consumers
+                if self.message_broker:
+                    for bar in bars:
+                        self.message_broker.publish(Topic.UNDERLYING_BARS, bar)
+
             except Exception as e:
                 self.logger.error(f"  ✗ Database error (underlying): {e}", exc_info=True)
 
@@ -469,5 +501,9 @@ class StreamingService:
 
         self.logger.info("Closing database...")
         self.ts_store.close()
+
+        if self.message_broker:
+            self.logger.info("Closing message broker...")
+            self.message_broker.close()
 
         self.logger.info("✅ Service stopped")

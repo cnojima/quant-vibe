@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Any
 import pandas as pd
 import pytz
 
-from ..strategies.options_base import OptionsStrategy, OptionsPosition
+from quant_vibe.strategies.options_base import OptionsStrategy, OptionsPosition
 from .order_manager import OrderManager
 from .position_manager import PositionManager
 from .state_store import StateStore

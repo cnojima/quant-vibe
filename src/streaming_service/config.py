@@ -17,6 +17,10 @@ class StreamingConfig:
         max_symbols_per_subscription: Max symbols per Schwab subscription (default: 500)
         tokens_db_path: Path to schwabdev token database
         enrichment_refresh_minutes: Minutes between contract cache refreshes (default: 15)
+        enable_redis: Enable Redis pub/sub for real-time messaging (default: True)
+        redis_host: Redis host (default: from env or 'localhost')
+        redis_port: Redis port (default: from env or 6379)
+        redis_db: Redis database number (default: from env or 0)
     """
 
     max_dte: int = 45
@@ -27,6 +31,10 @@ class StreamingConfig:
     max_symbols_per_subscription: int = 500
     tokens_db_path: str = "tokens/schwabdev_tokens.db"
     enrichment_refresh_minutes: int = 15
+    enable_redis: bool = True
+    redis_host: Optional[str] = None
+    redis_port: Optional[int] = None
+    redis_db: Optional[int] = None
 
     def __post_init__(self):
         """Validate configuration."""

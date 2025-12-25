@@ -6,9 +6,9 @@ Provides utilities to load and configure strategies from YAML configuration.
 import logging
 from typing import List, Dict, Any, Optional
 
-from ..strategies.options_base import OptionsStrategy
-from ..strategies.bullish_vertical_put import BullishVerticalPutStrategy
-from ..strategies.bullish_vertical_call import BullishVerticalCallStrategy
+from quant_vibe.strategies.options_base import OptionsStrategy
+from quant_vibe.strategies.bullish_vertical_put import BullishVerticalPutStrategy
+from quant_vibe.strategies.bullish_vertical_call import BullishVerticalCallStrategy
 
 logger = logging.getLogger(__name__)
 
