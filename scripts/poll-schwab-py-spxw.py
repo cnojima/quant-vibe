@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from quant_vibe.data.schwab_dev_client import SchwabDevClient
 from quant_vibe.data.timescale_store import TimescaleStore
+from quant_vibe.utils import normalize_option_ticker
 
 
 class OptionsQuotePoller:
@@ -261,10 +262,13 @@ class OptionsQuotePoller:
                     if not last or last <= 0:
                         continue
 
+                    # Normalize ticker to canonical format (remove spaces)
+                    normalized_ticker = normalize_option_ticker(ticker)
+
                     # Create bar (using last price for OHLC since we poll once per minute)
                     bar = {
                         'timestamp': bar_time,
-                        'option_ticker': ticker,
+                        'option_ticker': normalized_ticker,
                         'underlying_ticker': 'SPX',
                         'open': last,
                         'high': last,

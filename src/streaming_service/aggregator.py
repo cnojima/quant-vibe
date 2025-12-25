@@ -1,9 +1,16 @@
 """Bar aggregation logic for streaming quotes."""
 
+import sys
+from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 from typing import Dict, List, Optional
 import re
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from quant_vibe.utils import normalize_option_ticker
 
 
 def parse_expiration_from_ticker(ticker: str) -> Optional[datetime]:
@@ -127,9 +134,12 @@ class BarAggregator:
             # Get contract type
             contract_type = self._parse_contract_type(latest_quote, symbol)
 
+            # Normalize option ticker (remove spaces and O: prefix)
+            normalized_ticker = normalize_option_ticker(symbol)
+
             bar = {
                 'timestamp': flush_timestamp,
-                'option_ticker': symbol,
+                'option_ticker': normalized_ticker,
                 'underlying_ticker': 'SPX',
                 'open': prices[0],
                 'high': max(prices),

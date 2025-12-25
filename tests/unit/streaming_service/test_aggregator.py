@@ -1,7 +1,13 @@
 """Unit tests for BarAggregator."""
 
+import sys
+from pathlib import Path
 import pytest
 from datetime import datetime, timedelta
+
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
+
 from streaming_service.aggregator import BarAggregator, parse_expiration_from_ticker
 
 

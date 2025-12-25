@@ -325,9 +325,9 @@ def get_date_range() -> Tuple[datetime, datetime]:
             f"Market hours: {start_date.strftime('%Y-%m-%d %H:%M')} to "
             f"{end_date.strftime('%Y-%m-%d %H:%M')} UTC"
         )
-        confirm = input("Is this correct? (y/n): ").strip().lower()
+        confirm = input("Is this correct? (Y/n): ").strip().lower()
 
-        if confirm == "y":
+        if confirm == "y" or confirm == "":
             print()
             return start_date, end_date
         else:

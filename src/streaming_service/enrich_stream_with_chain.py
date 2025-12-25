@@ -18,6 +18,8 @@ import schwabdev
 from dotenv import load_dotenv
 import os
 
+from quant_vibe.utils import normalize_option_ticker
+
 load_dotenv()
 
 
@@ -76,9 +78,12 @@ class OptionContractEnricher:
                             if not symbol:
                                 continue
 
-                            # Cache contract details
-                            self.contract_cache[symbol] = {
-                                'symbol': symbol,
+                            # Normalize symbol before caching
+                            normalized_symbol = normalize_option_ticker(symbol)
+
+                            # Cache contract details (use normalized symbol as key)
+                            self.contract_cache[normalized_symbol] = {
+                                'symbol': normalized_symbol,
                                 'strike_price': contract.get('strikePrice'),
                                 'expiration_date': contract.get('expirationDate'),
                                 'contract_type': 'call' if option_type == 'callExpDateMap' else 'put',
@@ -113,7 +118,7 @@ class OptionContractEnricher:
         Get cached contract details for a symbol.
 
         Args:
-            symbol: Option symbol (e.g., "SPXW  251219C06100000")
+            symbol: Option symbol (e.g., "SPXW  251219C06100000" or "SPXW251219C06100000")
 
         Returns:
             Dict with contract details or None if not cached
@@ -122,7 +127,9 @@ class OptionContractEnricher:
         if self.should_refresh():
             self.refresh_contract_details()
 
-        return self.contract_cache.get(symbol)
+        # Normalize symbol for lookup
+        normalized_symbol = normalize_option_ticker(symbol)
+        return self.contract_cache.get(normalized_symbol)
 
     def should_refresh(self) -> bool:
         """Check if cache should be refreshed."""
