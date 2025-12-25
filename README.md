@@ -4,10 +4,13 @@ A Python-based quantitative trading platform for backtesting trading strategies,
 
 ## Features
 
-- **Market Data Integration**: Fetch historical and real-time market data from multiple providers (Alpha Vantage, Polygon, etc.)
+- **Market Data Integration**: Fetch historical and real-time market data from multiple providers (Alpha Vantage, Polygon, Massive, Schwab)
+- **Options Trading**: Full support for SPXW options with 1-minute bars, Greeks, and bid/ask data
 - **Technical Indicators**: Calculate common technical indicators (SMA, EMA, RSI, MACD, and more)
 - **Trading Strategies**: Implement and test custom trading strategies with a clean, extensible API
-- **Backtesting Engine**: Test strategies against historical data with realistic commission modeling
+- **Config-Driven Backtesting**: Run backtests via YAML configuration files with the orchestrator
+- **Config-Driven Live Trading**: Paper and live trading via YAML configuration
+- **TimescaleDB Integration**: High-performance time-series database for options data
 - **Performance Analytics**: Comprehensive performance metrics including Sharpe ratio, max drawdown, and win rate
 
 ## Installation
@@ -72,38 +75,71 @@ store.save("AAPL", data)
 
 ### Run a Backtest
 
-```python
-from quant_vibe.strategies import SMACrossoverStrategy
-from quant_vibe.backtesting import BacktestEngine, PerformanceMetrics
+**Recommended: Config-Driven Approach**
 
-# Create strategy
-strategy = SMACrossoverStrategy(fast_period=50, slow_period=200)
-
-# Run backtest
-engine = BacktestEngine(initial_capital=100000.0)
-portfolio = engine.run(strategy, data)
-
-# Analyze performance
-metrics = PerformanceMetrics.calculate(portfolio)
-print(f"Total Return: {metrics['total_return']:.2f}%")
-print(f"Sharpe Ratio: {metrics['sharpe_ratio']:.2f}")
+1. Configure your backtest in `config/backtest.yaml`:
+```yaml
+strategies:
+  enabled:
+    - name: bullish_vertical_put
+      enabled: true
+      params:
+        spread_width: 10.0
+        profit_target_min: 0.5
 ```
+
+2. Run the backtest:
+```bash
+# Run all enabled strategies
+python scripts/run_backtest.py
+
+# Run specific strategy
+python scripts/run_backtest.py --strategy bullish_vertical_put
+```
+
+**Alternative: Programmatic Approach**
+
+```python
+from backtest import BacktestOrchestrator
+
+orchestrator = BacktestOrchestrator('config/backtest.yaml')
+results = orchestrator.run()
+```
+
+### Run Live Trading
+
+1. Configure strategies in `config/live_trading.yaml`
+2. Run the engine:
+```bash
+python scripts/run_live_trading.py
+```
+
+**Note**: Starts in paper trading mode by default for safety.
 
 ## Project Structure
 
 ```
 quant-vibe/
-├── src/quant_vibe/
-│   ├── data/              # Market data fetching and storage
-│   ├── indicators/        # Technical indicator calculations
-│   ├── strategies/        # Trading strategy implementations
-│   ├── backtesting/       # Backtesting engine and performance
-│   └── utils/             # Utility functions
+├── src/
+│   ├── backtest/          # Top-level backtesting orchestrator (peer)
+│   ├── streaming_service/ # Real-time data streaming service (peer)
+│   └── quant_vibe/        # Core library (peer)
+│       ├── live/          # Live trading engine
+│       ├── backtesting/   # Core backtesting framework (reusable)
+│       ├── data/          # Market data fetching and storage
+│       ├── indicators/    # Technical indicator calculations
+│       ├── strategies/    # Trading strategy implementations
+│       └── utils/         # Utility functions
+├── config/
+│   ├── backtest.yaml      # Backtest configuration
+│   └── live_trading.yaml  # Live trading configuration
+├── scripts/
+│   ├── run_backtest.py    # Backtest CLI entry point
+│   └── run_live_trading.py # Live trading CLI entry point
 ├── tests/
 │   ├── unit/              # Unit tests
 │   └── integration/       # Integration tests
-├── examples/              # Example scripts
-└── scripts/               # Utility scripts
+└── reports/               # Output directory for results
 ```
 
 ## Development

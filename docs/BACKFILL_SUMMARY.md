@@ -3,7 +3,7 @@
 ## What Was Created
 
 ### 1. Stream Enrichment (Real-time)
-**File**: `scripts/enrich_stream_with_chain.py`
+**File**: `src/streaming_service/enrich_stream_with_chain.py`
 
 **Purpose**: Fetch contract details from Schwab option chain API and cache them to enrich streaming data in real-time.
 
@@ -17,7 +17,7 @@
 **Integration**: Automatically integrated into `scripts/stream_spxw_schwabdev.py`
 
 ### 2. Backfill Utility (Off-hours)
-**File**: `scripts/backfill_stream_greeks.py`
+**File**: `scripts/backfill/backfill_stream_greeks.py`
 
 **Purpose**: Fill in missing Greeks, strike price, and IV for existing streaming data records that have NULL values.
 
@@ -176,28 +176,28 @@ Streaming data... (Press Ctrl+C to stop)
 
 #### Step 1: Check what needs backfilling
 ```bash
-python scripts/backfill_stream_greeks.py --stats-only
+python scripts/backfill/backfill_stream_greeks.py --stats-only
 ```
 
 #### Step 2: Test with dry run
 ```bash
-python scripts/backfill_stream_greeks.py --dry-run --limit 100
+python scripts/backfill/backfill_stream_greeks.py --dry-run --limit 100
 ```
 
 #### Step 3: Run full backfill
 ```bash
-python scripts/backfill_stream_greeks.py
+python scripts/backfill/backfill_stream_greeks.py
 ```
 
 ## Files Reference
 
 | File | Purpose | When to Use |
 |------|---------|-------------|
-| `scripts/enrich_stream_with_chain.py` | Enrichment module | Auto-imported by stream |
+| `src/streaming_service/enrich_stream_with_chain.py` | Enrichment module | Auto-imported by stream |
 | `scripts/stream_spxw_schwabdev.py` | Streaming with enrichment | Real-time data collection |
-| `scripts/backfill_stream_greeks.py` | Backfill utility | Fill missing data in DB |
+| `scripts/backfill/backfill_stream_greeks.py` | Backfill utility | Fill missing data in DB |
 | `docs/STREAM_ENRICHMENT.md` | Complete guide | Full documentation |
-| `scripts/README_BACKFILL.md` | Quick reference | Backfill commands |
+| `scripts/backfill/README_BACKFILL.md` | Quick reference | Backfill commands |
 
 ## Data Sources
 

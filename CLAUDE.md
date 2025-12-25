@@ -48,23 +48,51 @@ ruff check --fix src tests examples
 mypy src
 ```
 
-### Running Examples
-```bash
-# Fetch market data (requires API keys in .env)
-python examples/fetch_market_data.py
+### Logging
 
-# Calculate technical indicators
-python examples/calculate_indicators.py
+All components use normalized logging format: `[datetime][app][level][msg]`
 
-# Run a simple backtest
-python examples/simple_backtest.py
+**Setup logging in your component:**
+```python
+from quant_vibe.config.logging_config import setup_normalized_logging
+
+logger = setup_normalized_logging(
+    app_name="my_component",  # backtest, live, streaming_service, etc.
+    log_level="INFO",
+    log_dir="logs/my_component",
+)
+
+logger.info("Normal message")
+logger.warning("Warning message")
+logger.error("Error with stack trace", exc_info=True)
 ```
+
+**Features:**
+- Normalized format: `[2025-12-25 12:00:00][backtest][INFO    ] Message`
+- Multi-line messages with proper indentation
+- Stack trace handling with alignment
+- Dual output: console + file
+- Per-component log files: `logs/{app_name}/{app_name}_{date}.log`
 
 ## Architecture Overview
 
+### Peer Component Architecture
+
+The codebase is organized into three peer components at the `src/` level:
+
+1. **`src/backtest/`** - Top-level backtesting orchestrator (config-driven)
+2. **`src/streaming_service/`** - Real-time data streaming service
+3. **`src/quant_vibe/`** - Core library with reusable components
+
+This peer structure promotes:
+- ✅ **Separation of concerns**: Each component has a specific responsibility
+- ✅ **Reusability**: Components can import from quant_vibe library
+- ✅ **Independent deployment**: Each can be deployed/scaled separately
+- ✅ **Clear boundaries**: Top-level orchestrators vs. core framework
+
 ### Core Module Structure
 
-The codebase follows a layered architecture:
+The codebase follows a layered architecture within `quant_vibe/`:
 
 **Data Layer** (`src/quant_vibe/data/`)
 - `MarketDataClient`: Fetches data from external APIs (Alpha Vantage, Polygon, etc.)
@@ -88,6 +116,23 @@ The codebase follows a layered architecture:
   - Models transaction costs via commission parameter
   - Returns portfolio DataFrame with complete history
 - `PerformanceMetrics`: Calculates analytics (Sharpe ratio, max drawdown, win rate, etc.)
+
+**Top-Level Backtesting** (`src/backtest/`)
+- `BacktestOrchestrator`: High-level engine for config-driven backtests
+  - Loads strategies and parameters from YAML configuration
+  - Handles data loading, execution, reporting, and saving
+  - Peer component to quant_vibe and streaming_service
+- `BacktestConfig`: Configuration loader and validator
+- CLI entry point: `scripts/run_backtest.py`
+- Configuration: `config/backtest.yaml`
+
+**Live Trading Layer** (`src/quant_vibe/live/`)
+- `LiveTradingEngine`: Real-time trading orchestrator
+  - Coordinates data streaming, strategy execution, order management
+  - Supports paper trading and live trading modes
+  - Position tracking, risk management, state persistence
+- CLI entry point: `scripts/run_live_trading.py`
+- Configuration: `config/live_trading.yaml`
 
 **Utilities Layer** (`src/quant_vibe/utils/`)
 - `TeeOutput`: Dual output writer (console + file logging)
@@ -114,14 +159,111 @@ The codebase follows a layered architecture:
 3. **Backtesting**: `BacktestEngine` applies signals to historical data → simulates trades
 4. **Analysis**: `PerformanceMetrics` computes statistics on backtest results
 
+### Top-Level Architecture (Backtesting & Live Trading)
+
+The codebase provides two parallel top-level orchestration layers for running strategies:
+
+**1. Backtesting (Config-Driven)**
+```
+┌─────────────────────────────────────────────────────────┐
+│  scripts/run_backtest.py (CLI Entry Point)             │
+│  ├─ Parses command-line arguments                       │
+│  └─ Initializes BacktestOrchestrator                    │
+└─────────────────────────────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│  src/backtest/engine.py                                 │
+│  BacktestOrchestrator (Peer component)                  │
+│  ├─ Loads config/backtest.yaml                          │
+│  ├─ Validates configuration                             │
+│  ├─ Loads data from TimescaleDB (via quant_vibe)        │
+│  ├─ Instantiates strategies dynamically (quant_vibe)    │
+│  ├─ Runs OptionsBacktestEngine for each strategy        │
+│  ├─ Generates reports (BacktestReporter)                │
+│  └─ Saves results to CSV                                │
+└─────────────────────────────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│  src/quant_vibe/backtesting/                            │
+│  Core backtesting framework (reusable)                  │
+│  ├─ OptionsBacktestEngine                               │
+│  ├─ BacktestReporter                                    │
+│  └─ PerformanceMetrics                                  │
+└─────────────────────────────────────────────────────────┘
+```
+
+**2. Live Trading (Config-Driven)**
+```
+┌─────────────────────────────────────────────────────────┐
+│  scripts/run_live_trading.py (CLI Entry Point)         │
+│  ├─ Parses command-line arguments                       │
+│  └─ Initializes LiveTradingEngine                       │
+└─────────────────────────────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│  src/quant_vibe/live/engine.py                          │
+│  LiveTradingEngine                                      │
+│  ├─ Loads config/live_trading.yaml                      │
+│  ├─ Initializes schwabdev streaming                     │
+│  ├─ Sets up data feed, order manager, position manager  │
+│  ├─ Loads and runs strategies                           │
+│  ├─ Manages risk, state persistence                     │
+│  └─ Handles emergency controls                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Benefits of Top-Level Architecture**:
+- ✅ **Consistency**: Same pattern for backtesting and live trading
+- ✅ **Configuration-driven**: YAML configs instead of hardcoded scripts
+- ✅ **Reusability**: Share strategies between backtest and live
+- ✅ **Maintainability**: Changes in one place, not scattered across scripts
+- ✅ **Batch execution**: Run multiple strategies with one command
+- ✅ **CLI interface**: Easy to use, scriptable, automatable
+
+**Usage Examples**:
+
+Backtesting:
+```bash
+# Run all enabled strategies from config
+python scripts/run_backtest.py
+
+# Run specific strategy
+python scripts/run_backtest.py --strategy bullish_vertical_put
+
+# Use custom config
+python scripts/run_backtest.py --config config/my_backtest.yaml
+```
+
+Live Trading:
+```bash
+# Run live trading engine (paper mode by default)
+python scripts/run_live_trading.py
+
+# Use custom config
+python scripts/run_live_trading.py --config config/my_live_config.yaml
+```
+
 ### Adding New Components
 
 **New Strategy**:
-1. Create file in `src/quant_vibe/strategies/`
-2. Inherit from `Strategy` base class
-3. Implement `generate_signals(data: pd.DataFrame) -> pd.Series`
+1. Create file in `src/quant_vibe/strategies/` (e.g., `my_strategy.py`)
+2. Inherit from `OptionsStrategy` base class (for options) or `Strategy` (for stocks)
+3. Implement required methods (see existing strategies for examples)
 4. Add to `__init__.py` exports
-5. Add tests in `tests/unit/test_strategies.py`
+5. Register strategy in `src/backtest/engine.py`:
+   - Add entry to `strategy_map` dictionary in `_load_strategy()` method
+   - Format: `'strategy_name': 'quant_vibe.strategies.module_name.ClassName'`
+6. Add configuration to `config/backtest.yaml` and `config/live_trading.yaml`
+7. Add tests in `tests/unit/test_strategies.py`
+
+Example:
+```python
+# In src/backtest/engine.py
+strategy_map = {
+    'bullish_vertical_put': 'quant_vibe.strategies.bullish_vertical_put.BullishVerticalPutStrategy',
+    'my_strategy': 'quant_vibe.strategies.my_strategy.MyStrategy',  # Add this
+}
+```
 
 **New Indicator**:
 1. Add function to `src/quant_vibe/indicators/technical.py`
@@ -134,7 +276,32 @@ The codebase follows a layered architecture:
 2. Implement private method like `_fetch_provider_name_daily()`
 3. Add required env vars to `.env.example`
 
-**New Backtest Script**:
+**Running Backtests (Recommended - Config-Based)**:
+1. Add strategy configuration to `config/backtest.yaml`:
+   ```yaml
+   strategies:
+     enabled:
+       - name: my_strategy
+         enabled: true
+         params:
+           param1: value1
+           param2: value2
+   ```
+2. Run backtest using CLI:
+   ```bash
+   # Run all enabled strategies
+   python scripts/run_backtest.py
+
+   # Run specific strategy
+   python scripts/run_backtest.py --strategy my_strategy
+
+   # Use custom config
+   python scripts/run_backtest.py --config config/my_backtest.yaml
+   ```
+
+**Running Backtests (Legacy - Individual Scripts)**:
+NOTE: This approach is deprecated in favor of the config-based orchestrator above.
+
 1. Create file in `backtests/` directory (e.g., `backtest_my_strategy.py`)
 2. Import utilities:
    ```python
@@ -622,24 +789,6 @@ class MyStrategy(OptionsStrategy):
 ### Configuration Files
 
 **Environment Variables** (`.env`):
-```bash
-# Massive API (historical data)
-MASSIVE_API_KEY=your_massive_api_key
-
-# Schwab API (real-time data)
-SCHWAB_API_KEY=your_schwab_api_key
-SCHWAB_API_SECRET=your_schwab_secret
-SCHWAB_CALLBACK_URL=https://127.0.0.1:8182/
-SCHWAB_TOKENS_DB=./tokens/schwabdev_tokens.db
-SCHWAB_ACCOUNT_NUMBER=your_account_number
-
-# TimescaleDB
-TIMESCALE_HOST=localhost
-TIMESCALE_PORT=5432
-TIMESCALE_DB=options_data
-TIMESCALE_USER=quantvibe
-TIMESCALE_PASSWORD=quantvibe_dev
-```
 
 **Docker** (`docker-compose.yml`):
 - TimescaleDB container for options data
@@ -713,6 +862,5 @@ await collector.start_streaming()  # Websocket
 
 - `docs/TIMESCALE_SETUP.md`: Database setup and schema
 - `docs/SPXW_FIX.md`: Options data collection troubleshooting
-- `docs/REALTIME_DATA_COLLECTION.md`: Live data streaming guide
 - `QUICKREF_SPXW.md`: Quick reference for SPXW data
 - Always use `source venv/bin/activate` before executing a python command

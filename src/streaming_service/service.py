@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from quant_vibe.data.timescale_store import TimescaleStore
+from quant_vibe.config.logging_config import setup_normalized_logging
 from streaming_service.config import StreamingConfig
 from streaming_service.token_manager import TokenManager
 from streaming_service.aggregator import BarAggregator
@@ -47,11 +48,18 @@ class StreamingService:
         self.message_count = 0
         self.contracts_subscribed = []
 
-        print("\nInitializing Streaming Service...")
-        print(f"  DTE Range: {self.config.min_dte} - {self.config.max_dte}")
-        print(f"  Strike Range: ±{self.config.strike_range_pct*100}%")
-        print(f"  Aggregate Interval: {self.config.aggregate_interval_seconds}s")
-        print(f"  Token Refresh: Every {self.config.token_refresh_minutes} minutes")
+        # Setup normalized logging
+        self.logger = setup_normalized_logging(
+            app_name="streaming",
+            log_level="INFO",
+            log_dir="logs/streaming",
+        )
+
+        self.logger.info("Initializing Streaming Service...")
+        self.logger.info(f"  DTE Range: {self.config.min_dte} - {self.config.max_dte}")
+        self.logger.info(f"  Strike Range: ±{self.config.strike_range_pct*100}%")
+        self.logger.info(f"  Aggregate Interval: {self.config.aggregate_interval_seconds}s")
+        self.logger.info(f"  Token Refresh: Every {self.config.token_refresh_minutes} minutes")
 
         # Initialize Schwab client
         self.schwab_client = schwabdev.Client(
@@ -61,7 +69,7 @@ class StreamingService:
             tokens_db=self.config.tokens_db_path,
         )
         self.streamer = schwabdev.Stream(self.schwab_client)
-        print("  ✓ Schwabdev client initialized")
+        self.logger.info("  ✓ Schwabdev client initialized")
 
         # Initialize components
         self.token_manager = TokenManager(
@@ -77,11 +85,11 @@ class StreamingService:
         self.ts_store = TimescaleStore()
         self.enricher = OptionContractEnricher(self.schwab_client)
 
-        print("  ✓ Token manager initialized")
-        print("  ✓ Bar aggregator initialized")
-        print("  ✓ Underlying bar aggregator initialized")
-        print("  ✓ TimescaleDB connected")
-        print("  ✓ Contract enricher initialized")
+        self.logger.info("  ✓ Token manager initialized")
+        self.logger.info("  ✓ Bar aggregator initialized")
+        self.logger.info("  ✓ Underlying bar aggregator initialized")
+        self.logger.info("  ✓ TimescaleDB connected")
+        self.logger.info("  ✓ Contract enricher initialized")
 
     def get_spxw_contracts(self) -> List[str]:
         """Get list of SPXW option contracts to stream.
@@ -89,7 +97,7 @@ class StreamingService:
         Returns:
             List of option symbols
         """
-        print(f"\nFetching SPXW contracts (DTE: {self.config.min_dte}-{self.config.max_dte}, Strike range: ±{self.config.strike_range_pct*100}%)...")
+        self.logger.info(f"Fetching SPXW contracts (DTE: {self.config.min_dte}-{self.config.max_dte}, Strike range: ±{self.config.strike_range_pct*100}%)...")
 
         # Get SPX price to filter strikes
         spx_price = self._get_spx_price()
@@ -97,7 +105,7 @@ class StreamingService:
         # Calculate strike range
         strike_min = spx_price * (1 - self.config.strike_range_pct)
         strike_max = spx_price * (1 + self.config.strike_range_pct)
-        print(f"  Strike range: ${strike_min:.0f} - ${strike_max:.0f}")
+        self.logger.info(f"  Strike range: ${strike_min:.0f} - ${strike_max:.0f}")
 
         # Get option chain
         contracts = []
@@ -107,17 +115,17 @@ class StreamingService:
 
             # Check response status
             if response.status_code != 200:
-                print(f"  ✗ API Error: HTTP {response.status_code}")
-                print(f"  Response: {response.text[:500]}")
+                self.logger.error(f"  ✗ API Error: HTTP {response.status_code}")
+                self.logger.error(f"  Response: {response.text[:500]}")
                 return []
 
             # Parse JSON
             try:
                 chain_data = response.json()
             except Exception as json_err:
-                print(f"  ✗ JSON Parse Error: {json_err}")
-                print(f"  Response status: {response.status_code}")
-                print(f"  Response text: {response.text[:500]}")
+                self.logger.error(f"  ✗ JSON Parse Error: {json_err}")
+                self.logger.error(f"  Response status: {response.status_code}")
+                self.logger.error(f"  Response text: {response.text[:500]}")
                 return []
 
             # Parse chain to get SPXW contracts
@@ -154,18 +162,18 @@ class StreamingService:
                             if 'SPXW' in symbol:
                                 contracts.append(symbol)
 
-            print(f"  Found {len(contracts)} SPXW contracts")
+            self.logger.info(f"  Found {len(contracts)} SPXW contracts")
 
             # Show sample
             if contracts:
-                print(f"  Sample contracts:")
+                self.logger.info("  Sample contracts:")
                 for contract in contracts[:5]:
-                    print(f"    {contract}")
+                    self.logger.info(f"    {contract}")
                 if len(contracts) > 5:
-                    print(f"    ... and {len(contracts) - 5} more")
+                    self.logger.info(f"    ... and {len(contracts) - 5} more")
 
         except Exception as e:
-            print(f"  ✗ Error fetching contracts: {e}")
+            self.logger.error(f"  ✗ Error fetching contracts: {e}", exc_info=True)
             import traceback
             traceback.print_exc()
 
@@ -181,22 +189,22 @@ class StreamingService:
             response = self.schwab_client.quote("$SPX")
 
             if response.status_code != 200:
-                print(f"  ⚠️  SPX quote API error: HTTP {response.status_code}")
-                print(f"  Response: {response.text[:200]}")
+                self.logger.warning(f"  ⚠️  SPX quote API error: HTTP {response.status_code}")
+                self.logger.warning(f"  Response: {response.text[:200]}")
                 return 6000.0
 
             spx_data = response.json()
 
             if "$SPX" in spx_data:
                 spx_price = spx_data["$SPX"]["quote"]["lastPrice"]
-                print(f"  SPX price: ${spx_price:.2f}")
+                self.logger.info(f"  SPX price: ${spx_price:.2f}")
                 return spx_price
             else:
-                print("  ⚠️  Could not get SPX price, using default")
+                self.logger.warning("  ⚠️  Could not get SPX price, using default")
                 return 6000.0
 
         except Exception as e:
-            print(f"  ⚠️  Error getting SPX price: {e}")
+            self.logger.warning(f"  ⚠️  Error getting SPX price: {e}")
             return 6000.0
 
     def handle_message(self, message: str):
@@ -294,14 +302,14 @@ class StreamingService:
                 self._flush_underlying_bars()
 
         except Exception as e:
-            print(f"Error handling message: {e}")
+            self.logger.error(f"Error handling message: {e}", exc_info=True)
             import traceback
             traceback.print_exc()
 
         # Periodic status update
         if self.message_count % 10 == 0:
             now = datetime.now()
-            print(f"  📊 [{now.strftime('%H:%M:%S')}] Messages: {self.message_count} | Buffered symbols: {self.aggregator.get_buffered_symbol_count()}")
+            self.logger.info(f"  📊 [{now.strftime('%H:%M:%S')}] Messages: {self.message_count} | Buffered symbols: {self.aggregator.get_buffered_symbol_count()}")
 
     def _flush_bars(self):
         """Flush aggregated option bars to database."""
@@ -310,9 +318,9 @@ class StreamingService:
         if bars:
             try:
                 inserted = self.ts_store.bulk_insert_option_bars(bars)
-                print(f"  ✓ Inserted {inserted} option bars")
+                self.logger.info(f"  ✓ Inserted {inserted} option bars")
             except Exception as e:
-                print(f"  ✗ Database error (options): {e}")
+                self.logger.error(f"  ✗ Database error (options): {e}", exc_info=True)
 
     def _flush_underlying_bars(self):
         """Flush aggregated underlying bars to database."""
@@ -321,45 +329,45 @@ class StreamingService:
         if bars:
             try:
                 inserted = self.ts_store.bulk_insert_underlying_bars(bars)
-                print(f"  ✓ Inserted {inserted} underlying bars")
+                self.logger.info(f"  ✓ Inserted {inserted} underlying bars")
             except Exception as e:
-                print(f"  ✗ Database error (underlying): {e}")
+                self.logger.error(f"  ✗ Database error (underlying): {e}", exc_info=True)
 
     def start(self):
         """Start the streaming service."""
-        print("\n" + "="*70)
-        print("SPXW OPTIONS STREAMING SERVICE")
-        print("="*70)
-        print(f"Started: {datetime.now()}")
-        print(f"DTE Range: {self.config.min_dte} - {self.config.max_dte} days")
-        print(f"Strike Range: ±{self.config.strike_range_pct*100}%")
-        print(f"Aggregate Interval: {self.config.aggregate_interval_seconds}s")
-        print("="*70)
+        self.logger.info("="*70)
+        self.logger.info("SPXW OPTIONS STREAMING SERVICE")
+        self.logger.info("="*70)
+        self.logger.info(f"Started: {datetime.now()}")
+        self.logger.info(f"DTE Range: {self.config.min_dte} - {self.config.max_dte} days")
+        self.logger.info(f"Strike Range: ±{self.config.strike_range_pct*100}%")
+        self.logger.info(f"Aggregate Interval: {self.config.aggregate_interval_seconds}s")
+        self.logger.info("="*70)
 
         # Refresh token at startup
-        print("\nRefreshing authentication token...")
+        self.logger.info("Refreshing authentication token...")
         if not self.token_manager.refresh():
-            print("\n❌ Failed to refresh token at startup!")
-            print("Please check your authentication credentials and token database.")
+            self.logger.error("❌ Failed to refresh token at startup!")
+            self.logger.error("Please check your authentication credentials and token database.")
             return
 
         # Get contracts to stream
         contracts = self.get_spxw_contracts()
 
         if not contracts:
-            print("\n❌ No contracts found to stream!")
+            self.logger.error("❌ No contracts found to stream!")
             return
 
         self.contracts_subscribed = contracts
 
         # Refresh enricher cache
-        print("\nPopulating contract details cache...")
+        self.logger.info("Populating contract details cache...")
         self.enricher.refresh_contract_details("$SPX", strike_count=50)
         stats = self.enricher.get_cache_stats()
-        print(f"✓ Cached {stats['contracts_cached']} contracts for enrichment")
+        self.logger.info(f"✓ Cached {stats['contracts_cached']} contracts for enrichment")
 
         # Start stream
-        print("\nStarting stream...")
+        self.logger.info("Starting stream...")
         self.streamer.start_auto(
             self.handle_message,
             start_time=time(9, 29, 0),
@@ -368,7 +376,7 @@ class StreamingService:
             now_timezone=zoneinfo.ZoneInfo("America/New_York"),
             daemon=True
         )
-        print("✓ Stream started")
+        self.logger.info("✓ Stream started")
 
         # Subscribe to options
         self._subscribe_to_contracts(contracts)
@@ -376,8 +384,8 @@ class StreamingService:
         # Subscribe to underlying asset ($SPX)
         self._subscribe_to_underlying()
 
-        print("\n✅ All subscriptions active")
-        print("Streaming data... (Press Ctrl+C to stop)")
+        self.logger.info("✅ All subscriptions active")
+        self.logger.info("Streaming data... (Press Ctrl+C to stop)")
 
         # Main loop
         self._run_main_loop()
@@ -390,7 +398,7 @@ class StreamingService:
         """
         MAX_PER_SUB = self.config.max_symbols_per_subscription
 
-        print(f"\nSubscribing to {len(contracts)} contracts...")
+        self.logger.info(f"Subscribing to {len(contracts)} contracts...")
 
         for i in range(0, len(contracts), MAX_PER_SUB):
             batch = contracts[i:i+MAX_PER_SUB]
@@ -403,12 +411,12 @@ class StreamingService:
                 self.streamer.level_one_options(symbols_str, fields)
             )
 
-            print(f"  ✓ Subscribed to batch {i//MAX_PER_SUB + 1} ({len(batch)} contracts)")
+            self.logger.info(f"  ✓ Subscribed to batch {i//MAX_PER_SUB + 1} ({len(batch)} contracts)")
             dt_time.sleep(0.5)
 
     def _subscribe_to_underlying(self):
         """Subscribe to underlying asset quotes ($SPX)."""
-        print("\nSubscribing to underlying asset ($SPX)...")
+        self.logger.info("Subscribing to underlying asset ($SPX)...")
 
         # Subscribe to $SPX with equity level one data
         # Fields: https://developer.schwabapi.com/products/trader-api--individual/details/documentation/Market-Data
@@ -419,7 +427,7 @@ class StreamingService:
             self.streamer.level_one_equities("$SPX", fields)
         )
 
-        print("  ✓ Subscribed to $SPX equity quotes")
+        self.logger.info("  ✓ Subscribed to $SPX equity quotes")
 
     def _run_main_loop(self):
         """Run main service loop."""
@@ -437,29 +445,29 @@ class StreamingService:
                 enricher_stats = self.enricher.get_cache_stats()
                 token_age = self.token_manager.get_token_age_minutes()
 
-                print(f"\n📊 Status Update [{now.strftime('%Y-%m-%d %H:%M:%S')}]:")
-                print(f"   Messages received: {self.message_count}")
-                print(f"   Contracts streaming: {len(self.contracts_subscribed)}")
-                print(f"   Buffered option symbols: {self.aggregator.get_buffered_symbol_count()}")
-                print(f"   Buffered underlying symbols: {self.underlying_aggregator.get_buffered_symbol_count()}")
-                print(f"   Contract cache: {enricher_stats['contracts_cached']} contracts")
-                print(f"   Cache age: {enricher_stats['cache_age_minutes']:.1f} minutes")
-                print(f"   Token age: {token_age:.1f} minutes")
+                self.logger.info(f"📊 Status Update [{now.strftime('%Y-%m-%d %H:%M:%S')}]:")
+                self.logger.info(f"   Messages received: {self.message_count}")
+                self.logger.info(f"   Contracts streaming: {len(self.contracts_subscribed)}")
+                self.logger.info(f"   Buffered option symbols: {self.aggregator.get_buffered_symbol_count()}")
+                self.logger.info(f"   Buffered underlying symbols: {self.underlying_aggregator.get_buffered_symbol_count()}")
+                self.logger.info(f"   Contract cache: {enricher_stats['contracts_cached']} contracts")
+                self.logger.info(f"   Cache age: {enricher_stats['cache_age_minutes']:.1f} minutes")
+                self.logger.info(f"   Token age: {token_age:.1f} minutes")
 
         except KeyboardInterrupt:
-            print("\n\n⚠️  Stopping service...")
+            self.logger.info("\n⚠️  Stopping service...")
             self.stop()
 
     def stop(self):
         """Stop the streaming service."""
-        print("Flushing remaining data...")
+        self.logger.info("Flushing remaining data...")
         self._flush_bars()
         self._flush_underlying_bars()
 
-        print("Stopping stream...")
+        self.logger.info("Stopping stream...")
         self.streamer.stop()
 
-        print("Closing database...")
+        self.logger.info("Closing database...")
         self.ts_store.close()
 
-        print("✅ Service stopped")
+        self.logger.info("✅ Service stopped")

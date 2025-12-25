@@ -1,0 +1,160 @@
+# Backtest Configuration
+# ==================================
+# This file configures the backtesting engine for options strategies.
+#
+# Run backtests with:
+#   python scripts/run_backtest.py
+#   python scripts/run_backtest.py --config config/my_backtest.yaml
+#   python scripts/run_backtest.py --strategy bullish_vertical_put
+
+# Engine Configuration
+engine:
+  # Initial capital for backtests
+  initial_capital: 100000.0
+
+  # Run multiple strategies in parallel
+  parallel_execution: false
+
+  # Save results automatically
+  auto_save_results: true
+
+  # Results output directory
+  output_dir: reports/backtests
+
+# Date Range Configuration
+date_range:
+  # Preset options: today, this_week, this_month, this_quarter, this_year, custom, all
+  preset: this_month
+
+  # Custom date range (only used if preset: custom)
+  # Dates are in US Eastern Time, automatically converted to market hours
+  custom:
+    start_date: 2025-12-01
+    end_date: 2025-12-31
+
+  # Trading days only (excludes weekends)
+  trading_days_only: true
+
+  # Market hours only (9:30 AM - 4:00 PM ET)
+  market_hours_only: true
+
+# Strategy Configuration
+strategies:
+  # List of strategies to backtest
+  enabled:
+    # Example: Bullish Vertical Put Strategy
+    - name: bullish_vertical_put
+      enabled: true
+      params:
+        # Spread parameters
+        spread_width: 10.0           # Width of spread in dollars
+
+        # Entry logic
+        observation_period: 15        # Minutes to observe market at open
+        pullback_amount: 30.0         # Dollar pullback for entry signal
+
+        # Exit logic
+        profit_target_min: 0.5        # 50% profit (minimum target)
+        profit_target_max: 1.0        # 100% profit (maximum target)
+        trailing_stop_pct: 0.05       # 5% trailing stop
+
+        # Option selection
+        min_dte: 0                    # Minimum days to expiration
+        max_dte: 45                   # Maximum days to expiration
+        num_spreads: 10               # Number of spreads per trade
+
+        # Liquidity filters
+        min_volume: 50                # Minimum volume per contract
+        min_bid_ask_spread_pct: 10.0  # Maximum bid/ask spread %
+
+    # Example: Bullish Vertical Call Strategy (disabled by default)
+    # - name: bullish_vertical_call
+    #   enabled: false
+    #   params:
+    #     spread_width: 20.0
+    #     observation_period: 15
+    #     pullback_amount: 30.0
+    #     profit_target_min: 0.5
+    #     profit_target_max: 1.0
+    #     trailing_stop_pct: 0.05
+    #     min_dte: 0
+    #     max_dte: 45
+    #     num_spreads: 10
+    #     min_volume: 50
+    #     min_bid_ask_spread_pct: 10.0
+
+  # Available strategies:
+  # - bullish_vertical_put: Credit spread (sell put, buy lower put)
+  # - bullish_vertical_call: Debit spread (buy call, sell higher call)
+
+# Data Source Configuration
+data_source:
+  # Underlying ticker
+  underlying_ticker: SPX
+
+  # Database profile: auto, local, remote
+  # auto: Uses USE_REMOTE_TIMESCALE environment variable
+  # local: Forces local TimescaleDB (TIMESCALE_* env vars)
+  # remote: Forces remote TimescaleDB (REMOTE_TIMESCALE_* env vars)
+  db_profile: auto
+
+  # DTE range for loading options data
+  min_dte: 0
+  max_dte: 45
+
+  # Verbose data loading
+  verbose: true
+
+# Reporting Configuration
+reporting:
+  # Print detailed trade information
+  print_trade_details: true
+
+  # Print educational metrics
+  print_educational_metrics: true
+
+  # Print performance summary
+  print_performance_summary: true
+
+  # Save equity curve chart (future feature)
+  save_equity_chart: false
+
+  # Generate HTML report (future feature)
+  generate_html_report: false
+
+# Output Files
+output:
+  # Timestamp format for output files
+  timestamp_format: "%Y%m%d_%H%M%S"
+
+  # File naming pattern: {strategy_name}_{file_type}_{timestamp}.csv
+  # Available file types: trades, equity, summary
+  save_trades: true
+  save_equity_curve: true
+  save_summary: true
+
+  # Save log file
+  save_log: true
+
+# Logging Configuration
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_level: INFO
+
+  # Dual output to console and file
+  tee_output: true
+
+  # Log directory
+  log_dir: logs/backtests
+
+# Batch Execution (for running multiple configs)
+batch:
+  # Enable batch mode (run multiple configurations)
+  enabled: false
+
+  # Parameter sweep configurations (for optimization)
+  # sweep:
+  #   - parameter: spread_width
+  #     values: [5.0, 10.0, 15.0, 20.0]
+  #   - parameter: profit_target_min
+  #     values: [0.3, 0.5, 0.7]

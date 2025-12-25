@@ -177,6 +177,7 @@ class BacktestReporter:
             - Return metrics
         """
         if trades_df.empty:
+            print("\n❌ No trades executed - no educational metrics to display.")
             return
 
         print(f"\n{'=' * 70}")

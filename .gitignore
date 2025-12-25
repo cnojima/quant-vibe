@@ -3,6 +3,8 @@ __pycache__/
 .eggs/
 .installed.cfg
 .Python
+*.bak
+*.back
 *.egg
 *.egg-info/
 *.py[cod]
@@ -17,6 +19,7 @@ eggs/
 lib/
 lib64/
 parts/
+reports/
 sdist/
 var/
 wheels/
