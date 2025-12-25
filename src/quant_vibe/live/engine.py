@@ -30,6 +30,7 @@ from .utils import (
     setup_logging, TradingState, EventType,
     is_market_open, get_market_hours
 )
+from ..data import LiveMarketDataProvider
 
 load_dotenv()
 
@@ -68,6 +69,7 @@ class LiveTradingEngine:
 
         # Initialize components
         self.data_feed: Optional[RealtimeDataFeed] = None
+        self.market_data: Optional[LiveMarketDataProvider] = None
         self.state_store: Optional[StateStore] = None
         self.schwab_client: Optional[schwabdev.Client] = None
         self.streamer: Optional[schwabdev.Stream] = None
@@ -169,6 +171,11 @@ class LiveTradingEngine:
             callbacks=[self._on_new_bars]  # Register callback
         )
         self.logger.info("    ✓ Data feed ready")
+
+        # Initialize market data provider (wraps data feed)
+        self.logger.info("  - Initializing market data provider...")
+        self.market_data = LiveMarketDataProvider(self.data_feed)
+        self.logger.info("    ✓ Market data provider ready")
 
         # Initialize Schwab client
         self.logger.info("  - Initializing Schwab client...")
@@ -398,7 +405,7 @@ class LiveTradingEngine:
                 self.strategy_executor.enable()
 
         # Execute strategies on new bars
-        if self.strategy_executor and new_bars:
+        if self.strategy_executor and self.market_data and new_bars:
             for bar in new_bars:
                 try:
                     # Get current timestamp
@@ -407,13 +414,13 @@ class LiveTradingEngine:
                         continue
 
                     # Get underlying data (historical + current bar)
-                    underlying_data = self.data_feed.get_underlying_history(
+                    underlying_data = self.market_data.get_underlying_history(
                         ticker="SPX",
                         lookback_bars=100
                     )
 
                     # Get options data (current snapshot)
-                    options_data = self.data_feed.get_current_options_snapshot()
+                    options_data = self.market_data.get_current_options_snapshot()
 
                     # Execute strategy
                     self.strategy_executor.on_bar(

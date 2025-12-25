@@ -138,7 +138,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         if underlying_data.empty:
             return analysis
 
-        current_price = underlying_data['Close'].iloc[-1]
+        current_price = underlying_data['close'].iloc[-1]
         analysis['current_price'] = current_price
 
         # Check if this is a new trading day
@@ -175,18 +175,24 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         # During observation period (first 15-30 mins)
         if time_since_open <= self.observation_period and not self.observation_complete:
             # Get data since market open
-            opening_data = underlying_data[
-                underlying_data.index >= self.market_open_time
-            ]
+            # Handle both backtesting (DatetimeIndex) and live (timestamp column) formats
+            if isinstance(underlying_data.index, pd.DatetimeIndex):
+                # Backtesting: filter by index
+                opening_data = underlying_data[underlying_data.index >= self.market_open_time]
+            else:
+                # Live: filter by timestamp column
+                opening_data = underlying_data[
+                    underlying_data['timestamp'] >= self.market_open_time
+                ]
 
             if len(opening_data) >= 2:
-                self.opening_high = opening_data['High'].max()
-                self.opening_low = opening_data['Low'].min()
-                self.opening_mean = opening_data['Close'].mean()
-                self.opening_std = opening_data['Close'].std()
+                self.opening_high = opening_data['high'].max()
+                self.opening_low = opening_data['low'].min()
+                self.opening_mean = opening_data['close'].mean()
+                self.opening_std = opening_data['close'].std()
 
                 # Calculate momentum (price change / time)
-                price_change = opening_data['Close'].iloc[-1] - opening_data['Close'].iloc[0]
+                price_change = opening_data['close'].iloc[-1] - opening_data['close'].iloc[0]
                 time_elapsed = len(opening_data)
                 momentum = price_change / time_elapsed if time_elapsed > 0 else 0
 
@@ -554,7 +560,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         - Profit = credit received - current spread value
         """
         # Get current underlying price for intrinsic value calculation
-        underlying_price = underlying_data['Close'].iloc[-1] if not underlying_data.empty else None
+        underlying_price = underlying_data['close'].iloc[-1] if not underlying_data.empty else None
 
         # Update position value (with underlying price for intrinsic value)
         self.update_position_value(position, options_data, underlying_price)

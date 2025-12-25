@@ -547,7 +547,7 @@ class TimescaleStore:
         Returns:
             DataFrame with OHLCV structure using estimated underlying prices
             Index: DatetimeIndex
-            Columns: Open, High, Low, Close, Volume
+            Columns: open, high, low, close, volume
         """
         query = """
         WITH nearest_expiry AS (
@@ -598,14 +598,14 @@ class TimescaleStore:
             'price': 'median'
         }).reset_index()
 
-        # Create OHLCV structure
-        result['Open'] = result['price']
-        result['High'] = result['price']
-        result['Low'] = result['price']
-        result['Close'] = result['price']
-        result['Volume'] = 0
+        # Create OHLCV structure (use lowercase to match live data format)
+        result['open'] = result['price']
+        result['high'] = result['price']
+        result['low'] = result['price']
+        result['close'] = result['price']
+        result['volume'] = 0
 
-        result = result[['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume']]
+        result = result[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
         result.set_index('timestamp', inplace=True)
 
         return result
@@ -945,17 +945,10 @@ class TimescaleStore:
         if df.empty:
             return pd.DataFrame()
 
-        # Set index and rename columns to match expected format
+        # Set index (keep lowercase columns to match live data format)
         df.set_index('timestamp', inplace=True)
-        df = df.rename(columns={
-            'open': 'Open',
-            'high': 'High',
-            'low': 'Low',
-            'close': 'Close',
-            'volume': 'Volume'
-        })
 
-        return df[['Open', 'High', 'Low', 'Close', 'Volume']]
+        return df[['open', 'high', 'low', 'close', 'volume']]
 
     def close(self) -> None:
         """Close all connections in the pool and dispose of SQLAlchemy engine."""

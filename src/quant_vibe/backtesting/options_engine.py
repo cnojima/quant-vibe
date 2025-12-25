@@ -162,7 +162,7 @@ class OptionsBacktestEngine:
                 position = strategy.active_position
 
                 # Get current underlying price for intrinsic value calculation
-                underlying_price = underlying_slice['Close'].iloc[-1] if not underlying_slice.empty else None
+                underlying_price = underlying_slice['close'].iloc[-1] if not underlying_slice.empty else None
 
                 # Update position value (pass underlying_price for intrinsic value calculation)
                 strategy.update_position_value(position, options_slice, underlying_price)
@@ -177,7 +177,7 @@ class OptionsBacktestEngine:
 
                 if should_exit:
                     # Get current underlying price
-                    underlying_price = underlying_slice['Close'].iloc[-1] if not underlying_slice.empty else None
+                    underlying_price = underlying_slice['close'].iloc[-1] if not underlying_slice.empty else None
 
                     self._close_position(
                         strategy,
@@ -285,13 +285,13 @@ class OptionsBacktestEngine:
             Resampled DataFrame
         """
         resampled = pd.DataFrame()
-        resampled['Open'] = data['Open'].resample(freq).first()
-        resampled['High'] = data['High'].resample(freq).max()
-        resampled['Low'] = data['Low'].resample(freq).min()
-        resampled['Close'] = data['Close'].resample(freq).last()
+        resampled['open'] = data['open'].resample(freq).first()
+        resampled['high'] = data['high'].resample(freq).max()
+        resampled['low'] = data['low'].resample(freq).min()
+        resampled['close'] = data['close'].resample(freq).last()
 
-        if 'Volume' in data.columns:
-            resampled['Volume'] = data['Volume'].resample(freq).sum()
+        if 'volume' in data.columns:
+            resampled['volume'] = data['volume'].resample(freq).sum()
 
         return resampled.dropna()
 

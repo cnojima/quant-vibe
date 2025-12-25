@@ -4,6 +4,8 @@ Consumes streaming data from schwabdev and maintains a sliding window
 of recent bars for strategy execution.
 """
 
+import sys
+from pathlib import Path
 import json
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
@@ -11,6 +13,10 @@ from typing import Dict, List, Optional, Callable
 import pandas as pd
 import pytz
 
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from streaming_service.underlying_aggregator import UnderlyingBarAggregator
 from .utils import setup_logging
 
 
@@ -48,7 +54,9 @@ class RealtimeDataFeed:
         self.quote_buffer: Dict[str, List[Dict]] = defaultdict(list)
         self.last_flush_time = datetime.now()
 
-        # Underlying price tracking
+        # Underlying data tracking
+        self.underlying_aggregator = UnderlyingBarAggregator(aggregate_interval_seconds)
+        self.underlying_bars: Dict[str, deque] = defaultdict(lambda: deque(maxlen=window_size))
         self.underlying_prices: Dict[str, float] = {}  # ticker -> price
 
         # Statistics

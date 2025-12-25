@@ -217,10 +217,10 @@ def load_options_backtest_data(
             print(f"✅ Loaded {len(underlying_data):,} underlying price bars ({data_source})")
             print(f"   Date range: {underlying_data.index[0]} to {underlying_data.index[-1]}")
             print(
-                f"   Price range: ${underlying_data['Low'].min():.2f} - "
-                f"${underlying_data['High'].max():.2f}"
+                f"   Price range: ${underlying_data['low'].min():.2f} - "
+                f"${underlying_data['high'].max():.2f}"
             )
-            print(f"   Latest close: ${underlying_data['Close'].iloc[-1]:.2f}")
+            print(f"   Latest close: ${underlying_data['close'].iloc[-1]:.2f}")
             print()
 
         return options_data, underlying_data
