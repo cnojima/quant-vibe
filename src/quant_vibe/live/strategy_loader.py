@@ -54,13 +54,28 @@ class StrategyLoader:
             return strategies
 
         # Load each strategy
-        for strategy_config in enabled_strategies:
+        for i, strategy_config in enumerate(enabled_strategies):
             try:
+                # Validate strategy_config is a dict
+                if isinstance(strategy_config, str):
+                    logger.error(
+                        f"Strategy config at index {i} is a string: '{strategy_config}'. "
+                        "Expected a dictionary with 'name', 'enabled', and 'params' fields."
+                    )
+                    continue
+
+                if not isinstance(strategy_config, dict):
+                    logger.error(
+                        f"Strategy config at index {i} has invalid type: {type(strategy_config)}. "
+                        "Expected a dictionary."
+                    )
+                    continue
+
                 strategy = cls._load_strategy(strategy_config)
                 if strategy:
                     strategies.append(strategy)
             except Exception as e:
-                strategy_name = strategy_config.get('name', 'unknown')
+                strategy_name = strategy_config.get('name', 'unknown') if isinstance(strategy_config, dict) else 'unknown'
                 logger.error(f"Failed to load strategy {strategy_name}: {e}", exc_info=True)
 
         logger.info(f"Loaded {len(strategies)} strategies")

@@ -31,39 +31,45 @@ engine:
 # Strategy Configuration
 # Strategies to run (empty by default - add as needed)
 strategies:
-  enabled: [
-    bullish_vertical_put,
-    bullish_vertical_call
-  ]
+  enabled:
+    # Example: Enable bullish vertical put strategy
+    - name: bullish_vertical_put
+      enabled: true
+      params:
+        # Spread parameters
+        spread_width: 10.0           # Width of spread in dollars
+
+        # Entry logic
+        observation_period: 30        # Minutes to observe market at open
+        pullback_amount: 50.0         # Dollar pullback for entry signal
+
+        # Exit logic
+        profit_target_min: 0.5        # 50% profit (minimum target)
+        profit_target_max: 1.0        # 100% profit (maximum target)
+        trailing_stop_pct: 0.05       # 5% trailing stop
+
+        # Option selection
+        min_dte: 0                    # Minimum days to expiration
+        max_dte: 45                   # Maximum days to expiration
+        num_spreads: 10               # Number of spreads per trade
+
+        # Liquidity filters
+        min_volume: 50                # Minimum volume per contract
+        min_bid_ask_spread_pct: 10.0  # Maximum bid/ask spread %
+
+    # Example: Enable bullish vertical call strategy
+    # - name: bullish_vertical_call
+    #   enabled: true
+    #   params:
+    #     spread_width: 25.0
+    #     profit_target_pct: 0.50
+    #     stop_loss_pct: 0.30
+    #     min_dte: 0
+    #     max_dte: 2
 
   # Available strategies:
   # - bullish_vertical_put: Credit spread (sell put, buy lower put)
   # - bullish_vertical_call: Debit spread (buy call, sell higher call)
-
-  # Example strategy configuration (uncomment to enable):
-  # - name: bullish_vertical_put
-  #   enabled: true
-  #   params:
-  #     # Spread parameters
-  #     spread_width: 10.0           # Width of spread in dollars
-  #
-  #     # Entry logic
-  #     observation_period: 30        # Minutes to observe market at open
-  #     pullback_amount: 50.0         # Dollar pullback for entry signal
-  #
-  #     # Exit logic
-  #     profit_target_min: 0.5        # 50% profit (minimum target)
-  #     profit_target_max: 1.0        # 100% profit (maximum target)
-  #     trailing_stop_pct: 0.05       # 5% trailing stop
-  #
-  #     # Option selection
-  #     min_dte: 0                    # Minimum days to expiration
-  #     max_dte: 45                   # Maximum days to expiration
-  #     num_spreads: 10               # Number of spreads per trade
-  #
-  #     # Liquidity filters
-  #     min_volume: 50                # Minimum volume per contract
-  #     min_bid_ask_spread_pct: 10.0  # Maximum bid/ask spread %
 
 # Data Feed Configuration
 data_feed:

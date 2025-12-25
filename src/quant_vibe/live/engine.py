@@ -190,8 +190,7 @@ class LiveTradingEngine:
             state_store=self.state_store,
             paper_trading=self.paper_trading,
             use_oco=oco_config.get('enabled', False),
-            oco_profit_target_pct=oco_config.get('profit_target_pct', 0.50),
-            oco_stop_loss_pct=oco_config.get('stop_loss_pct', -0.30),
+            oco_config=oco_config,
         )
         self.logger.info("    ✓ OrderManager ready")
 
