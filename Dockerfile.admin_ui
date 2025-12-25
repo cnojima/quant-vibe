@@ -1,0 +1,36 @@
+# Dockerfile for Quant-Vibe Admin UI
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project files
+COPY pyproject.toml ./
+COPY src/ ./src/
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -e ".[admin_ui]"
+
+# Create non-root user
+# Note: We'll add user to docker group at runtime via docker-compose
+RUN useradd -m -u 1000 quantvibe && \
+    chown -R quantvibe:quantvibe /app
+
+# Don't switch to non-root user yet - will be handled by docker-compose
+# USER quantvibe
+
+# Expose port
+EXPOSE 8000
+
+# Set Python path
+ENV PYTHONPATH=/app/src
+
+# Run the application
+CMD ["uvicorn", "admin_ui.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -127,6 +127,56 @@ services:
       - quant-vibe-network
     command: ["python", "scripts/run_live_trading.py"]
 
+  admin_ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.admin_ui
+    container_name: quant-vibe-admin-ui
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    user: root  # Required for Docker socket access
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    environment:
+      # Application
+      DEBUG: ${DEBUG:-false}
+      API_PREFIX: /api
+      # Security (override these in .env)
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-secret-key}
+      # CORS origins
+      CORS_ORIGINS: http://localhost:3000,http://localhost:8000
+      # Redis connection (use service name as host)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      # TimescaleDB connection (use service name as host)
+      TIMESCALE_HOST: timescaledb
+      TIMESCALE_PORT: 5432
+      TIMESCALE_DB: options_data
+      TIMESCALE_USER: quantvibe
+      TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD:-quantvibe_dev}
+    volumes:
+      # Mount Docker socket for service control
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount config, logs, and tokens directories
+      - ./config:/app/config:rw
+      - ./logs:/app/logs:rw
+      - ./tokens:/app/tokens:rw
+    networks:
+      - quant-vibe-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
 networks:
   quant-vibe-network:
     driver: bridge
