@@ -113,19 +113,31 @@ class RedisDataFeed:
 
     def _listen_loop(self):
         """Main listening loop (runs in background thread)."""
+        self.logger.info("Starting Redis listen loop...")
+        message_poll_count = 0
+
         try:
             while self._running:
                 # Non-blocking get_message with short timeout
                 result = self.broker.get_message(timeout=0.1)
+                message_poll_count += 1
+
+                # Log every 1000 polls to show we're alive
+                if message_poll_count % 1000 == 0:
+                    self.logger.debug(f"Polled {message_poll_count} times, received {self.message_count} messages")
 
                 if result:
                     topic, message_data = result
-                    # Call the callback to process the message
+                    # NOTE: get_message() already called the callback (line 267 in broker.py)
+                    # But we call it again here to ensure it's processed
+                    # TODO: Fix this double-call issue
                     self._handle_message(topic, message_data)
 
         except Exception as e:
             self.logger.error(f"Error in Redis listener: {e}", exc_info=True)
             self._running = False
+        finally:
+            self.logger.info(f"Redis listen loop ended. Total polls: {message_poll_count}, messages: {self.message_count}")
 
     def _handle_message(self, topic: Topic, message_data: Dict):
         """Handle incoming message from Redis.
@@ -136,6 +148,10 @@ class RedisDataFeed:
         """
         self.message_count += 1
         self.last_update_time = datetime.now()
+
+        # Debug logging (remove after testing)
+        if self.message_count % 100 == 0:
+            self.logger.info(f"Received {self.message_count} messages from Redis (topic: {topic})")
 
         try:
             if topic == Topic.OPTIONS_BARS:

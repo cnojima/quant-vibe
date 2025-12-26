@@ -246,6 +246,8 @@ class RedisMessageBroker(MessageBroker):
             (topic, message_data) if message received, None otherwise
         """
         if not self.pubsub:
+            import logging
+            logging.getLogger(__name__).error("get_message() called but pubsub is None!")
             return None
 
         message = self.pubsub.get_message(timeout=timeout)
@@ -268,7 +270,11 @@ class RedisMessageBroker(MessageBroker):
 
                         return (topic, message_data)
 
-            except (json.JSONDecodeError, KeyError, TypeError):
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                # Log parse errors for debugging
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to parse Redis message: {e}. Message: {message}")
                 return None
 
         return None
