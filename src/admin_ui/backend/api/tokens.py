@@ -5,11 +5,11 @@ Provides endpoints to view and refresh Schwab API tokens.
 """
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
@@ -34,12 +34,24 @@ def get_token_from_db() -> Optional[dict]:
         conn = sqlite3.connect(str(token_db_path))
         cursor = conn.cursor()
 
-        # Query the tokens table (schwabdev schema)
+        # Check if schwabdev table exists (correct table name)
         cursor.execute("""
-            SELECT access_token, refresh_token, id_token,
-                   access_token_expires_at, refresh_token_expires_at
-            FROM tokens
-            ORDER BY access_token_expires_at DESC
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='schwabdev'
+        """)
+
+        if not cursor.fetchone():
+            # Table doesn't exist - schwabdev hasn't been initialized yet
+            conn.close()
+            return None
+
+        # Query the schwabdev table (actual schema)
+        cursor.execute("""
+            SELECT access_token_issued, refresh_token_issued,
+                   access_token, refresh_token, id_token,
+                   expires_in, token_type, scope
+            FROM schwabdev
+            ORDER BY access_token_issued DESC
             LIMIT 1
         """)
 
@@ -49,37 +61,68 @@ def get_token_from_db() -> Optional[dict]:
         if not row:
             return None
 
-        access_token, refresh_token, id_token, access_expires, refresh_expires = row
+        (
+            access_token_issued,
+            refresh_token_issued,
+            access_token,
+            refresh_token,
+            id_token,
+            expires_in,
+            token_type,
+            scope,
+        ) = row
 
-        # Parse timestamps (schwabdev stores as Unix timestamps)
-        access_expires_dt = (
-            datetime.fromtimestamp(access_expires, tz=timezone.utc)
-            if access_expires else None
-        )
-        refresh_expires_dt = (
-            datetime.fromtimestamp(refresh_expires, tz=timezone.utc)
-            if refresh_expires else None
-        )
+        # Parse timestamps (schwabdev stores as ISO format strings)
+        try:
+            access_issued_dt = datetime.fromisoformat(access_token_issued.replace("Z", "+00:00"))
+            refresh_issued_dt = datetime.fromisoformat(refresh_token_issued.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            # If parsing fails, return minimal info
+            return {
+                "has_token": True,
+                "message": "Token found but timestamp format is unexpected",
+            }
 
+        # Calculate expiration times
+        # Access tokens typically expire in expires_in seconds (usually 1800 = 30 minutes)
+        # Refresh tokens typically expire in 7 days
         now = datetime.now(timezone.utc)
+
+        if expires_in:
+            access_expires_dt = access_issued_dt + timedelta(seconds=expires_in)
+        else:
+            # Default to 30 minutes if not specified
+            access_expires_dt = access_issued_dt + timedelta(minutes=30)
+
+        # Refresh token expires 7 days from issuance (Schwab default)
+        refresh_expires_dt = refresh_issued_dt + timedelta(days=7)
+
+        # Calculate age
+        access_age_seconds = (now - access_issued_dt).total_seconds()
 
         return {
             "has_token": True,
-            "access_token_expires_at": access_expires_dt.isoformat() if access_expires_dt else None,
-            "refresh_token_expires_at": refresh_expires_dt.isoformat() if refresh_expires_dt else None,
-            "access_token_expired": access_expires_dt < now if access_expires_dt else True,
-            "refresh_token_expired": refresh_expires_dt < now if refresh_expires_dt else True,
-            "access_token_age_minutes": (
-                (now - access_expires_dt).total_seconds() / 60
-                if access_expires_dt else None
-            ),
+            "access_token_issued": access_issued_dt.isoformat(),
+            "refresh_token_issued": refresh_issued_dt.isoformat(),
+            "access_token_expires_at": access_expires_dt.isoformat(),
+            "refresh_token_expires_at": refresh_expires_dt.isoformat(),
+            "access_token_expired": access_expires_dt < now,
+            "refresh_token_expired": refresh_expires_dt < now,
+            "access_token_age_seconds": access_age_seconds,
+            "access_token_age_minutes": access_age_seconds / 60,
+            "expires_in": expires_in,
+            "token_type": token_type,
+            "scope": scope,
         }
 
+    except sqlite3.Error as e:
+        # SQLite error - log it but don't fail
+        print(f"SQLite error reading token database: {e}")
+        return None
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to read token database: {str(e)}"
-        )
+        # Unexpected error - log it but don't fail
+        print(f"Unexpected error reading token database: {e}")
+        return None
 
 
 @router.get("/status")
@@ -93,12 +136,33 @@ async def get_token_status(current_user: User = Depends(get_current_user)):
     Returns:
         Token status information
     """
+    settings = get_settings()
+    token_db_path = settings.tokens_dir / "schwabdev_tokens.db"
+
+    # Check if token database exists
+    if not token_db_path.exists():
+        return {
+            "has_token": False,
+            "database_exists": False,
+            "message": "Token database not found. Schwab authentication has not been initialized.",
+            "instructions": [
+                "1. Run the streaming service to initialize Schwab OAuth",
+                "2. Follow the authentication flow to obtain tokens",
+                "3. Tokens will be stored in tokens/schwabdev_tokens.db",
+            ],
+        }
+
     token_info = get_token_from_db()
 
     if not token_info:
         return {
             "has_token": False,
-            "message": "No token found. Please authenticate.",
+            "database_exists": True,
+            "message": "Token database exists but contains no valid tokens.",
+            "instructions": [
+                "1. Restart the streaming service to re-authenticate",
+                "2. Or manually delete the database and re-authenticate",
+            ],
         }
 
     return token_info
@@ -109,31 +173,79 @@ async def refresh_token(current_user: User = Depends(get_current_user)):
     """
     Manually refresh the Schwab token.
 
-    This would typically call the TokenManager.refresh() method
-    from the streaming service.
+    This creates a schwabdev client and calls update_tokens() to refresh
+    the access token using the refresh token.
 
     Args:
         current_user: Authenticated user
 
     Returns:
-        Refresh operation result
-
-    Note:
-        For MVP, this returns a placeholder. In production, you would:
-        1. Import TokenManager from streaming_service
-        2. Call refresh() method
-        3. Return updated token status
+        Refresh operation result with updated token status
     """
-    # TODO: Implement actual token refresh
-    # from streaming_service.token_manager import TokenManager
-    # manager = TokenManager()
-    # await manager.refresh()
+    settings = get_settings()
+    token_db_path = settings.tokens_dir / "schwabdev_tokens.db"
 
-    return {
-        "success": True,
-        "message": "Token refresh functionality to be implemented",
-        "note": "For now, tokens are auto-refreshed by streaming service every 14 minutes",
-    }
+    # Check if token database exists
+    if not token_db_path.exists():
+        return {
+            "success": False,
+            "message": "Token database not found. Please authenticate first.",
+        }
+
+    try:
+        import schwabdev
+        import os
+
+        # Get Schwab credentials from environment
+        app_key = os.getenv("SCHWAB_API_KEY")
+        app_secret = os.getenv("SCHWAB_API_SECRET")
+
+        if not app_key or not app_secret:
+            return {
+                "success": False,
+                "message": "Schwab API credentials not found in environment variables",
+                "required_vars": ["SCHWAB_API_KEY", "SCHWAB_API_SECRET"],
+            }
+
+        # Initialize schwabdev client
+        # The client will automatically load tokens from the database
+        client = schwabdev.Client(
+            app_key,
+            app_secret,
+            os.getenv("SCHWAB_CALLBACK_URL", "https://127.0.0.1"),
+            tokens_db=str(token_db_path),
+        )
+
+        # Refresh the token
+        print(f"[{datetime.now()}] Admin UI: Refreshing Schwab OAuth token...")
+        client.update_tokens()
+        print(f"[{datetime.now()}] Admin UI: Token refresh successful")
+
+        # Get updated token status
+        updated_status = get_token_from_db()
+
+        return {
+            "success": True,
+            "message": "Token refreshed successfully",
+            "token_status": updated_status,
+        }
+
+    except ImportError as e:
+        return {
+            "success": False,
+            "message": f"schwabdev library not available: {str(e)}",
+            "note": "Install schwabdev: pip install schwabdev",
+        }
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Token refresh error: {error_trace}")
+
+        return {
+            "success": False,
+            "message": f"Token refresh failed: {str(e)}",
+            "error_type": type(e).__name__,
+        }
 
 
 @router.get("/oauth-url")

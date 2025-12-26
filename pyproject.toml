@@ -39,6 +39,7 @@ admin_ui = [
     "docker>=7.0.0",
     "pydantic-settings>=2.1.0",
     "websockets>=12.0",
+    "schwabdev>=3.0.0",  # For token refresh
 ]
 all = [
     "backtrader>=1.9.78",

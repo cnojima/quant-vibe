@@ -56,7 +56,7 @@ services:
   streaming:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile.streaming
     container_name: quant-vibe-streaming
     restart: unless-stopped
     depends_on:
@@ -91,7 +91,7 @@ services:
   live_trading:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile.streaming
     container_name: quant-vibe-live-trading
     restart: unless-stopped
     depends_on:
@@ -130,7 +130,7 @@ services:
   admin_ui:
     build:
       context: .
-      dockerfile: Dockerfile.admin_ui
+      dockerfile: docker/Dockerfile.admin_ui
     container_name: quant-vibe-admin-ui
     restart: unless-stopped
     ports:
@@ -151,6 +151,10 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-secret-key}
       # CORS origins
       CORS_ORIGINS: http://localhost:3000,http://localhost:8000
+      # Schwab API credentials (for token refresh)
+      SCHWAB_API_KEY: ${SCHWAB_API_KEY}
+      SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}
+      SCHWAB_CALLBACK_URL: ${SCHWAB_CALLBACK_URL}
       # Redis connection (use service name as host)
       REDIS_HOST: redis
       REDIS_PORT: 6379
