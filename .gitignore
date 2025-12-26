@@ -24,6 +24,9 @@ sdist/
 var/
 wheels/
 
+# Node
+node_modules/
+
 # Virtual environments
 venv/
 env/

@@ -1,0 +1,1047 @@
+
+ ▐▛███▜▌   Claude Code v2.0.50
+▝▜█████▛▘  Sonnet 4.5 · Claude Pro
+  ▘▘ ▝▝    ~/dev/quant-vibe
+
+> lets plan a UI service.  some MVP items are:
+- UI to get/refresh schwab API token (via schwabdev lib)
+- UI to review live-trading status
+- UI to view current status of all services
+- UI to trigger backtest(s), modify params, and review results
+- UI to view indicators on top of triggers for enter/exit trades 
+
+⏺ I'll help you plan a UI service for the quant-vibe platform. Let
+  me first explore the codebase to understand the current
+  architecture and then create a comprehensive plan.
+
+⏺ Explore(Explore codebase architecture)
+  ⎿  Done (48 tool uses · 83.8k tokens · 3m 50s)                  
+
+⏺ Now let me create a comprehensive plan for the UI service based
+  on this exploration:
+
+⏺ UI Service Plan - QuantVibe Admin Dashboard
+
+  Based on my exploration, here's a comprehensive plan for the MVP
+  UI service. The backend API is production-ready but the React 
+  frontend is completely empty - this is where we'll focus.
+
+  ---
+  Architecture Overview
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  Admin UI Service (Port 8000)                           │
+  │  ├─ FastAPI Backend (READY ✓)                           │
+  │  │  ├─ REST API (/api)                                  │
+  │  │  ├─ WebSocket (/ws/events)                           │
+  │  │  ├─ JWT Authentication                               │
+  │  │  └─ Redis/TimescaleDB clients                        │
+  │  │                                                       │
+  │  └─ React Frontend (TO BUILD)                           │
+  │     ├─ Service Dashboard                                │
+  │     ├─ Token Manager                                    │
+  │     ├─ Live Trading Monitor                             │
+  │     ├─ Backtest Runner                                  │
+  │     └─ Chart Visualizations                             │
+  └─────────────────────────────────────────────────────────┘
+
+  ---
+  MVP Feature Breakdown
+
+  1. Schwab API Token Management 🔑
+
+  Backend Status: ✅ Partially Ready
+  - API endpoints: GET /api/tokens/status, POST /api/tokens/refresh
+  - Missing: OAuth callback handler
+
+  Frontend Components to Build:
+  TokenManager/
+  ├── TokenStatus.tsx - Display token expiration, age, validity
+  ├── RefreshButton.tsx - Manual refresh trigger with loading state
+  ├── OAuthFlow.tsx - OAuth URL generation + callback handler (NEW)
+  └── TokenTimeline.tsx - Visual timeline until expiration
+
+  Features:
+  - Display token status (valid/expired/expiring soon)
+  - Show countdown timer until expiration
+  - One-click manual refresh
+  - Warning alerts when token expires <30 minutes
+  - OAuth re-authentication flow (missing from backend - need to
+  implement)
+
+  UI Mock:
+  ┌─────────────────────────────────────────────────┐
+  │ Schwab API Token Status                         │
+  ├─────────────────────────────────────────────────┤
+  │ Access Token:  ✓ Valid (expires in 18m 32s)    │
+  │ Refresh Token: ✓ Valid (expires in 5d 3h)      │
+  │                                                 │
+  │ [Refresh Token Now]  [Re-authenticate]         │
+  │                                                 │
+  │ Last Refreshed: 2025-12-25 10:15:32            │
+  │ Auto-refresh: Enabled (every 25 minutes)       │
+  └─────────────────────────────────────────────────┘
+
+  ---
+  2. Service Status Dashboard 🚦
+
+  Backend Status: ✅ Ready
+  - API endpoints: GET /api/services/, GET /api/services/{name}
+  - Control endpoints: POST /api/services/{name}/{action}
+
+  Frontend Components to Build:
+  ServiceDashboard/
+  ├── ServiceGrid.tsx - Grid of service cards
+  ├── ServiceCard.tsx - Individual service status card
+  ├── ServiceControls.tsx - Start/Stop/Restart buttons
+  ├── ServiceLogs.tsx - Real-time log viewer
+  └── SystemHealth.tsx - Overall system health indicators
+
+  Services to Monitor:
+  1. Streaming Service (streaming_service)
+  2. Live Trading Engine (live_trading_service)
+  3. Redis (cache/pub-sub)
+  4. TimescaleDB (database)
+  5. Admin UI (self)
+
+  Features:
+  - Service status indicators (running/stopped/error)
+  - Start/stop/restart controls
+  - Container health checks
+  - CPU/memory usage (if available)
+  - Uptime tracking
+  - Log viewer with tail and search
+
+  UI Mock:
+  ┌─────────────────────────────────────────────────────────────┐
+  │ System Overview                                             │
+  ├─────────────────────────────────────────────────────────────┤
+  │ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐        │
+  │ │ Streaming    │ │ Live Trading │ │ Redis        │        │
+  │ │ ● Running    │ │ ● Running    │ │ ● Running    │        │
+  │ │ Uptime: 3h   │ │ Uptime: 2h   │ │ Uptime: 5h   │        │
+  │ │ [Stop] [⟳]   │ │ [Stop] [⟳]   │ │ [Stop] [⟳]   │        │
+  │ └──────────────┘ └──────────────┘ └──────────────┘        │
+  │                                                             │
+  │ Recent Logs:                                                │
+  │ [2025-12-25 10:30:15][streaming][INFO] Bar aggregated...   │
+  │ [2025-12-25 10:30:20][live][INFO] Signal generated...      │
+  └─────────────────────────────────────────────────────────────┘
+
+  ---
+  3. Live Trading Monitor 📊
+
+  Backend Status: ✅ Ready
+  - API endpoints: GET /api/live/status, /positions, /orders,
+  /events, /stats
+  - WebSocket: /ws/events for real-time updates
+
+  Frontend Components to Build:
+  LiveTrading/
+  ├── EngineStatus.tsx - Engine state, paper mode, stats
+  ├── PositionsTable.tsx - Active positions with P&L
+  ├── OrdersTable.tsx - Order history and status
+  ├── EventLog.tsx - Real-time event stream (WebSocket)
+  ├── TradingStats.tsx - Win rate, Sharpe, total P&L
+  ├── EquityCurve.tsx - Real-time equity chart (Recharts)
+  └── RiskMetrics.tsx - Daily loss limit, position count
+
+  Features:
+  - Engine status (running/stopped, paper/live mode)
+  - Real-time position tracking with P&L
+  - Order status (pending/submitted/filled/cancelled)
+  - Live event stream via WebSocket
+  - Trading statistics (win rate, total P&L, Sharpe ratio)
+  - Real-time equity curve chart
+  - Risk metrics (daily loss limit, max positions)
+
+  UI Mock:
+  ┌─────────────────────────────────────────────────────────────┐
+  │ Live Trading Engine                                         │
+  ├─────────────────────────────────────────────────────────────┤
+  │ Status: ● Running (Paper Mode)    Total P&L: +$2,345.67    │
+  │ Positions: 3/5    Bars: 1,234    Signals: 45               │
+  │                                                             │
+  │ Active Positions:                                           │
+  │ ┌──────────────────────────────────────────────────────┐   │
+  │ │ID       │Strategy   │Entry      │Current  │P&L      │   │
+  │ ├─────────┼───────────┼───────────┼─────────┼─────────┤   │
+  │ │pos_001  │BullVertPut│-$500.00   │-$350.00 │+$150.00 │   │
+  │ │pos_002  │BullVertPut│-$480.00   │-$520.00 │-$40.00  │   │
+  │ └──────────────────────────────────────────────────────┘   │
+  │                                                             │
+  │ Recent Events (Live):                                       │
+  │ 10:30:25 [INFO   ] Signal: ENTER bullish_vertical_put      │
+  │ 10:30:30 [INFO   ] Order submitted: SPX 251227P5900        │
+  └─────────────────────────────────────────────────────────────┘
+
+  ---
+  4. Backtest Runner & Analyzer 📈
+
+  Backend Status: ✅ Ready
+  - API endpoints: POST /api/backtests/run, GET 
+  /api/backtests/{id}/status, /results, /history
+  - Supports strategy list, parameter modification, async execution
+
+  Frontend Components to Build:
+  Backtest/
+  ├── StrategySelector.tsx - Dropdown of available strategies
+  ├── ParameterForm.tsx - Dynamic form for strategy params
+  ├── DateRangePicker.tsx - Start/end date selection
+  ├── BacktestRunner.tsx - Run button + progress indicator
+  ├── ResultsViewer.tsx - Trades table, equity curve, metrics
+  ├── BacktestHistory.tsx - List of past backtests
+  └── ComparisonView.tsx - Compare multiple backtest results
+
+  Features:
+  - Strategy selection from available list
+  - Parameter modification (spread_width, profit_target, etc.)
+  - Date range picker (with presets: today, this week, this month)
+  - Run backtest asynchronously
+  - Real-time progress updates
+  - Results visualization:
+    - Trades table with entry/exit details
+    - Equity curve chart
+    - Performance metrics (Sharpe, max drawdown, win rate)
+  - Backtest history with saved results
+  - CSV export
+
+  UI Mock:
+  ┌─────────────────────────────────────────────────────────────┐
+  │ Backtest Runner                                             │
+  ├─────────────────────────────────────────────────────────────┤
+  │ Strategy: [Bullish Vertical Put ▼]                         │
+  │                                                             │
+  │ Parameters:                                                 │
+  │   Spread Width:        [10.0]                              │
+  │   Profit Target (min): [0.50]                              │
+  │   Min DTE:             [0]                                 │
+  │   Max DTE:             [45]                                │
+  │                                                             │
+  │ Date Range: [2025-12-01] to [2025-12-25]                   │
+  │                                                             │
+  │ [Run Backtest]                                             │
+  │                                                             │
+  │ ┌─────────────────────────────────────────────────────┐    │
+  │ │ Results: backtest_20251225_103015                   │    │
+  │ │ Total Trades: 23    Win Rate: 65.2%                │    │
+  │ │ Total P&L: +$3,456.78    Sharpe: 1.85             │    │
+  │ │                                                     │    │
+  │ │ [Equity Curve Chart]                                │    │
+  │ │                                                     │    │
+  │ │ [View Trades] [Export CSV]                          │    │
+  │ └─────────────────────────────────────────────────────┘    │
+  └─────────────────────────────────────────────────────────────┘
+
+  ---
+  5. Chart Visualizations 📉
+
+  Backend Status: ⚠️ Data Available (via API)
+  - Backtest results: equity curve, trades
+  - Live trading: real-time equity, positions
+  - Options data: OHLCV bars from TimescaleDB
+
+  Frontend Components to Build:
+  Charts/
+  ├── EquityCurveChart.tsx - Line chart for equity/P&L
+  ├── TradeHistogram.tsx - Trade P&L distribution
+  ├── IndicatorOverlay.tsx - Price + indicators (SMA, RSI, etc.)
+  ├── CandlestickChart.tsx - OHLCV candlesticks
+  └── DrawdownChart.tsx - Drawdown visualization
+
+  Chart Types:
+  1. Equity Curve: Line chart of cumulative P&L over time
+  2. Trade Distribution: Histogram of individual trade P&L
+  3. Drawdown: Area chart showing peak-to-trough declines
+  4. Price + Indicators: Candlestick chart with overlays (SMA, RSI,
+   MACD)
+  5. Position P&L: Real-time bar chart of active position values
+
+  Technology: Recharts (already in package.json)
+
+  UI Mock:
+  ┌─────────────────────────────────────────────────────────────┐
+  │ Strategy Performance                                        │
+  ├─────────────────────────────────────────────────────────────┤
+  │ Equity Curve:                                               │
+  │ ┌─────────────────────────────────────────────────────┐    │
+  │ │     $105k ┤                              ╱          │    │
+  │ │     $102k ┤                   ╱──────╱              │    │
+  │ │     $100k ┤─────╱────╱───────╱                      │    │
+  │ │      $98k ┤  ╱                                      │    │
+  │ │           └──────────────────────────────────────   │    │
+  │ │            Dec 1   Dec 8   Dec 15   Dec 22         │    │
+  │ └─────────────────────────────────────────────────────┘    │
+  │                                                             │
+  │ Trade Distribution:                                         │
+  │ ┌─────────────────────────────────────────────────────┐    │
+  │ │ Count                                               │    │
+  │ │   8 ┤     ▇▇▇                                      │    │
+  │ │   4 ┤  ▇▇▇▇▇▇▇▇▇                                   │    │
+  │ │   0 ┤──────────────────────────────────────        │    │
+  │ │     -$500 -$200  $0  $200 $500                     │    │
+  │ └─────────────────────────────────────────────────────┘    │
+  └─────────────────────────────────────────────────────────────┘
+
+  ---
+  Technical Implementation Plan
+
+  Phase 1: Foundation (Week 1)
+
+⏺ Technical Implementation Plan
+
+  Phase 1: Foundation Setup
+
+  1.1 Project Structure
+
+  src/admin_ui/frontend/
+  ├── src/
+  │   ├── api/                    # API client (Axios + TanStack 
+  Query)
+  │   │   ├── client.ts           # Axios instance with auth 
+  interceptor
+  │   │   ├── queries.ts          # React Query hooks
+  │   │   └── websocket.ts        # WebSocket client
+  │   │
+  │   ├── components/             # Reusable UI components
+  │   │   ├── common/             # Buttons, Cards, Tables, etc.
+  │   │   ├── charts/             # Chart components (Recharts)
+  │   │   └── layout/             # Header, Sidebar, Layout
+  │   │
+  │   ├── pages/                  # Page components (React Router)
+  │   │   ├── Dashboard.tsx       # Main dashboard (service 
+  overview)
+  │   │   ├── TokenManager.tsx    # Schwab token management
+  │   │   ├── LiveTrading.tsx     # Live trading monitor
+  │   │   ├── Backtest.tsx        # Backtest runner
+  │   │   └── Login.tsx           # Login page
+  │   │
+  │   ├── hooks/                  # Custom React hooks
+  │   │   ├── useWebSocket.ts     # WebSocket hook
+  │   │   ├── useAuth.ts          # Authentication hook
+  │   │   └── usePolling.ts       # Polling hook for status updates
+  │   │
+  │   ├── types/                  # TypeScript types
+  │   │   ├── api.ts              # API response types
+  │   │   ├── backtest.ts         # Backtest types
+  │   │   └── trading.ts          # Trading types
+  │   │
+  │   ├── utils/                  # Utility functions
+  │   │   ├── formatters.ts       # Number/date formatting
+  │   │   └── validators.ts       # Form validation
+  │   │
+  │   ├── App.tsx                 # Root component
+  │   ├── main.tsx                # Entry point
+  │   └── router.tsx              # React Router setup
+  │
+  ├── public/                     # Static assets
+  ├── index.html                  # HTML template
+  ├── package.json                # Dependencies
+  ├── tsconfig.json               # TypeScript config
+  └── vite.config.ts              # Vite config
+
+  1.2 Core Dependencies
+
+  {
+    "dependencies": {
+      "react": "^18.2.0",
+      "react-dom": "^18.2.0",
+      "react-router-dom": "^6.20.0",
+      "@tanstack/react-query": "^5.15.0",
+      "axios": "^1.6.2",
+      "recharts": "^2.10.3",
+      "date-fns": "^3.0.0",
+      "@headlessui/react": "^1.7.17",
+      "@heroicons/react": "^2.1.0"
+    },
+    "devDependencies": {
+      "@types/react": "^18.2.43",
+      "@types/react-dom": "^18.2.17",
+      "@vitejs/plugin-react": "^4.2.1",
+      "typescript": "^5.3.3",
+      "vite": "^5.0.8",
+      "tailwindcss": "^3.3.6"
+    }
+  }
+
+  1.3 API Client Setup
+
+  // src/api/client.ts
+  import axios from 'axios';
+
+  const apiClient = axios.create({
+    baseURL: import.meta.env.VITE_API_URL ||
+  'http://localhost:8000/api',
+    timeout: 30000,
+  });
+
+  // Add JWT token to requests
+  apiClient.interceptors.request.use((config) => {
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  });
+
+  // Handle 401 errors (token expired)
+  apiClient.interceptors.response.use(
+    (response) => response,
+    (error) => {
+      if (error.response?.status === 401) {
+        localStorage.removeItem('auth_token');
+        window.location.href = '/login';
+      }
+      return Promise.reject(error);
+    }
+  );
+
+  export default apiClient;
+
+  1.4 WebSocket Hook
+
+  // src/hooks/useWebSocket.ts
+  import { useEffect, useRef, useState } from 'react';
+
+  export function useWebSocket<T>(url: string) {
+    const [data, setData] = useState<T | null>(null);
+    const [isConnected, setIsConnected] = useState(false);
+    const ws = useRef<WebSocket | null>(null);
+
+    useEffect(() => {
+      const token = localStorage.getItem('auth_token');
+      const wsUrl = `${url}?token=${token}`;
+
+      ws.current = new WebSocket(wsUrl);
+
+      ws.current.onopen = () => setIsConnected(true);
+      ws.current.onclose = () => setIsConnected(false);
+      ws.current.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        setData(message);
+      };
+
+      return () => ws.current?.close();
+    }, [url]);
+
+    return { data, isConnected };
+  }
+
+  ---
+  Phase 2: MVP Features Implementation
+
+  2.1 Authentication (Login Page)
+
+  // src/pages/Login.tsx
+  import { useState } from 'react';
+  import { useNavigate } from 'react-router-dom';
+  import apiClient from '../api/client';
+
+  export function Login() {
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const navigate = useNavigate();
+
+    const handleLogin = async (e: React.FormEvent) => {
+      e.preventDefault();
+      try {
+        const formData = new FormData();
+        formData.append('username', username);
+        formData.append('password', password);
+
+        const response = await apiClient.post('/auth/login',
+  formData);
+        localStorage.setItem('auth_token',
+  response.data.access_token);
+        navigate('/');
+      } catch (err) {
+        setError('Invalid credentials');
+      }
+    };
+
+    return (
+      <div className="min-h-screen flex items-center 
+  justify-center">
+        <form onSubmit={handleLogin} className="max-w-md w-full">
+          <h1 className="text-2xl font-bold mb-4">QuantVibe
+  Admin</h1>
+          {error && <div className="text-red-500 
+  mb-2">{error}</div>}
+          <input
+            type="text"
+            placeholder="Username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className="w-full p-2 border rounded mb-2"
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full p-2 border rounded mb-4"
+          />
+          <button type="submit" className="w-full bg-blue-500 
+  text-white p-2 rounded">
+            Login
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  2.2 Service Dashboard
+
+  // src/pages/Dashboard.tsx
+  import { useQuery } from '@tanstack/react-query';
+  import apiClient from '../api/client';
+  import { ServiceCard } from '../components/ServiceCard';
+
+  interface Service {
+    name: string;
+    status: 'running' | 'stopped' | 'error';
+    uptime_seconds: number;
+  }
+
+  export function Dashboard() {
+    const { data: services } = useQuery({
+      queryKey: ['services'],
+      queryFn: async () => {
+        const response = await
+  apiClient.get<Service[]>('/services/');
+        return response.data;
+      },
+      refetchInterval: 5000, // Poll every 5 seconds
+    });
+
+    return (
+      <div className="p-6">
+        <h1 className="text-3xl font-bold mb-6">System
+  Overview</h1>
+        <div className="grid grid-cols-3 gap-4">
+          {services?.map((service) => (
+            <ServiceCard key={service.name} service={service} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // src/components/ServiceCard.tsx
+  export function ServiceCard({ service }: { service: Service }) {
+    const handleAction = async (action: 'start' | 'stop' |
+  'restart') => {
+      await apiClient.post(`/services/${service.name}/${action}`);
+    };
+
+    return (
+      <div className="border rounded-lg p-4">
+        <h3 className="font-bold">{service.name}</h3>
+        <div className="flex items-center gap-2 my-2">
+          <div className={`w-3 h-3 rounded-full ${
+            service.status === 'running' ? 'bg-green-500' : 
+  'bg-red-500'
+          }`} />
+          <span>{service.status}</span>
+        </div>
+        <p className="text-sm text-gray-600">
+          Uptime: {Math.floor(service.uptime_seconds / 3600)}h
+        </p>
+        <div className="flex gap-2 mt-4">
+          <button onClick={() => handleAction('stop')}
+  className="btn-sm">Stop</button>
+          <button onClick={() => handleAction('restart')}
+  className="btn-sm">Restart</button>
+        </div>
+      </div>
+    );
+  }
+
+  2.3 Token Manager
+
+  // src/pages/TokenManager.tsx
+  import { useQuery, useMutation } from '@tanstack/react-query';
+  import apiClient from '../api/client';
+
+  interface TokenStatus {
+    access_token_valid: boolean;
+    access_token_expiry: string;
+    refresh_token_valid: boolean;
+    refresh_token_expiry: string;
+  }
+
+  export function TokenManager() {
+    const { data: status } = useQuery({
+      queryKey: ['token-status'],
+      queryFn: async () => {
+        const response = await
+  apiClient.get<TokenStatus>('/tokens/status');
+        return response.data;
+      },
+      refetchInterval: 60000, // Refresh every minute
+    });
+
+    const refreshMutation = useMutation({
+      mutationFn: async () => {
+        await apiClient.post('/tokens/refresh');
+      },
+    });
+
+    const getTimeRemaining = (expiry: string) => {
+      const diff = new Date(expiry).getTime() - Date.now();
+      const minutes = Math.floor(diff / 60000);
+      const seconds = Math.floor((diff % 60000) / 1000);
+      return `${minutes}m ${seconds}s`;
+    };
+
+    return (
+      <div className="p-6">
+        <h1 className="text-3xl font-bold mb-6">Schwab API
+  Token</h1>
+
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="space-y-4">
+            <div>
+              <h3 className="font-semibold">Access Token</h3>
+              <p className={status?.access_token_valid ? 
+  'text-green-600' : 'text-red-600'}>
+                {status?.access_token_valid ? '✓ Valid' : '✗
+  Expired'}
+              </p>
+              {status?.access_token_expiry && (
+                <p className="text-sm text-gray-600">
+                  Expires in:
+  {getTimeRemaining(status.access_token_expiry)}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <h3 className="font-semibold">Refresh Token</h3>
+              <p className={status?.refresh_token_valid ? 
+  'text-green-600' : 'text-red-600'}>
+                {status?.refresh_token_valid ? '✓ Valid' : '✗
+  Expired'}
+              </p>
+              {status?.refresh_token_expiry && (
+                <p className="text-sm text-gray-600">
+                  Expires in:
+  {getTimeRemaining(status.refresh_token_expiry)}
+                </p>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => refreshMutation.mutate()}
+                disabled={refreshMutation.isPending}
+                className="bg-blue-500 text-white px-4 py-2
+  rounded"
+              >
+                {refreshMutation.isPending ? 'Refreshing...' :
+  'Refresh Token'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  2.4 Live Trading Monitor
+
+  // src/pages/LiveTrading.tsx
+  import { useQuery } from '@tanstack/react-query';
+  import { useWebSocket } from '../hooks/useWebSocket';
+  import apiClient from '../api/client';
+  import { EquityCurveChart } from
+  '../components/charts/EquityCurveChart';
+
+  export function LiveTrading() {
+    const { data: status } = useQuery({
+      queryKey: ['live-status'],
+      queryFn: async () => {
+        const response = await apiClient.get('/live/status');
+        return response.data;
+      },
+      refetchInterval: 5000,
+    });
+
+    const { data: positions } = useQuery({
+      queryKey: ['live-positions'],
+      queryFn: async () => {
+        const response = await
+  apiClient.get('/live/positions?status=open');
+        return response.data;
+      },
+      refetchInterval: 5000,
+    });
+
+    const { data: events } = useWebSocket('/ws/events');
+
+    return (
+      <div className="p-6">
+        <h1 className="text-3xl font-bold mb-6">Live Trading</h1>
+
+        {/* Engine Status */}
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h2 className="text-xl font-semibold">Engine
+  Status</h2>
+              <p className="text-sm text-gray-600">
+                {status?.is_running ? '● Running' : '○ Stopped'}
+                {status?.paper_trading && ' (Paper Mode)'}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-2xl font-bold">
+                {status?.total_pnl > 0 ? '+' :
+  ''}${status?.total_pnl?.toFixed(2)}
+              </p>
+              <p className="text-sm text-gray-600">Total P&L</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Positions Table */}
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-4">Active
+  Positions</h2>
+          <table className="w-full">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="p-2">ID</th>
+                <th className="p-2">Strategy</th>
+                <th className="p-2">Entry Cost</th>
+                <th className="p-2">Current Value</th>
+                <th className="p-2">P&L</th>
+              </tr>
+            </thead>
+            <tbody>
+              {positions?.map((pos: any) => (
+                <tr key={pos.position_id} className="border-b">
+                  <td className="p-2">{pos.position_id}</td>
+                  <td className="p-2">{pos.strategy_name}</td>
+                  <td 
+  className="p-2">${pos.entry_cost.toFixed(2)}</td>
+                  <td 
+  className="p-2">${pos.current_value?.toFixed(2)}</td>
+                  <td className={`p-2 ${pos.unrealized_pnl >= 0 ?
+  'text-green-600' : 'text-red-600'}`}>
+                    ${pos.unrealized_pnl?.toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Real-time Events */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-4">Live
+  Events</h2>
+          <div className="font-mono text-sm space-y-1">
+            {events?.message && (
+              <div className="text-gray-700">{events.message}</div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  2.5 Backtest Runner
+
+  // src/pages/Backtest.tsx
+  import { useState } from 'react';
+  import { useQuery, useMutation } from '@tanstack/react-query';
+  import apiClient from '../api/client';
+  import { EquityCurveChart } from
+  '../components/charts/EquityCurveChart';
+
+  export function Backtest() {
+    const [selectedStrategy, setSelectedStrategy] = useState('');
+    const [params, setParams] = useState<Record<string, any>>({});
+    const [backtestId, setBacktestId] = useState<string |
+  null>(null);
+
+    const { data: strategies } = useQuery({
+      queryKey: ['strategies'],
+      queryFn: async () => {
+        const response = await
+  apiClient.get('/backtests/strategies');
+        return response.data;
+      },
+    });
+
+    const runMutation = useMutation({
+      mutationFn: async (payload: any) => {
+        const response = await apiClient.post('/backtests/run',
+  payload);
+        return response.data;
+      },
+      onSuccess: (data) => {
+        setBacktestId(data.backtest_id);
+      },
+    });
+
+    const { data: results } = useQuery({
+      queryKey: ['backtest-results', backtestId],
+      queryFn: async () => {
+        const response = await
+  apiClient.get(`/backtests/${backtestId}/results`);
+        return response.data;
+      },
+      enabled: !!backtestId,
+    });
+
+    const handleRun = () => {
+      runMutation.mutate({
+        strategy_name: selectedStrategy,
+        params: params,
+        start_date: '2025-12-01',
+        end_date: '2025-12-25',
+      });
+    };
+
+    return (
+      <div className="p-6">
+        <h1 className="text-3xl font-bold mb-6">Backtest
+  Runner</h1>
+
+        {/* Strategy Selector */}
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <label className="block mb-2 
+  font-semibold">Strategy</label>
+          <select
+            value={selectedStrategy}
+            onChange={(e) => setSelectedStrategy(e.target.value)}
+            className="w-full p-2 border rounded"
+          >
+            <option value="">Select a strategy...</option>
+            {strategies?.map((s: any) => (
+              <option key={s.name} value={s.name}>{s.name}</option>
+            ))}
+          </select>
+
+          {/* Parameter Form (dynamic based on strategy) */}
+          {selectedStrategy && (
+            <div className="mt-4 space-y-2">
+              <input
+                type="number"
+                placeholder="Spread Width"
+                onChange={(e) => setParams({...params,
+  spread_width: parseFloat(e.target.value)})}
+                className="w-full p-2 border rounded"
+              />
+              {/* Add more parameter inputs based on strategy */}
+            </div>
+          )}
+
+          <button
+            onClick={handleRun}
+            disabled={!selectedStrategy || runMutation.isPending}
+            className="mt-4 bg-blue-500 text-white px-4 py-2 
+  rounded"
+          >
+            {runMutation.isPending ? 'Running...' : 'Run Backtest'}
+          </button>
+        </div>
+
+        {/* Results */}
+        {results && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-xl font-semibold mb-4">Results</h2>
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <div>
+                <p className="text-sm text-gray-600">Total
+  Trades</p>
+                <p className="text-2xl 
+  font-bold">{results.total_trades}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Win Rate</p>
+                <p className="text-2xl 
+  font-bold">{(results.win_rate * 100).toFixed(1)}%</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Total P&L</p>
+                <p className={`text-2xl font-bold 
+  ${results.total_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  ${results.total_pnl.toFixed(2)}
+                </p>
+              </div>
+            </div>
+            <EquityCurveChart data={results.equity_curve} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  2.6 Equity Curve Chart
+
+  // src/components/charts/EquityCurveChart.tsx
+  import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend } from 'recharts';
+
+  interface EquityCurveChartProps {
+    data: Array<{ timestamp: string; portfolio_value: number }>;
+  }
+
+  export function EquityCurveChart({ data }: EquityCurveChartProps)
+   {
+    return (
+      <LineChart width={800} height={400} data={data}>
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis 
+          dataKey="timestamp" 
+          tickFormatter={(ts) => new Date(ts).toLocaleDateString()}
+        />
+        <YAxis 
+          tickFormatter={(value) => `$${value.toLocaleString()}`}
+        />
+        <Tooltip 
+          formatter={(value: number) => `$${value.toFixed(2)}`}
+          labelFormatter={(ts) => new Date(ts).toLocaleString()}
+        />
+        <Legend />
+        <Line 
+          type="monotone" 
+          dataKey="portfolio_value" 
+          stroke="#3b82f6" 
+          name="Portfolio Value"
+        />
+      </LineChart>
+    );
+  }
+
+  ---
+  Phase 3: Missing Backend Features
+
+  3.1 OAuth Callback Handler (CRITICAL - Missing)
+
+  # src/admin_ui/backend/routers/tokens.py
+
+  @router.get("/oauth-url")
+  async def get_oauth_url():
+      """Generate Schwab OAuth URL for re-authentication"""
+      # TODO: Implement using schwabdev
+      from schwabdev import Client
+
+      client = Client(
+          app_key=os.getenv("SCHWAB_API_KEY"),
+          app_secret=os.getenv("SCHWAB_API_SECRET"),
+      )
+
+      auth_url = client.get_authorization_url()
+      return {"oauth_url": auth_url}
+
+  @router.post("/oauth-callback")
+  async def handle_oauth_callback(code: str):
+      """Handle OAuth callback and exchange code for tokens"""
+      # TODO: Implement token exchange
+      from schwabdev import Client
+
+      client = Client(
+          app_key=os.getenv("SCHWAB_API_KEY"),
+          app_secret=os.getenv("SCHWAB_API_SECRET"),
+      )
+
+      client.exchange_code_for_token(code)
+      return {"status": "success"}
+
+  3.2 Configuration Editor (Nice to Have)
+
+  # src/admin_ui/backend/routers/config.py
+
+  @router.get("/config/{config_name}")
+  async def get_config(config_name: str):
+      """Get YAML configuration"""
+      config_path = f"config/{config_name}.yaml"
+      with open(config_path) as f:
+          config = yaml.safe_load(f)
+      return config
+
+  @router.put("/config/{config_name}")
+  async def update_config(config_name: str, config: dict):
+      """Update YAML configuration"""
+      config_path = f"config/{config_name}.yaml"
+      with open(config_path, 'w') as f:
+          yaml.dump(config, f)
+      return {"status": "success"}
+
+  ---
+  Development Workflow
+
+  1. Local Development
+
+  # Terminal 1: Start backend
+  cd src/admin_ui/backend
+  source ../../../venv/bin/activate
+  python -m uvicorn main:app --reload --port 8000
+
+  # Terminal 2: Start frontend dev server
+  cd src/admin_ui/frontend
+  npm install
+  npm run dev  # Vite dev server on port 3000
+
+  # Terminal 3: Start services (optional)
+  docker-compose up redis timescaledb
+  python scripts/stream_spxw_schwabdev.py
+  python scripts/run_live_trading.py
+
+  2. Production Build
+
+  cd src/admin_ui/frontend
+  npm run build  # Outputs to dist/
+
+  # Backend serves static files from dist/
+  cd src/admin_ui/backend
+  python -m uvicorn main:app --host 0.0.0.0 --port 8000
+
+  3. Docker Deployment
+
+  # docker-compose.yml (already configured)
+  admin_ui:
+    build: ./src/admin_ui
+    ports:
+      - "8000:8000"
+    environment:
+      - SCHWAB_API_KEY
+      - REDIS_HOST=redis
+      - TIMESCALE_HOST=timescaledb
+    depends_on:
+      - redis
+      - timescaledb
+
+  ---
+  Summary
+
+  Ready to Use ✅:
+  - FastAPI backend with complete REST API
+  - JWT authentication
+  - WebSocket event streaming
+  - Docker deployment
+  - Service control, token management, live monitoring, backtest
+  execution
+
+  Need to Build 🚧:
+  - React frontend (all 5 MVP features)
+  - OAuth callback flow
+  - Real-time charts
+  - Configuration editor UI
+
+  Estimated Effort:
+  - Phase 1 (Foundation): 2-3 days
+  - Phase 2 (MVP Features): 5-7 days
+  - Phase 3 (Backend Gaps): 2-3 days
+  - Total: ~2 weeks for MVP
+
+  The architecture is solid, backend is production-ready, and we
+  have a clear path forward. Would you like me to start
+  implementing any specific component first?
+
+> save this plan to TODO.md 
