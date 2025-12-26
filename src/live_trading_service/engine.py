@@ -431,8 +431,9 @@ class LiveTradingEngine:
 
         self.logger.debug(f"Received {len(new_bars)} new bars")
 
-        # Check data staleness
-        if self.data_feed.is_data_stale():
+        # Check data staleness (use correct feed reference)
+        feed = self.redis_feed if self.use_redis_feed else self.data_feed
+        if feed.is_data_stale():
             self.logger.warning("Data is stale! Pausing new entries.")
             if self.strategy_executor:
                 self.strategy_executor.disable()
