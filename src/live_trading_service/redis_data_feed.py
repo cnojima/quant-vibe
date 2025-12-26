@@ -120,8 +120,8 @@ class RedisDataFeed:
 
                 if result:
                     topic, message_data = result
-                    # Message already handled by callback in subscribe()
-                    # This loop just keeps the thread alive
+                    # Call the callback to process the message
+                    self._handle_message(topic, message_data)
 
         except Exception as e:
             self.logger.error(f"Error in Redis listener: {e}", exc_info=True)

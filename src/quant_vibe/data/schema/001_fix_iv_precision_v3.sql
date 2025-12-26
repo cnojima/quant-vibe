@@ -8,7 +8,8 @@
 -- Error that prompted this fix:
 --   psycopg2.errors.NumericValueOutOfRange: numeric field overflow
 --   DETAIL: A field with precision 8, scale 6 must round to an absolute value less than 10^2.
-
+-- APPLY with:   cat src/quant_vibe/data/schema/001_fix_iv_precision_v3.sql |
+--               docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data`
 -- Step 1: Check if compression policy exists and remove it
 DO $$
 DECLARE
