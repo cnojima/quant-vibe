@@ -49,6 +49,7 @@ class StreamingService:
         self.config = config or StreamingConfig()
         self.message_count = 0
         self.contracts_subscribed = []
+        self.redis_publish_count = 0  # Track Redis publishes
 
         # Setup normalized logging
         self.logger = setup_normalized_logging(
@@ -285,6 +286,35 @@ class StreamingService:
                                 # Add to aggregator
                                 self.aggregator.add_quote(enriched_quote)
 
+                                # Publish to Redis immediately for real-time consumers
+                                if self.message_broker:
+                                    # Convert quote to bar format for compatibility
+                                    quote_as_bar = {
+                                        'timestamp': enriched_quote['timestamp'],
+                                        'option_ticker': enriched_quote['symbol'],
+                                        'underlying_ticker': 'SPX',
+                                        'bid': enriched_quote.get('bid'),
+                                        'ask': enriched_quote.get('ask'),
+                                        'last': enriched_quote.get('last'),
+                                        'high': enriched_quote.get('high'),
+                                        'low': enriched_quote.get('low'),
+                                        'close': enriched_quote.get('close'),
+                                        'volume': enriched_quote.get('volume'),
+                                        'open': enriched_quote.get('open'),
+                                        'bid_size': enriched_quote.get('bid_size'),
+                                        'ask_size': enriched_quote.get('ask_size'),
+                                        'strike_price': enriched_quote.get('strike'),
+                                        'contract_type': enriched_quote.get('contract_type'),
+                                        'implied_volatility': enriched_quote.get('iv'),
+                                        'delta': enriched_quote.get('delta'),
+                                        'gamma': enriched_quote.get('gamma'),
+                                        'theta': enriched_quote.get('theta'),
+                                        'vega': enriched_quote.get('vega'),
+                                        'rho': enriched_quote.get('rho'),
+                                    }
+                                    self.message_broker.publish(Topic.OPTIONS_BARS, quote_as_bar)
+                                    self.redis_publish_count += 1
+
                         # Handle underlying asset quotes (SPX, etc.)
                         elif service == 'LEVELONE_EQUITIES' and content:
                             timestamp = datetime.now()
@@ -311,12 +341,32 @@ class StreamingService:
                                 # Add to underlying aggregator
                                 self.underlying_aggregator.add_quote(quote)
 
+                                # Publish to Redis immediately for real-time consumers
+                                if self.message_broker:
+                                    # Convert quote to bar format for compatibility
+                                    quote_as_bar = {
+                                        'timestamp': quote['timestamp'],
+                                        'underlying_ticker': quote['symbol'],
+                                        'bid': quote.get('bid'),
+                                        'ask': quote.get('ask'),
+                                        'last': quote.get('last'),
+                                        'high': quote.get('high'),
+                                        'low': quote.get('low'),
+                                        'close': quote.get('close'),
+                                        'volume': quote.get('volume'),
+                                        'open': quote.get('open'),
+                                    }
+                                    self.message_broker.publish(Topic.UNDERLYING_BARS, quote_as_bar)
+                                    self.redis_publish_count += 1
+
             # Check if we should flush (create 1-min bars)
             if self.aggregator.should_flush():
+                self.logger.info(f"  ⏰ Options aggregator triggered flush (60s elapsed)")
                 self._flush_bars()
 
             # Also check underlying aggregator
             if self.underlying_aggregator.should_flush():
+                self.logger.info(f"  ⏰ Underlying aggregator triggered flush (60s elapsed)")
                 self._flush_underlying_bars()
 
         except Exception as e:
@@ -327,43 +377,63 @@ class StreamingService:
         # Periodic status update
         if self.message_count % 10 == 0:
             now = datetime.now()
-            self.logger.info(f"  📊 [{now.strftime('%H:%M:%S')}] Messages: {self.message_count} | Buffered symbols: {self.aggregator.get_buffered_symbol_count()}")
+            self.logger.info(f"  📊 [{now.strftime('%H:%M:%S')}] Messages: {self.message_count} | Redis publishes: {self.redis_publish_count} | Buffered symbols: {self.aggregator.get_buffered_symbol_count()}")
 
     def _flush_bars(self):
         """Flush aggregated option bars to database and publish to Redis."""
         bars = self.aggregator.flush()
 
+        self.logger.info(f"  🔄 _flush_bars() called, got {len(bars)} bars from aggregator")
+
         if bars:
             try:
                 # Save to TimescaleDB
                 inserted = self.ts_store.bulk_insert_option_bars(bars)
-                self.logger.info(f"  ✓ Inserted {inserted} option bars")
+                self.logger.info(f"  ✓ Inserted {inserted} option bars to TimescaleDB")
 
                 # Publish to Redis for real-time consumers
                 if self.message_broker:
+                    published_count = 0
                     for bar in bars:
-                        self.message_broker.publish(Topic.OPTIONS_BARS, bar)
+                        success = self.message_broker.publish(Topic.OPTIONS_BARS, bar)
+                        if success:
+                            published_count += 1
+                    self.logger.info(f"  📤 Published {published_count}/{len(bars)} option bars to Redis topic: {Topic.OPTIONS_BARS}")
+                else:
+                    self.logger.warning(f"  ⚠️  No message broker available, skipping Redis publish")
 
             except Exception as e:
                 self.logger.error(f"  ✗ Database error (options): {e}", exc_info=True)
+        else:
+            self.logger.info(f"  ℹ️  No bars to flush (buffer was empty)")
 
     def _flush_underlying_bars(self):
         """Flush aggregated underlying bars to database and publish to Redis."""
         bars = self.underlying_aggregator.flush()
 
+        self.logger.info(f"  🔄 _flush_underlying_bars() called, got {len(bars)} bars from aggregator")
+
         if bars:
             try:
                 # Save to TimescaleDB
                 inserted = self.ts_store.bulk_insert_underlying_bars(bars)
-                self.logger.info(f"  ✓ Inserted {inserted} underlying bars")
+                self.logger.info(f"  ✓ Inserted {inserted} underlying bars to TimescaleDB")
 
                 # Publish to Redis for real-time consumers
                 if self.message_broker:
+                    published_count = 0
                     for bar in bars:
-                        self.message_broker.publish(Topic.UNDERLYING_BARS, bar)
+                        success = self.message_broker.publish(Topic.UNDERLYING_BARS, bar)
+                        if success:
+                            published_count += 1
+                    self.logger.info(f"  📤 Published {published_count}/{len(bars)} underlying bars to Redis topic: {Topic.UNDERLYING_BARS}")
+                else:
+                    self.logger.warning(f"  ⚠️  No message broker available, skipping Redis publish")
 
             except Exception as e:
                 self.logger.error(f"  ✗ Database error (underlying): {e}", exc_info=True)
+        else:
+            self.logger.info(f"  ℹ️  No underlying bars to flush (buffer was empty)")
 
     def start(self):
         """Start the streaming service."""
@@ -479,6 +549,7 @@ class StreamingService:
 
                 self.logger.info(f"📊 Status Update [{now.strftime('%Y-%m-%d %H:%M:%S')}]:")
                 self.logger.info(f"   Messages received: {self.message_count}")
+                self.logger.info(f"   Redis publishes: {self.redis_publish_count}")
                 self.logger.info(f"   Contracts streaming: {len(self.contracts_subscribed)}")
                 self.logger.info(f"   Buffered option symbols: {self.aggregator.get_buffered_symbol_count()}")
                 self.logger.info(f"   Buffered underlying symbols: {self.underlying_aggregator.get_buffered_symbol_count()}")

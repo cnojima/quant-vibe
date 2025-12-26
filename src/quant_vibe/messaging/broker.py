@@ -196,11 +196,17 @@ class RedisMessageBroker(MessageBroker):
         # IMPORTANT: Consume subscription confirmation messages
         # Redis sends a confirmation message for each subscribe() call
         # We need to consume these before we can get actual data messages
-        for _ in topic_strs:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Waiting for {len(topic_strs)} subscription confirmations...")
+
+        for i in range(len(topic_strs)):
             msg = self.pubsub.get_message(timeout=1.0)
+            logger.info(f"  [{i+1}/{len(topic_strs)}] Got message: {msg}")
             if msg and msg['type'] == 'subscribe':
-                import logging
-                logging.getLogger(__name__).debug(f"Subscribed to channel: {msg.get('channel')}")
+                logger.info(f"    ✓ Subscribed to channel: {msg.get('channel')}")
+            else:
+                logger.warning(f"    ✗ Expected 'subscribe' confirmation, got: {msg}")
 
     def listen(self, timeout: Optional[float] = None) -> None:
         """Listen for messages and invoke callback.
