@@ -452,6 +452,11 @@ class LiveTradingEngine:
                     if not current_time:
                         continue
 
+                    # Parse timestamp if it's a string (from Redis)
+                    if isinstance(current_time, str):
+                        from datetime import datetime
+                        current_time = datetime.fromisoformat(current_time)
+
                     # Get underlying data (historical + current bar)
                     underlying_data = self.market_data.get_underlying_history(
                         ticker="SPX",
