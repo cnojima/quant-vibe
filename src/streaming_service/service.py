@@ -316,11 +316,8 @@ class StreamingService:
                                         'vega': enriched_quote.get('vega'),
                                         'rho': enriched_quote.get('rho'),
                                     }
-                                    success = self.message_broker.publish(Topic.OPTIONS_BARS, quote_as_bar)
-                                    if success:
+                                    if self.message_broker.publish(Topic.OPTIONS_BARS, quote_as_bar):
                                         self.redis_publish_count += 1
-                                    else:
-                                        self.logger.warning(f"Failed to publish option quote to Redis")
 
                         # Handle underlying asset quotes (SPX, etc.)
                         elif service == 'LEVELONE_EQUITIES' and content:
@@ -367,20 +364,15 @@ class StreamingService:
                                         'volume': quote.get('volume'),
                                         'open': quote.get('open'),
                                     }
-                                    success = self.message_broker.publish(Topic.UNDERLYING_BARS, quote_as_bar)
-                                    if success:
+                                    if self.message_broker.publish(Topic.UNDERLYING_BARS, quote_as_bar):
                                         self.redis_publish_count += 1
-                                    else:
-                                        self.logger.warning(f"Failed to publish underlying quote to Redis")
 
             # Check if we should flush (create 1-min bars)
             if self.aggregator.should_flush():
-                self.logger.info(f"  ⏰ Options aggregator triggered flush (60s elapsed)")
                 self._flush_bars()
 
             # Also check underlying aggregator
             if self.underlying_aggregator.should_flush():
-                self.logger.info(f"  ⏰ Underlying aggregator triggered flush (60s elapsed)")
                 self._flush_underlying_bars()
 
         except Exception as e:
@@ -397,57 +389,37 @@ class StreamingService:
         """Flush aggregated option bars to database and publish to Redis."""
         bars = self.aggregator.flush()
 
-        self.logger.info(f"  🔄 _flush_bars() called, got {len(bars)} bars from aggregator")
-
         if bars:
             try:
                 # Save to TimescaleDB
                 inserted = self.ts_store.bulk_insert_option_bars(bars)
-                self.logger.info(f"  ✓ Inserted {inserted} option bars to TimescaleDB")
+                self.logger.info(f"  ✓ Inserted {inserted} option bars")
 
                 # Publish to Redis for real-time consumers
                 if self.message_broker:
-                    published_count = 0
                     for bar in bars:
-                        success = self.message_broker.publish(Topic.OPTIONS_BARS, bar)
-                        if success:
-                            published_count += 1
-                    self.logger.info(f"  📤 Published {published_count}/{len(bars)} option bars to Redis topic: {Topic.OPTIONS_BARS}")
-                else:
-                    self.logger.warning(f"  ⚠️  No message broker available, skipping Redis publish")
+                        self.message_broker.publish(Topic.OPTIONS_BARS, bar)
 
             except Exception as e:
                 self.logger.error(f"  ✗ Database error (options): {e}", exc_info=True)
-        else:
-            self.logger.info(f"  ℹ️  No bars to flush (buffer was empty)")
 
     def _flush_underlying_bars(self):
         """Flush aggregated underlying bars to database and publish to Redis."""
         bars = self.underlying_aggregator.flush()
 
-        self.logger.info(f"  🔄 _flush_underlying_bars() called, got {len(bars)} bars from aggregator")
-
         if bars:
             try:
                 # Save to TimescaleDB
                 inserted = self.ts_store.bulk_insert_underlying_bars(bars)
-                self.logger.info(f"  ✓ Inserted {inserted} underlying bars to TimescaleDB")
+                self.logger.info(f"  ✓ Inserted {inserted} underlying bars")
 
                 # Publish to Redis for real-time consumers
                 if self.message_broker:
-                    published_count = 0
                     for bar in bars:
-                        success = self.message_broker.publish(Topic.UNDERLYING_BARS, bar)
-                        if success:
-                            published_count += 1
-                    self.logger.info(f"  📤 Published {published_count}/{len(bars)} underlying bars to Redis topic: {Topic.UNDERLYING_BARS}")
-                else:
-                    self.logger.warning(f"  ⚠️  No message broker available, skipping Redis publish")
+                        self.message_broker.publish(Topic.UNDERLYING_BARS, bar)
 
             except Exception as e:
                 self.logger.error(f"  ✗ Database error (underlying): {e}", exc_info=True)
-        else:
-            self.logger.info(f"  ℹ️  No underlying bars to flush (buffer was empty)")
 
     def start(self):
         """Start the streaming service."""
