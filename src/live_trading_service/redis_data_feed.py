@@ -155,10 +155,6 @@ class RedisDataFeed:
         self.message_count += 1
         self.last_update_time = datetime.now()
 
-        # Debug logging (remove after testing)
-        if self.message_count % 100 == 0:
-            self.logger.info(f"Received {self.message_count} messages from Redis (topic: {topic})")
-
         try:
             if topic == Topic.OPTIONS_BARS:
                 self._handle_option_bar(message_data)
