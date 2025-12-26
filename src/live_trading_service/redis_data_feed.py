@@ -116,15 +116,21 @@ class RedisDataFeed:
         self.logger.info("Starting Redis listen loop...")
         message_poll_count = 0
 
+        # Log every 5 seconds to prove loop is running
+        import time
+        last_log_time = time.time()
+
         try:
             while self._running:
                 # Non-blocking get_message with short timeout
                 result = self.broker.get_message(timeout=0.1)
                 message_poll_count += 1
 
-                # Log every 1000 polls to show we're alive
-                if message_poll_count % 1000 == 0:
-                    self.logger.debug(f"Polled {message_poll_count} times, received {self.message_count} messages")
+                # Log every 5 seconds to show we're alive
+                current_time = time.time()
+                if current_time - last_log_time >= 5.0:
+                    self.logger.info(f"📊 Listen loop alive: {message_poll_count} polls, {self.message_count} messages received")
+                    last_log_time = current_time
 
                 if result:
                     topic, message_data = result
