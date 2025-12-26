@@ -167,10 +167,19 @@ class RedisMessageBroker(MessageBroker):
                 serialized = json.dumps(enriched_message)
                 self.client.publish(str(topic), serialized)
                 return True
-            except Exception:
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Failed to publish after reconnect: {e}")
                 return False
 
-        except Exception:
+        except TypeError as e:
+            import logging
+            logging.getLogger(__name__).error(f"JSON serialization error: {e}. Message keys: {list(message.keys())}")
+            return False
+
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Unexpected publish error: {e}")
             return False
 
     def subscribe(self, topics: List[Topic], callback: Callable[[Topic, Dict[str, Any]], None]) -> None:
@@ -260,12 +269,23 @@ class RedisMessageBroker(MessageBroker):
         Returns:
             (topic, message_data) if message received, None otherwise
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         if not self.pubsub:
-            import logging
-            logging.getLogger(__name__).error("get_message() called but pubsub is None!")
+            logger.error("get_message() called but pubsub is None!")
             return None
 
         message = self.pubsub.get_message(timeout=timeout)
+
+        # Debug: Log every 100th poll to see what we're getting
+        if hasattr(self, '_poll_count'):
+            self._poll_count += 1
+        else:
+            self._poll_count = 1
+
+        if self._poll_count % 100 == 0:
+            logger.info(f"Poll #{self._poll_count}: Got message type={message['type'] if message else None}")
 
         if message and message["type"] == "message":
             try:
@@ -287,8 +307,6 @@ class RedisMessageBroker(MessageBroker):
 
             except (json.JSONDecodeError, KeyError, TypeError) as e:
                 # Log parse errors for debugging
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.warning(f"Failed to parse Redis message: {e}. Message: {message}")
                 return None
 

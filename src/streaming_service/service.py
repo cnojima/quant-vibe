@@ -289,8 +289,12 @@ class StreamingService:
                                 # Publish to Redis immediately for real-time consumers
                                 if self.message_broker:
                                     # Convert quote to bar format for compatibility
+                                    # Ensure timestamp is serializable
+                                    ts = enriched_quote['timestamp']
+                                    timestamp_str = ts.isoformat() if isinstance(ts, datetime) else str(ts)
+
                                     quote_as_bar = {
-                                        'timestamp': enriched_quote['timestamp'],
+                                        'timestamp': timestamp_str,
                                         'option_ticker': enriched_quote['symbol'],
                                         'underlying_ticker': 'SPX',
                                         'bid': enriched_quote.get('bid'),
@@ -312,8 +316,11 @@ class StreamingService:
                                         'vega': enriched_quote.get('vega'),
                                         'rho': enriched_quote.get('rho'),
                                     }
-                                    self.message_broker.publish(Topic.OPTIONS_BARS, quote_as_bar)
-                                    self.redis_publish_count += 1
+                                    success = self.message_broker.publish(Topic.OPTIONS_BARS, quote_as_bar)
+                                    if success:
+                                        self.redis_publish_count += 1
+                                    else:
+                                        self.logger.warning(f"Failed to publish option quote to Redis")
 
                         # Handle underlying asset quotes (SPX, etc.)
                         elif service == 'LEVELONE_EQUITIES' and content:
@@ -344,8 +351,12 @@ class StreamingService:
                                 # Publish to Redis immediately for real-time consumers
                                 if self.message_broker:
                                     # Convert quote to bar format for compatibility
+                                    # Ensure timestamp is serializable
+                                    ts = quote['timestamp']
+                                    timestamp_str = ts.isoformat() if isinstance(ts, datetime) else str(ts)
+
                                     quote_as_bar = {
-                                        'timestamp': quote['timestamp'],
+                                        'timestamp': timestamp_str,
                                         'underlying_ticker': quote['symbol'],
                                         'bid': quote.get('bid'),
                                         'ask': quote.get('ask'),
@@ -356,8 +367,11 @@ class StreamingService:
                                         'volume': quote.get('volume'),
                                         'open': quote.get('open'),
                                     }
-                                    self.message_broker.publish(Topic.UNDERLYING_BARS, quote_as_bar)
-                                    self.redis_publish_count += 1
+                                    success = self.message_broker.publish(Topic.UNDERLYING_BARS, quote_as_bar)
+                                    if success:
+                                        self.redis_publish_count += 1
+                                    else:
+                                        self.logger.warning(f"Failed to publish underlying quote to Redis")
 
             # Check if we should flush (create 1-min bars)
             if self.aggregator.should_flush():
