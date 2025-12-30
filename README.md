@@ -14,6 +14,7 @@ A Python-based quantitative trading platform for backtesting trading strategies,
 - **TimescaleDB Integration**: High-performance time-series database for options data
 - **Performance Analytics**: Comprehensive performance metrics including Sharpe ratio, max drawdown, and win rate
 - **Microservices Architecture**: Decoupled services communicating via Redis for scalability
+- **Dynamic DNS Support**: Automatic DNS updates via Sonic.net DynDNS for remote access
 
 ## Installation
 
@@ -200,6 +201,29 @@ python scripts/test_redis_messaging.py
 # ✅ SUCCESS: All messages received!
 # ✅ SUCCESS: Correct topics received!
 ```
+
+### Remote Access with Dynamic DNS
+
+Enable remote access to your services using Sonic.net DynDNS:
+
+1. Get API credentials:
+```bash
+python scripts/get_sonic_dyndns_apikey.py
+```
+
+2. Add credentials to `.env`:
+```bash
+SONIC_DYNDNS_USERID=your_userid
+SONIC_DYNDNS_APIKEY=your_apikey
+SONIC_DYNDNS_HOSTNAME=your-hostname.sonic.net
+```
+
+3. Start the DynDNS service:
+```bash
+docker compose up -d dyndns
+```
+
+The service will automatically update your DNS records when your IP changes. See [docs/DYNDNS_QUICKSTART.md](docs/DYNDNS_QUICKSTART.md) for details.
 
 ## Project Structure
 

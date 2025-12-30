@@ -258,6 +258,30 @@ services:
       - quant-vibe-network
     command: ["python", "scripts/run_watcher.py"]
 
+  dyndns:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.streaming
+    container_name: quant-vibe-dyndns
+    restart: unless-stopped
+    environment:
+      # Sonic.net DynDNS credentials
+      SONIC_DYNDNS_USERID: ${SONIC_DYNDNS_USERID}
+      SONIC_DYNDNS_APIKEY: ${SONIC_DYNDNS_APIKEY}
+      SONIC_DYNDNS_HOSTNAME: ${SONIC_DYNDNS_HOSTNAME}
+      # Optional settings
+      SONIC_DYNDNS_RECORD_TYPE: ${SONIC_DYNDNS_RECORD_TYPE:-A}
+      SONIC_DYNDNS_TTL: ${SONIC_DYNDNS_TTL:-300}
+      SONIC_DYNDNS_UPDATE_INTERVAL: ${SONIC_DYNDNS_UPDATE_INTERVAL:-300}
+      SONIC_DYNDNS_FORCE_UPDATE: ${SONIC_DYNDNS_FORCE_UPDATE:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      # Mount entire repo for live code updates
+      - .:/app
+    networks:
+      - quant-vibe-network
+    command: ["python", "scripts/run_dyndns.py"]
+
 networks:
   quant-vibe-network:
     driver: bridge
