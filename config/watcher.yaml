@@ -1,0 +1,84 @@
+watcher:
+  # Check interval for all services (seconds)
+  check_interval_seconds: 30
+
+  # Heartbeat timeout thresholds
+  heartbeat_timeout_seconds: 90   # 3 missed heartbeats (30s interval)
+  critical_timeout_seconds: 150   # 5 missed heartbeats
+
+  # Services to monitor
+  services:
+    # Infrastructure services (critical)
+    - name: redis
+      type: docker
+      container: quant-vibe-redis
+      critical: true
+
+    - name: timescaledb
+      type: docker
+      container: quant-vibe-timescaledb
+      critical: true
+
+    # Application services (critical)
+    - name: token_service
+      type: hybrid  # Docker + HTTP + Redis heartbeat
+      container: quant-vibe-token-service
+      health_endpoint: http://token_service:8100/health
+      heartbeat_topic: heartbeat.token_service
+      critical: true
+
+    - name: streaming
+      type: hybrid
+      container: quant-vibe-streaming
+      heartbeat_topic: heartbeat.streaming
+      critical: true  # No data = no trading
+
+    - name: live_trading
+      type: hybrid
+      container: quant-vibe-live-trading
+      heartbeat_topic: heartbeat.live_trading
+      critical: true
+
+    # Admin UI (non-critical)
+    - name: admin_ui
+      type: http
+      health_endpoint: http://admin_ui:8000/health
+      critical: false
+
+  # Notification settings
+  notifications:
+    enabled: true
+    channels:
+      - pushover
+
+    # Alert rules (evaluated in order)
+    rules:
+      # Warning: Missed heartbeats
+      - level: warning
+        services: [streaming, live_trading, token_service]
+        condition: missed_heartbeats >= 3
+        message: "Service {{service}} missed {{count}} heartbeats"
+
+      # Critical: Infrastructure down
+      - level: critical
+        services: [redis, timescaledb]
+        condition: status == unhealthy
+        message: "CRITICAL: {{service}} is DOWN"
+
+      # Critical: Token service down
+      - level: critical
+        services: [token_service]
+        condition: status == unhealthy
+        message: "CRITICAL: Token service is DOWN (auth will fail)"
+
+      # Critical: Streaming service down
+      - level: critical
+        services: [streaming]
+        condition: status == unhealthy
+        message: "CRITICAL: Streaming service is DOWN (no market data)"
+
+      # Emergency: Live trading unresponsive for 5+ minutes
+      - level: emergency
+        services: [live_trading]
+        condition: missing >= 300
+        message: "EMERGENCY: Live trading engine unresponsive for 5+ minutes"

@@ -1,7 +1,9 @@
 """FastAPI service for centralized token management."""
 
 import asyncio
+import time
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, status
@@ -20,6 +22,72 @@ config: Optional[TokenServiceConfig] = None
 logger = None
 message_broker: Optional[RedisMessageBroker] = None
 refresh_task: Optional[asyncio.Task] = None
+heartbeat_task: Optional[asyncio.Task] = None
+service_start_time = None
+
+
+async def heartbeat_task_func():
+    """Background task to publish heartbeat messages.
+
+    Publishes service health status to Redis every 30 seconds.
+    """
+    global token_manager, config, logger, message_broker, service_start_time
+
+    logger.info("Starting heartbeat task (interval: 30 seconds)")
+
+    while True:
+        try:
+            await asyncio.sleep(30)
+
+            if message_broker and config.enable_redis:
+                try:
+                    # Get token status
+                    token_status = "unknown"
+                    last_error = None
+                    if token_manager:
+                        status = token_manager.get_status()
+                        if status.get("has_token"):
+                            if not status.get("is_access_token_expired", True):
+                                token_status = "healthy"
+                            else:
+                                token_status = "degraded"
+                                last_error = "Access token expired"
+                        else:
+                            token_status = "unhealthy"
+                            last_error = "No token available"
+
+                    # Calculate uptime
+                    uptime_seconds = 0
+                    if service_start_time:
+                        uptime_seconds = (datetime.utcnow() - service_start_time).total_seconds()
+
+                    # Publish heartbeat
+                    message_broker.publish(
+                        "heartbeat.token_service",
+                        {
+                            "service": "token_service",
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "status": token_status,
+                            "metrics": {
+                                "uptime_seconds": round(uptime_seconds, 1),
+                                "has_token": status.get("has_token", False) if token_manager else False,
+                                "token_expired": status.get("is_access_token_expired", True) if token_manager else True,
+                                "last_error": last_error,
+                            },
+                        },
+                    )
+
+                    logger.debug(f"Heartbeat published (status: {token_status})")
+
+                except Exception as e:
+                    logger.error(f"Failed to publish heartbeat: {e}", exc_info=True)
+
+        except asyncio.CancelledError:
+            logger.info("Heartbeat task cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Error in heartbeat task: {e}", exc_info=True)
+            await asyncio.sleep(30)
 
 
 async def auto_refresh_task():
@@ -92,7 +160,10 @@ async def auto_refresh_task():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown."""
-    global token_manager, config, logger, message_broker, refresh_task
+    global token_manager, config, logger, message_broker, refresh_task, heartbeat_task, service_start_time
+
+    # Record start time
+    service_start_time = datetime.utcnow()
 
     # Startup
     logger.info("="*70)
@@ -139,6 +210,11 @@ async def lifespan(app: FastAPI):
     refresh_task = asyncio.create_task(auto_refresh_task())
     logger.info("✓ Background auto-refresh task started")
 
+    # Start background heartbeat task
+    if config.enable_redis and message_broker:
+        heartbeat_task = asyncio.create_task(heartbeat_task_func())
+        logger.info("✓ Background heartbeat task started")
+
     # Check initial token status
     status = token_manager.get_status()
     if status.get("has_token"):
@@ -157,11 +233,18 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Token Management Service Shutting Down")
 
-    # Cancel background task
+    # Cancel background tasks
     if refresh_task:
         refresh_task.cancel()
         try:
             await refresh_task
+        except asyncio.CancelledError:
+            pass
+
+    if heartbeat_task:
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
         except asyncio.CancelledError:
             pass
 

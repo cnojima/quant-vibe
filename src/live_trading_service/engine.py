@@ -32,6 +32,7 @@ from live_trading_service.utils import (
     is_market_open, get_market_hours
 )
 from quant_vibe.data import LiveMarketDataProvider
+from quant_vibe.messaging import RedisMessageBroker
 
 # Import token service client
 try:
@@ -90,12 +91,14 @@ class LiveTradingEngine:
         self.order_manager: Optional[OrderManager] = None
         self.position_manager: Optional[PositionManager] = None
         self.strategy_executor: Optional[StrategyExecutor] = None
+        self.message_broker: Optional[RedisMessageBroker] = None
 
         # Strategies (loaded from config)
         self.strategies: List = []
 
         # Statistics
         self.start_time: Optional[datetime] = None
+        self.last_heartbeat_time: Optional[datetime] = None
         self.total_bars_processed = 0
         self.total_signals_generated = 0
 
@@ -177,6 +180,21 @@ class LiveTradingEngine:
     def initialize(self):
         """Initialize all components."""
         self.logger.info("Initializing components...")
+
+        # Initialize message broker for heartbeats
+        self.logger.info("  - Initializing message broker...")
+        try:
+            redis_config = self.config.get('redis', {})
+            self.message_broker = RedisMessageBroker(
+                host=redis_config.get('host'),
+                port=redis_config.get('port'),
+                db=redis_config.get('db'),
+            )
+            self.logger.info("    ✓ Message broker ready (for heartbeats)")
+        except Exception as e:
+            self.logger.warning(f"    ⚠️  Failed to initialize message broker: {e}")
+            self.logger.warning("    Heartbeats will be disabled")
+            self.message_broker = None
 
         # Initialize state store
         self.logger.info("  - Initializing state store...")
@@ -510,14 +528,72 @@ class LiveTradingEngine:
                 except Exception as e:
                     self.logger.error(f"Error executing strategies on bar: {e}", exc_info=True)
 
+    def _publish_heartbeat(self):
+        """Publish heartbeat to Redis."""
+        if not self.message_broker:
+            return
+
+        try:
+            # Calculate uptime
+            uptime_seconds = 0
+            if self.start_time:
+                uptime_seconds = (datetime.now() - self.start_time).total_seconds()
+
+            # Determine status
+            status = "healthy"
+            last_error = None
+
+            # Check data staleness
+            feed_stale = False
+            if self.use_redis_feed and self.redis_feed:
+                feed_stale = self.redis_feed.is_data_stale()
+            elif self.data_feed:
+                feed_stale = self.data_feed.is_data_stale()
+
+            if feed_stale:
+                status = "degraded"
+                last_error = "Data feed is stale"
+
+            # Publish heartbeat
+            self.message_broker.publish(
+                "heartbeat.live_trading",
+                {
+                    "service": "live_trading",
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "status": status,
+                    "metrics": {
+                        "uptime_seconds": round(uptime_seconds, 1),
+                        "bars_processed": self.total_bars_processed,
+                        "signals_generated": self.total_signals_generated,
+                        "data_stale": feed_stale,
+                        "state": self.state.name if self.state else "unknown",
+                        "paper_trading": self.paper_trading,
+                        "last_error": last_error,
+                    },
+                },
+            )
+
+            self.last_heartbeat_time = datetime.now()
+            self.logger.debug(f"Heartbeat published (status: {status})")
+
+        except Exception as e:
+            self.logger.error(f"Failed to publish heartbeat: {e}", exc_info=True)
+
     def _run_main_loop(self):
         """Main event loop."""
         status_interval = self.config['monitoring']['status_update_interval_seconds']
         last_status_time = datetime.now()
+        last_heartbeat_time = datetime.now()
 
         try:
             while not self._shutdown_requested:
                 time.sleep(1)
+
+                # Heartbeat every 30 seconds
+                heartbeat_elapsed = (datetime.now() - last_heartbeat_time).total_seconds()
+                if heartbeat_elapsed >= 30:
+                    self._publish_heartbeat()
+                    last_heartbeat_time = datetime.now()
 
                 # Status update
                 elapsed = (datetime.now() - last_status_time).total_seconds()
@@ -614,6 +690,14 @@ class LiveTradingEngine:
         # TODO: Close all positions if configured
 
         # Close connections
+        if self.message_broker:
+            self.logger.info("Closing message broker...")
+            try:
+                self.message_broker.close()
+                self.logger.info("  ✓ Message broker closed")
+            except Exception as e:
+                self.logger.error(f"  Error closing message broker: {e}")
+
         if self.state_store:
             self.logger.info("Closing state store...")
             self.state_store.save_engine_state(

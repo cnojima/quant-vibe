@@ -60,6 +60,8 @@ class StreamingService:
         self.message_count = 0
         self.contracts_subscribed = []
         self.redis_publish_count = 0  # Track Redis publishes
+        self.start_time = None  # Service start time for uptime tracking
+        self.last_heartbeat_time = None  # Last heartbeat publish time
 
         # Setup normalized logging
         self.logger = setup_normalized_logging(
@@ -462,8 +464,56 @@ class StreamingService:
             except Exception as e:
                 self.logger.error(f"  ✗ Database error (underlying): {e}", exc_info=True)
 
+    def _publish_heartbeat(self):
+        """Publish heartbeat to Redis."""
+        if not self.message_broker:
+            return
+
+        try:
+            # Calculate uptime
+            uptime_seconds = 0
+            if self.start_time:
+                uptime_seconds = (datetime.utcnow() - self.start_time).total_seconds()
+
+            # Determine status
+            status = "healthy"
+            last_error = None
+
+            # Check if we're receiving messages
+            if self.last_heartbeat_time:
+                time_since_heartbeat = (datetime.utcnow() - self.last_heartbeat_time).total_seconds()
+                if time_since_heartbeat > 120:  # No heartbeat for 2 minutes
+                    status = "degraded"
+                    last_error = f"No heartbeat for {time_since_heartbeat:.0f}s"
+
+            # Publish heartbeat
+            self.message_broker.publish(
+                "heartbeat.streaming",
+                {
+                    "service": "streaming",
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "status": status,
+                    "metrics": {
+                        "uptime_seconds": round(uptime_seconds, 1),
+                        "messages_processed": self.message_count,
+                        "redis_publishes": self.redis_publish_count,
+                        "contracts_subscribed": len(self.contracts_subscribed),
+                        "last_error": last_error,
+                    },
+                },
+            )
+
+            self.last_heartbeat_time = datetime.utcnow()
+            self.logger.debug(f"Heartbeat published (status: {status})")
+
+        except Exception as e:
+            self.logger.error(f"Failed to publish heartbeat: {e}", exc_info=True)
+
     def start(self):
         """Start the streaming service."""
+        self.start_time = datetime.utcnow()
+        self.last_heartbeat_time = datetime.utcnow()
+
         self.logger.info("="*70)
         self.logger.info("SPXW OPTIONS STREAMING SERVICE")
         self.logger.info("="*70)
@@ -580,10 +630,20 @@ class StreamingService:
     def _run_main_loop(self):
         """Run main service loop."""
         try:
+            heartbeat_counter = 0
+
             while True:
-                dt_time.sleep(60)
+                dt_time.sleep(30)  # Changed to 30s for heartbeat alignment
 
                 now = datetime.now()
+                heartbeat_counter += 1
+
+                # Publish heartbeat every 30 seconds
+                self._publish_heartbeat()
+
+                # Status update and token check every 60 seconds (every 2 heartbeats)
+                if heartbeat_counter % 2 != 0:
+                    continue
 
                 # Check if token refresh needed
                 token_age = 0.0

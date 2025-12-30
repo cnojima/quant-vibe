@@ -229,6 +229,35 @@ services:
       retries: 3
       start_period: 40s
 
+  watcher:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.streaming
+    container_name: quant-vibe-watcher
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    environment:
+      # Redis connection (use service name as host)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      # Pushover notifications (optional)
+      PUSHOVER_API_TOKEN: ${PUSHOVER_API_TOKEN:-}
+      PUSHOVER_USER_KEY: ${PUSHOVER_USER_KEY:-}
+      PUSHOVER_ENABLED: ${PUSHOVER_ENABLED:-true}
+    volumes:
+      # Mount entire repo for live code updates
+      - .:/app
+      # Bind mount Docker socket for container health checks
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - quant-vibe-network
+    command: ["python", "scripts/run_watcher.py"]
+
 networks:
   quant-vibe-network:
     driver: bridge
