@@ -98,8 +98,8 @@ class HeartbeatManager:
                 "status": HealthStatus.UNKNOWN,
                 "details": "No heartbeat received",
                 "last_heartbeat": None,
-                "seconds_since_heartbeat": None,
-                "missed_heartbeats": None,
+                "seconds_since_heartbeat": 0,
+                "missed_heartbeats": 0,
             }
 
         # Calculate time since last heartbeat
