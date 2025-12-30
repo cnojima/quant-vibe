@@ -547,14 +547,14 @@ class LiveTradingEngine:
             status = "healthy"
             last_error = None
 
-            # Check data staleness
+            # Check data staleness (only mark as degraded during market hours)
             feed_stale = False
             if self.use_redis_feed and self.redis_feed:
                 feed_stale = self.redis_feed.is_data_stale()
             elif self.data_feed:
                 feed_stale = self.data_feed.is_data_stale()
 
-            if feed_stale:
+            if feed_stale and is_market_open():
                 status = "degraded"
                 last_error = "Data feed is stale"
 
@@ -617,14 +617,14 @@ class LiveTradingEngine:
 
     def _health_check(self):
         """Perform health checks."""
-        # Check data staleness
+        # Check data staleness (only warn during market hours)
         feed_stale = False
         if self.use_redis_feed and self.redis_feed:
             feed_stale = self.redis_feed.is_data_stale()
         elif self.data_feed:
             feed_stale = self.data_feed.is_data_stale()
 
-        if feed_stale:
+        if feed_stale and is_market_open():
             self.logger.warning("⚠️  Data feed is stale!")
             self.state_store.log_event(
                 EventType.DATA_STALE,
