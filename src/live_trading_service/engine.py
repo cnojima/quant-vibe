@@ -33,6 +33,14 @@ from live_trading_service.utils import (
 )
 from quant_vibe.data import LiveMarketDataProvider
 
+# Import token service client
+try:
+    from token_service.client import TokenServiceClient, TokenNotFoundError, TokenExpiredError
+    TOKEN_SERVICE_AVAILABLE = True
+except ImportError:
+    TOKEN_SERVICE_AVAILABLE = False
+    TokenServiceClient = None
+
 load_dotenv()
 
 
@@ -68,12 +76,15 @@ class LiveTradingEngine:
         self.state = TradingState.STOPPED
         self.paper_trading = self.config['engine'].get('paper_trading', True)
         self.use_redis_feed = self.config['engine'].get('use_redis_feed', True)
+        self.use_token_service = self.config['engine'].get('use_token_service', True)
+        self.token_service_url = os.getenv("TOKEN_SERVICE_URL")
 
         # Initialize components
         self.data_feed: Optional[RealtimeDataFeed] = None
         self.redis_feed: Optional[RedisDataFeed] = None
         self.market_data: Optional[LiveMarketDataProvider] = None
         self.state_store: Optional[StateStore] = None
+        self.token_service_client: Optional[TokenServiceClient] = None
         self.schwab_client: Optional[schwabdev.Client] = None
         self.streamer: Optional[schwabdev.Stream] = None
         self.order_manager: Optional[OrderManager] = None
@@ -200,6 +211,26 @@ class LiveTradingEngine:
         self.market_data = LiveMarketDataProvider(feed)
         self.logger.info("    ✓ Market data provider ready")
 
+        # Initialize token service client if enabled
+        if self.use_token_service and TOKEN_SERVICE_AVAILABLE and self.token_service_url:
+            self.logger.info(f"  - Connecting to token service ({self.token_service_url})...")
+            try:
+                self.token_service_client = TokenServiceClient(
+                    base_url=self.token_service_url,
+                    logger=self.logger
+                )
+                health = self.token_service_client.health_check()
+                if health.get("status") == "healthy":
+                    self.logger.info("    ✓ Token service connected")
+                else:
+                    self.logger.warning(f"    ⚠️ Token service unhealthy: {health}")
+                    self.logger.warning("    Falling back to local token management")
+                    self.token_service_client = None
+            except Exception as e:
+                self.logger.warning(f"    ⚠️ Failed to connect to token service: {e}")
+                self.logger.warning("    Falling back to local token management")
+                self.token_service_client = None
+
         # Initialize Schwab client (only for order execution, not streaming)
         self.logger.info("  - Initializing Schwab client...")
         tokens_db = "tokens/schwabdev_tokens.db"
@@ -215,7 +246,10 @@ class LiveTradingEngine:
             self.streamer = schwabdev.Stream(self.schwab_client)
             self.logger.info("    ✓ Schwab client and streamer ready")
         else:
-            self.logger.info("    ✓ Schwab client ready (order execution only)")
+            if self.token_service_client:
+                self.logger.info("    ✓ Schwab client ready (order execution only, tokens via token service)")
+            else:
+                self.logger.info("    ✓ Schwab client ready (order execution only, tokens via local database)")
 
         # Initialize OrderManager
         self.logger.info("  - Initializing OrderManager...")

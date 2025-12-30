@@ -2,8 +2,10 @@
 Schwab token management API endpoints.
 
 Provides endpoints to view and refresh Schwab API tokens.
+Now proxies to the centralized token_service when available.
 """
 
+import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,7 +16,19 @@ from fastapi import APIRouter, Depends
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
 
+# Import token service client
+try:
+    from token_service.client import TokenServiceClient
+    TOKEN_SERVICE_AVAILABLE = True
+except ImportError:
+    TOKEN_SERVICE_AVAILABLE = False
+    TokenServiceClient = None
+
 router = APIRouter()
+
+# Check for token service URL from environment
+USE_TOKEN_SERVICE = os.getenv("USE_TOKEN_SERVICE", "true").lower() == "true"
+TOKEN_SERVICE_URL = os.getenv("TOKEN_SERVICE_URL", "http://token_service:8001")
 
 
 def get_token_from_db() -> Optional[dict]:
@@ -130,12 +144,26 @@ async def get_token_status(current_user: User = Depends(get_current_user)):
     """
     Get Schwab token status.
 
+    Proxies to token_service if available, otherwise reads from database directly.
+
     Args:
         current_user: Authenticated user
 
     Returns:
         Token status information
     """
+    # Try to use token service first
+    if USE_TOKEN_SERVICE and TOKEN_SERVICE_AVAILABLE:
+        try:
+            client = TokenServiceClient(TOKEN_SERVICE_URL)
+            status = client.get_token_status()
+            status["source"] = "token_service"
+            return status
+        except Exception as e:
+            # Fall back to local database
+            print(f"Token service unavailable, falling back to database: {e}")
+
+    # Fallback: Read from database directly (legacy mode)
     settings = get_settings()
     token_db_path = settings.tokens_dir / "schwabdev_tokens.db"
 
@@ -144,11 +172,13 @@ async def get_token_status(current_user: User = Depends(get_current_user)):
         return {
             "has_token": False,
             "database_exists": False,
+            "source": "local_database",
             "message": "Token database not found. Schwab authentication has not been initialized.",
             "instructions": [
-                "1. Run the streaming service to initialize Schwab OAuth",
-                "2. Follow the authentication flow to obtain tokens",
-                "3. Tokens will be stored in tokens/schwabdev_tokens.db",
+                "1. Run the token service to initialize Schwab OAuth",
+                "2. Or run the streaming service to initialize Schwab OAuth",
+                "3. Follow the authentication flow to obtain tokens",
+                "4. Tokens will be stored in tokens/schwabdev_tokens.db",
             ],
         }
 
@@ -158,13 +188,16 @@ async def get_token_status(current_user: User = Depends(get_current_user)):
         return {
             "has_token": False,
             "database_exists": True,
+            "source": "local_database",
             "message": "Token database exists but contains no valid tokens.",
             "instructions": [
-                "1. Restart the streaming service to re-authenticate",
-                "2. Or manually delete the database and re-authenticate",
+                "1. Restart the token service to re-authenticate",
+                "2. Or restart the streaming service to re-authenticate",
+                "3. Or manually delete the database and re-authenticate",
             ],
         }
 
+    token_info["source"] = "local_database"
     return token_info
 
 
@@ -173,8 +206,7 @@ async def refresh_token(current_user: User = Depends(get_current_user)):
     """
     Manually refresh the Schwab token.
 
-    This creates a schwabdev client and calls update_tokens() to refresh
-    the access token using the refresh token.
+    Proxies to token_service if available, otherwise uses schwabdev client directly.
 
     Args:
         current_user: Authenticated user
@@ -182,6 +214,25 @@ async def refresh_token(current_user: User = Depends(get_current_user)):
     Returns:
         Refresh operation result with updated token status
     """
+    # Try to use token service first
+    if USE_TOKEN_SERVICE and TOKEN_SERVICE_AVAILABLE:
+        try:
+            client = TokenServiceClient(TOKEN_SERVICE_URL)
+            if client.refresh_token():
+                updated_status = client.get_token_status()
+                return {
+                    "success": True,
+                    "message": "Token refreshed successfully via token service",
+                    "token_status": updated_status,
+                    "source": "token_service",
+                }
+            else:
+                print("Token service refresh returned false, falling back to local refresh")
+        except Exception as e:
+            # Fall back to local refresh
+            print(f"Token service unavailable, falling back to local refresh: {e}")
+
+    # Fallback: Use schwabdev directly (legacy mode)
     settings = get_settings()
     token_db_path = settings.tokens_dir / "schwabdev_tokens.db"
 
@@ -190,11 +241,11 @@ async def refresh_token(current_user: User = Depends(get_current_user)):
         return {
             "success": False,
             "message": "Token database not found. Please authenticate first.",
+            "source": "local_database",
         }
 
     try:
         import schwabdev
-        import os
 
         # Get Schwab credentials from environment
         app_key = os.getenv("SCHWAB_API_KEY")
@@ -205,6 +256,7 @@ async def refresh_token(current_user: User = Depends(get_current_user)):
                 "success": False,
                 "message": "Schwab API credentials not found in environment variables",
                 "required_vars": ["SCHWAB_API_KEY", "SCHWAB_API_SECRET"],
+                "source": "local_database",
             }
 
         # Initialize schwabdev client
@@ -226,8 +278,9 @@ async def refresh_token(current_user: User = Depends(get_current_user)):
 
         return {
             "success": True,
-            "message": "Token refreshed successfully",
+            "message": "Token refreshed successfully via local database",
             "token_status": updated_status,
+            "source": "local_database",
         }
 
     except ImportError as e:
@@ -235,6 +288,7 @@ async def refresh_token(current_user: User = Depends(get_current_user)):
             "success": False,
             "message": f"schwabdev library not available: {str(e)}",
             "note": "Install schwabdev: pip install schwabdev",
+            "source": "local_database",
         }
     except Exception as e:
         import traceback
@@ -245,6 +299,7 @@ async def refresh_token(current_user: User = Depends(get_current_user)):
             "success": False,
             "message": f"Token refresh failed: {str(e)}",
             "error_type": type(e).__name__,
+            "source": "local_database",
         }
 
 
