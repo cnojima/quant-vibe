@@ -28,9 +28,10 @@ from live_trading_service.position_manager import PositionManager
 from live_trading_service.strategy_executor import StrategyExecutor
 from live_trading_service.strategy_loader import StrategyLoader
 from live_trading_service.utils import (
-    setup_logging, TradingState, EventType,
+    TradingState, EventType,
     is_market_open, get_market_hours
 )
+from quant_vibe.config.logging_config import setup_normalized_logging
 from quant_vibe.data import LiveMarketDataProvider
 from quant_vibe.messaging import RedisMessageBroker
 
@@ -63,10 +64,13 @@ class LiveTradingEngine:
         # Load configuration
         self.config = self._load_config(config_path)
 
-        # Setup logging
-        self.logger = setup_logging(
-            log_dir=self.config.get('logging', {}).get('log_dir', 'logs/live_trading'),
-            log_level=self.config.get('logging', {}).get('log_level', 'INFO')
+        # Setup normalized logging
+        # Read log level from env: LIVE_TRADING_LOG_LEVEL or fallback to LOG_LEVEL (default: INFO)
+        log_level = os.getenv("LIVE_TRADING_LOG_LEVEL", os.getenv("LOG_LEVEL", "INFO")).upper()
+        self.logger = setup_normalized_logging(
+            app_name="live_trading",
+            log_level=log_level,
+            log_dir="logs/live_trading",
         )
 
         self.logger.info("="*70)
@@ -566,7 +570,7 @@ class LiveTradingEngine:
                         "bars_processed": self.total_bars_processed,
                         "signals_generated": self.total_signals_generated,
                         "data_stale": feed_stale,
-                        "state": self.state.name if self.state else "unknown",
+                        "state": self.state if self.state else "unknown",
                         "paper_trading": self.paper_trading,
                         "last_error": last_error,
                     },

@@ -55,6 +55,7 @@ class NotificationConfig:
     """Notification settings."""
 
     enabled: bool = True
+    send_recovery_notifications: bool = True
     channels: List[str] = field(default_factory=lambda: ["pushover"])
     rules: List[NotificationRule] = field(default_factory=list)
 
@@ -118,6 +119,7 @@ class WatcherConfig:
 
         notifications = NotificationConfig(
             enabled=notif_data.get("enabled", True),
+            send_recovery_notifications=notif_data.get("send_recovery_notifications", True),
             channels=notif_data.get("channels", ["pushover"]),
             rules=rules,
         )

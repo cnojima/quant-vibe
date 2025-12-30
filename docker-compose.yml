@@ -123,6 +123,8 @@ services:
       TIMESCALE_DB: options_data
       TIMESCALE_USER: quantvibe
       TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD:-quantvibe_dev}
+      # Logging
+      STREAMING_LOG_LEVEL: ${STREAMING_LOG_LEVEL:-${LOG_LEVEL:-INFO}}
     volumes:
       # Mount entire repo for live code updates
       - .:/app
@@ -164,6 +166,8 @@ services:
       TIMESCALE_DB: options_data
       TIMESCALE_USER: quantvibe
       TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD:-quantvibe_dev}
+      # Logging
+      LIVE_TRADING_LOG_LEVEL: ${LIVE_TRADING_LOG_LEVEL:-${LOG_LEVEL:-INFO}}
     volumes:
       # Mount entire repo for live code updates
       - .:/app
@@ -245,6 +249,8 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 0
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       # Pushover notifications (optional)
       PUSHOVER_API_TOKEN: ${PUSHOVER_API_TOKEN:-}
       PUSHOVER_USER_KEY: ${PUSHOVER_USER_KEY:-}

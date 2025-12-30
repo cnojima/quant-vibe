@@ -45,9 +45,16 @@ watcher:
       health_endpoint: http://admin_ui:8000/health
       critical: false
 
+    # Dynamic DNS updater (non-critical)
+    - name: dyndns
+      type: docker
+      container: quant-vibe-dyndns
+      critical: false
+
   # Notification settings
   notifications:
     enabled: true
+    send_recovery_notifications: true  # Send notifications when services recover
     channels:
       - pushover
 

@@ -1,5 +1,6 @@
 """Main watcher service orchestrator."""
 
+import os
 import sys
 import time
 import signal
@@ -44,10 +45,11 @@ class WatcherService:
         # Load config
         self.config = config or WatcherConfig.from_yaml()
 
-        # Setup normalized logging
+        # Setup normalized logging (read level from env, default to INFO)
+        log_level = os.getenv("LOG_LEVEL", "INFO").upper()
         self.logger = setup_normalized_logging(
             app_name="watcher",
-            log_level="INFO",
+            log_level=log_level,
             log_dir="logs/watcher",
         )
 
@@ -137,10 +139,12 @@ class WatcherService:
                     if alert:
                         self.alert_manager.process_alert(alert)
                     else:
-                        # No alert - clear any existing ones
-                        self.alert_manager.clear_alert(
-                            service.name, health_data.get("alert_level")
-                        )
+                        # No alert matched but service is still being monitored
+                        # Clear any existing alerts (service recovered)
+                        self.alert_manager.clear_all_alerts_for_service(service.name)
+                elif health_data["overall_status"] == HealthStatus.HEALTHY:
+                    # Service is healthy - clear any lingering alerts
+                    self.alert_manager.clear_all_alerts_for_service(service.name)
 
             except Exception as e:
                 self.logger.error(
@@ -319,8 +323,21 @@ class WatcherService:
         """Background thread for listening to heartbeat messages."""
         try:
             self.logger.info("Starting heartbeat listener thread")
-            # This is a blocking call - runs until shutdown
-            self.redis_broker.listen()
+
+            # Use non-blocking polling instead of blocking listen()
+            # This allows the thread to check for shutdown events
+            while not self.shutdown_event.is_set():
+                # Poll for messages with 100ms timeout
+                message = self.redis_broker.get_message(timeout=0.1)
+
+                # get_message() handles the callback internally,
+                # so we don't need to do anything with the return value
+
+                # Small sleep to avoid busy-waiting
+                time.sleep(0.01)
+
+            self.logger.info("Heartbeat listener thread shutting down")
+
         except Exception as e:
             self.logger.error(f"Error in heartbeat listener: {e}", exc_info=True)
 

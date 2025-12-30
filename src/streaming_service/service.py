@@ -64,9 +64,11 @@ class StreamingService:
         self.last_heartbeat_time = None  # Last heartbeat publish time
 
         # Setup normalized logging
+        # Read log level from env: STREAMING_LOG_LEVEL or fallback to LOG_LEVEL (default: INFO)
+        log_level = os.getenv("STREAMING_LOG_LEVEL", os.getenv("LOG_LEVEL", "INFO")).upper()
         self.logger = setup_normalized_logging(
             app_name="streaming",
-            log_level="INFO",
+            log_level=log_level,
             log_dir="logs/streaming",
         )
 

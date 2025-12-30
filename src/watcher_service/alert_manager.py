@@ -235,9 +235,31 @@ class AlertManager:
                     f"(active for {(datetime.utcnow() - alert.first_seen).total_seconds():.0f}s)"
                 )
 
-                # Send recovery notification
-                if self.config.enabled and self.notifier:
+                # Send recovery notification if enabled
+                if (
+                    self.config.enabled
+                    and self.config.send_recovery_notifications
+                    and self.notifier
+                ):
                     self._send_recovery_notification(alert)
+
+    def clear_all_alerts_for_service(self, service: str):
+        """Clear all active alerts for a service (service recovered).
+
+        Args:
+            service: Service name
+        """
+        with self.alert_lock:
+            # Find all alerts for this service
+            alerts_to_clear = [
+                (svc, level)
+                for (svc, level) in self.active_alerts.keys()
+                if svc == service
+            ]
+
+        # Clear each alert (outside lock to avoid recursive locking)
+        for svc, level in alerts_to_clear:
+            self.clear_alert(svc, level)
 
     def _send_notification(self, alert: Alert):
         """Send alert notification via configured channels.
@@ -267,8 +289,15 @@ class AlertManager:
                 body += f"\n\nDetails: {alert.details}"
 
             # Send via notifier
-            if hasattr(self.notifier, "send_notification"):
+            if hasattr(self.notifier, "send"):
                 # PushoverNotifier
+                self.notifier.send(
+                    message=body,
+                    title=title,
+                    priority=priority,
+                )
+            elif hasattr(self.notifier, "send_notification"):
+                # Alternative notifier interface
                 self.notifier.send_notification(
                     message=body,
                     title=title,
@@ -303,10 +332,26 @@ class AlertManager:
             return
 
         try:
-            title = f"[RECOVERY] {alert.service}"
-            body = f"Service {alert.service} has recovered from {alert.level.value} alert"
+            # Calculate how long the alert was active
+            duration = (datetime.utcnow() - alert.first_seen).total_seconds()
+            duration_str = f"{int(duration // 60)}m {int(duration % 60)}s"
 
-            if hasattr(self.notifier, "send_notification"):
+            title = f"[RECOVERY] {alert.service}"
+            body = (
+                f"Service {alert.service} has recovered from {alert.level.value} alert.\n\n"
+                f"Alert was active for {duration_str}.\n"
+                f"Original issue: {alert.message}"
+            )
+
+            if hasattr(self.notifier, "send"):
+                # PushoverNotifier
+                self.notifier.send(
+                    message=body,
+                    title=title,
+                    priority=-1,  # Low priority for recovery
+                )
+            elif hasattr(self.notifier, "send_notification"):
+                # Alternative notifier interface
                 self.notifier.send_notification(
                     message=body,
                     title=title,

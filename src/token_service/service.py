@@ -1,6 +1,7 @@
 """FastAPI service for centralized token management."""
 
 import asyncio
+import os
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -430,9 +431,11 @@ def main():
     global logger, config
 
     # Initialize logging first (before config)
+    # Read log level from env (default to INFO)
+    log_level = os.getenv("TOKEN_SERVICE_LOG_LEVEL", "INFO").upper()
     logger = setup_normalized_logging(
         app_name="token_service",
-        log_level="INFO",
+        log_level=log_level,
         log_dir="logs/token_service",
     )
 

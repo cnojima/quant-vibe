@@ -169,17 +169,20 @@ monitoring:
     on_order_error: true
 
 # Logging Configuration
+# NOTE: Log level is now controlled by LIVE_TRADING_LOG_LEVEL env var (or LOG_LEVEL fallback)
+# These settings are kept for reference but log_level is ignored
 logging:
-  # Directory for log files
+  # Directory for log files (hardcoded in engine.py)
   log_dir: logs/live_trading
 
   # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  # DEPRECATED: Use LIVE_TRADING_LOG_LEVEL or LOG_LEVEL environment variable instead
   log_level: INFO
 
-  # Rotate logs daily
+  # Rotate logs daily (handled by normalized logging)
   rotation: daily
 
-  # Keep logs for N days
+  # Keep logs for N days (handled by normalized logging)
   retention_days: 30
 
 # Database Configuration (uses TimescaleDB by default)
