@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient, UseQueryOptions } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from './client';
 import type {
   Service,
@@ -20,12 +20,9 @@ import type {
 export function useLogin() {
   return useMutation({
     mutationFn: async (data: LoginRequest) => {
-      const formData = new FormData();
-      formData.append('username', data.username);
-      formData.append('password', data.password);
-
-      const response = await apiClient.post<LoginResponse>('/auth/login', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+      const response = await apiClient.post<LoginResponse>('/auth/login', {
+        username: data.username,
+        password: data.password,
       });
       return response.data;
     },
@@ -48,8 +45,8 @@ export function useServices() {
   return useQuery({
     queryKey: ['services'],
     queryFn: async () => {
-      const response = await apiClient.get<Service[]>('/services/');
-      return response.data;
+      const response = await apiClient.get<{ success: boolean; services: Service[]; count: number }>('/services/');
+      return response.data.services;
     },
     refetchInterval: 5000, // Poll every 5 seconds
   });
@@ -125,10 +122,10 @@ export function useLivePositions(status: 'open' | 'closed' | 'all' = 'open', lim
   return useQuery({
     queryKey: ['live-positions', status, limit],
     queryFn: async () => {
-      const response = await apiClient.get<Position[]>('/live/positions', {
+      const response = await apiClient.get<{ positions: Position[]; count: number; filter: string }>('/live/positions', {
         params: { status, limit },
       });
-      return response.data;
+      return response.data.positions;
     },
     refetchInterval: 5000,
   });
@@ -138,10 +135,10 @@ export function useLiveOrders(limit: number = 100) {
   return useQuery({
     queryKey: ['live-orders', limit],
     queryFn: async () => {
-      const response = await apiClient.get<Order[]>('/live/orders', {
+      const response = await apiClient.get<{ orders: Order[]; count: number }>('/live/orders', {
         params: { limit },
       });
-      return response.data;
+      return response.data.orders;
     },
     refetchInterval: 5000,
   });
@@ -151,10 +148,10 @@ export function useLiveEvents(limit: number = 100, eventType?: string, severity?
   return useQuery({
     queryKey: ['live-events', limit, eventType, severity],
     queryFn: async () => {
-      const response = await apiClient.get<Event[]>('/live/events', {
+      const response = await apiClient.get<{ events: Event[]; count: number; filters: any }>('/live/events', {
         params: { limit, event_type: eventType, severity },
       });
-      return response.data;
+      return response.data.events;
     },
     refetchInterval: 5000,
   });
@@ -177,8 +174,8 @@ export function useStrategies() {
   return useQuery({
     queryKey: ['strategies'],
     queryFn: async () => {
-      const response = await apiClient.get<Strategy[]>('/backtests/strategies');
-      return response.data;
+      const response = await apiClient.get<{ strategies: Strategy[]; count: number }>('/backtests/strategies');
+      return response.data.strategies;
     },
   });
 }
@@ -201,8 +198,9 @@ export function useBacktestStatus(backtestId: string | null) {
       return response.data;
     },
     enabled: !!backtestId,
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
       // Stop polling when completed or failed
+      const data = query.state.data;
       if (data?.status === 'completed' || data?.status === 'failed') {
         return false;
       }
@@ -231,6 +229,65 @@ export function useBacktestHistory(limit: number = 50) {
         params: { limit },
       });
       return response.data;
+    },
+  });
+}
+
+// Configuration queries
+export function useConfigList() {
+  return useQuery({
+    queryKey: ['config-list'],
+    queryFn: async () => {
+      const response = await apiClient.get<{ configs: any[]; count: number }>('/config/list');
+      return response.data;
+    },
+  });
+}
+
+export function useBacktestConfig() {
+  return useQuery({
+    queryKey: ['config-backtest'],
+    queryFn: async () => {
+      const response = await apiClient.get<{ config: any }>('/config/backtest');
+      return response.data.config;
+    },
+  });
+}
+
+export function useLiveConfig() {
+  return useQuery({
+    queryKey: ['config-live'],
+    queryFn: async () => {
+      const response = await apiClient.get<{ config: any }>('/config/live');
+      return response.data.config;
+    },
+  });
+}
+
+export function useUpdateBacktestConfig() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (config: any) => {
+      const response = await apiClient.put('/config/backtest', { config });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config-backtest'] });
+    },
+  });
+}
+
+export function useUpdateLiveConfig() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (config: any) => {
+      const response = await apiClient.put('/config/live', { config });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config-live'] });
     },
   });
 }

@@ -36,6 +36,7 @@ from admin_ui.backend.api import (
     services,
     status,
     tokens,
+    watcher,
 )
 
 
@@ -116,6 +117,7 @@ app.include_router(tokens.router, prefix=f"{settings.api_prefix}/tokens", tags=[
 app.include_router(live.router, prefix=f"{settings.api_prefix}/live", tags=["live"])
 app.include_router(backtests.router, prefix=f"{settings.api_prefix}/backtests", tags=["backtests"])
 app.include_router(config.router, prefix=f"{settings.api_prefix}/config", tags=["config"])
+app.include_router(watcher.router, prefix=f"{settings.api_prefix}/watcher", tags=["watcher"])
 
 
 # WebSocket endpoint for real-time updates

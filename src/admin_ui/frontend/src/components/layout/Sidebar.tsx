@@ -1,4 +1,3 @@
-import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   HomeIcon,
@@ -6,6 +5,7 @@ import {
   KeyIcon,
   ChartBarIcon,
   BeakerIcon,
+  Cog6ToothIcon,
 } from '@heroicons/react/24/outline';
 
 const navigation = [
@@ -14,6 +14,7 @@ const navigation = [
   { name: 'Token Manager', href: '/tokens', icon: KeyIcon },
   { name: 'Live Trading', href: '/live', icon: ChartBarIcon },
   { name: 'Backtest', href: '/backtest', icon: BeakerIcon },
+  { name: 'Configuration', href: '/config', icon: Cog6ToothIcon },
 ];
 
 export function Sidebar() {

@@ -14,6 +14,9 @@ export interface TokenStatus {
   refresh_token_valid: boolean;
   refresh_token_expiry: string;
   refresh_token_age_seconds: number;
+  expires_in?: number;
+  last_refreshed?: string;
+  source?: string;
 }
 
 export interface LiveEngineStatus {
@@ -30,7 +33,9 @@ export interface OptionLeg {
   contract_symbol: string;
   quantity: number;
   side: 'buy' | 'sell';
+  action?: 'buy' | 'sell';
   entry_price: number;
+  price?: number;
   current_price: number | null;
   strike_price: number;
   contract_type: 'call' | 'put';
@@ -40,10 +45,15 @@ export interface OptionLeg {
 export interface Position {
   position_id: string;
   strategy_name: string;
+  strategy?: string;
+  symbol?: string;
   status: 'open' | 'closed';
   entry_time: string;
   entry_cost: number;
+  entry_price?: number;
   current_value: number | null;
+  current_price?: number;
+  quantity?: number;
   exit_time: string | null;
   exit_value: number | null;
   exit_reason: string | null;
@@ -60,9 +70,12 @@ export interface Order {
   status: 'pending' | 'submitted' | 'accepted' | 'filled' | 'cancelled' | 'rejected';
   submitted_time: string | null;
   filled_time: string | null;
+  timestamp?: string;
   symbol: string;
   quantity: number;
   side: 'buy' | 'sell';
+  action?: string;
+  price?: number;
   limit_price: number | null;
   filled_price: number | null;
   metadata?: Record<string, any>;
@@ -84,6 +97,8 @@ export interface TradingStats {
   win_rate: number;
   total_pnl: number;
   average_pnl: number;
+  avg_win?: number;
+  avg_loss?: number;
   sharpe_ratio: number | null;
   max_drawdown: number | null;
 }
@@ -91,14 +106,17 @@ export interface TradingStats {
 export interface Strategy {
   name: string;
   enabled: boolean;
+  description?: string;
   params: Record<string, any>;
 }
 
 export interface BacktestRequest {
   strategy_name: string;
   params: Record<string, any>;
+  parameters?: Record<string, any>;
   start_date: string;
   end_date: string;
+  initial_capital?: number;
   underlying_ticker?: string;
   min_dte?: number;
   max_dte?: number;
@@ -144,6 +162,14 @@ export interface BacktestResult {
   max_drawdown: number | null;
   equity_curve: EquityPoint[];
   trades: Trade[];
+  status?: 'pending' | 'running' | 'completed' | 'failed';
+  created_at?: string;
+  metrics?: {
+    total_return: number;
+    sharpe_ratio: number | null;
+    max_drawdown: number;
+    win_rate: number;
+  };
 }
 
 export interface WebSocketMessage {

@@ -4,6 +4,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from './components/layout/Layout';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
+import { TokenManager } from './pages/TokenManager';
+import { LiveTradingMonitor } from './pages/LiveTradingMonitor';
+import { BacktestRunner } from './pages/BacktestRunner';
+import { ConfigEditor } from './pages/ConfigEditor';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -52,7 +56,7 @@ function App() {
             path="/tokens"
             element={
               <ProtectedRoute>
-                <div className="text-center text-gray-600">Token Manager - Coming Soon</div>
+                <TokenManager />
               </ProtectedRoute>
             }
           />
@@ -60,7 +64,7 @@ function App() {
             path="/live"
             element={
               <ProtectedRoute>
-                <div className="text-center text-gray-600">Live Trading Monitor - Coming Soon</div>
+                <LiveTradingMonitor />
               </ProtectedRoute>
             }
           />
@@ -68,7 +72,15 @@ function App() {
             path="/backtest"
             element={
               <ProtectedRoute>
-                <div className="text-center text-gray-600">Backtest Runner - Coming Soon</div>
+                <BacktestRunner />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/config"
+            element={
+              <ProtectedRoute>
+                <ConfigEditor />
               </ProtectedRoute>
             }
           />

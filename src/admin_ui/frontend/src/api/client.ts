@@ -1,7 +1,11 @@
 import axios from 'axios';
 
+const baseURL = (import.meta as any).env?.VITE_API_URL || '/api';
+
+console.log('[API Client] Base URL:', baseURL);
+
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
@@ -11,6 +15,7 @@ const apiClient = axios.create({
 // Request interceptor: Add JWT token to all requests
 apiClient.interceptors.request.use(
   (config) => {
+    console.log('[API Client] Request:', config.method?.toUpperCase(), config.url);
     const token = localStorage.getItem('auth_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;

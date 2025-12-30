@@ -314,22 +314,60 @@ async def get_oauth_url(current_user: User = Depends(get_current_user)):
     Returns:
         OAuth URL to redirect user to
     """
-    # TODO: Generate actual OAuth URL using schwabdev
-    # This would be similar to the initial auth flow
+    try:
+        import schwabdev
+        from urllib.parse import urlencode
 
-    settings = get_settings()
+        # Get Schwab credentials from environment
+        app_key = os.getenv("SCHWAB_API_KEY")
+        app_secret = os.getenv("SCHWAB_API_SECRET")
+        callback_url = os.getenv("SCHWAB_CALLBACK_URL", "https://127.0.0.1")
 
-    return {
-        "oauth_url": "https://api.schwabapi.com/v1/oauth/authorize",
-        "message": "OAuth URL generation to be implemented",
-        "instructions": [
-            "1. Visit the OAuth URL",
-            "2. Log in with your Schwab credentials",
-            "3. Authorize the application",
-            "4. Copy the callback URL with the code parameter",
-            "5. Provide the code to the /oauth-callback endpoint",
-        ],
-    }
+        if not app_key or not app_secret:
+            return {
+                "success": False,
+                "message": "Schwab API credentials not found in environment variables",
+                "required_vars": ["SCHWAB_API_KEY", "SCHWAB_API_SECRET", "SCHWAB_CALLBACK_URL"],
+            }
+
+        # Build OAuth authorization URL
+        # Schwab OAuth 2.0 endpoint
+        auth_base_url = "https://api.schwabapi.com/v1/oauth/authorize"
+
+        # OAuth parameters
+        params = {
+            "client_id": app_key,
+            "redirect_uri": callback_url,
+            "response_type": "code",
+        }
+
+        oauth_url = f"{auth_base_url}?{urlencode(params)}"
+
+        return {
+            "success": True,
+            "oauth_url": oauth_url,
+            "callback_url": callback_url,
+            "instructions": [
+                "1. Visit the OAuth URL below",
+                "2. Log in with your Schwab credentials",
+                "3. Authorize the application",
+                "4. You will be redirected to the callback URL",
+                "5. Copy the 'code' parameter from the callback URL",
+                "6. Use the code in the OAuth callback endpoint",
+            ],
+        }
+
+    except ImportError:
+        return {
+            "success": False,
+            "message": "schwabdev library not available",
+            "note": "Install schwabdev: pip install schwabdev",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Failed to generate OAuth URL: {str(e)}",
+        }
 
 
 @router.post("/oauth-callback")
@@ -347,11 +385,76 @@ async def handle_oauth_callback(
     Returns:
         Token exchange result
     """
-    # TODO: Implement OAuth callback handling
-    # This would exchange the code for access/refresh tokens
+    if not code:
+        return {
+            "success": False,
+            "message": "No authorization code provided",
+        }
 
-    return {
-        "success": False,
-        "message": "OAuth callback handling to be implemented",
-        "code_received": bool(code),
-    }
+    try:
+        import schwabdev
+
+        settings = get_settings()
+        token_db_path = settings.tokens_dir / "schwabdev_tokens.db"
+
+        # Get Schwab credentials from environment
+        app_key = os.getenv("SCHWAB_API_KEY")
+        app_secret = os.getenv("SCHWAB_API_SECRET")
+        callback_url = os.getenv("SCHWAB_CALLBACK_URL", "https://127.0.0.1")
+
+        if not app_key or not app_secret:
+            return {
+                "success": False,
+                "message": "Schwab API credentials not found in environment variables",
+                "required_vars": ["SCHWAB_API_KEY", "SCHWAB_API_SECRET", "SCHWAB_CALLBACK_URL"],
+            }
+
+        # Ensure tokens directory exists
+        settings.tokens_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"[{datetime.now()}] Admin UI: Exchanging OAuth code for tokens...")
+
+        # Initialize schwabdev client with the authorization code
+        # This will automatically exchange the code for tokens and store them
+        client = schwabdev.Client(
+            app_key,
+            app_secret,
+            callback_url,
+            tokens_db=str(token_db_path),
+        )
+
+        # The schwabdev client should now have valid tokens
+        # Verify by attempting to get token status
+        token_status = get_token_from_db()
+
+        if token_status and token_status.get("has_token"):
+            print(f"[{datetime.now()}] Admin UI: OAuth token exchange successful")
+
+            return {
+                "success": True,
+                "message": "OAuth authorization successful. Tokens obtained and stored.",
+                "token_status": token_status,
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Token exchange completed but tokens not found in database",
+            }
+
+    except ImportError:
+        return {
+            "success": False,
+            "message": "schwabdev library not available",
+            "note": "Install schwabdev: pip install schwabdev",
+        }
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"OAuth callback error: {error_trace}")
+
+        return {
+            "success": False,
+            "message": f"OAuth authorization failed: {str(e)}",
+            "error_type": type(e).__name__,
+            "hint": "Make sure the authorization code is valid and not expired. Codes are typically valid for only a few minutes.",
+        }

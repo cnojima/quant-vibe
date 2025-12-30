@@ -1,4 +1,3 @@
-import React from 'react';
 import { useServices } from '../api/queries';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
@@ -30,8 +29,10 @@ export function Dashboard() {
     );
   }
 
-  const runningCount = services?.filter((s) => s.status === 'running').length || 0;
-  const totalCount = services?.length || 0;
+  // Ensure services is always an array
+  const servicesList = Array.isArray(services) ? services : [];
+  const runningCount = servicesList.filter((s) => s.status === 'running').length;
+  const totalCount = servicesList.length;
 
   return (
     <div>
@@ -49,7 +50,7 @@ export function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {services?.map((service) => (
+        {servicesList.map((service) => (
           <Card key={service.name}>
             <div className="flex justify-between items-start mb-4">
               <h3 className="text-lg font-semibold capitalize">
