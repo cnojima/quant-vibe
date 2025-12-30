@@ -53,6 +53,46 @@ services:
     networks:
       - quant-vibe-network
 
+  token_service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.streaming
+    container_name: quant-vibe-token-service
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # Schwab API credentials
+      SCHWAB_API_KEY: ${SCHWAB_API_KEY}
+      SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}
+      SCHWAB_CALLBACK_URL: ${SCHWAB_CALLBACK_URL}
+      # Token service settings
+      TOKEN_SERVICE_HOST: 0.0.0.0
+      TOKEN_SERVICE_PORT: 8001
+      TOKEN_REFRESH_INTERVAL_MINUTES: 14
+      # Redis connection (for event publishing)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      TOKEN_SERVICE_ENABLE_REDIS: "true"
+    volumes:
+      # Mount entire repo for live code updates
+      - .:/app
+      # Bind mount tokens for easy sharing across services
+      - ./tokens:/app/tokens
+    networks:
+      - quant-vibe-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    command: ["python", "scripts/run_token_service.py"]
+
   streaming:
     build:
       context: .
@@ -64,8 +104,12 @@ services:
         condition: service_healthy
       timescaledb:
         condition: service_healthy
+      token_service:
+        condition: service_healthy
     environment:
-      # Schwab API credentials
+      # Token service (centralized OAuth management)
+      TOKEN_SERVICE_URL: http://token_service:8001
+      # Schwab API credentials (legacy - can be removed after migration)
       SCHWAB_API_KEY: ${SCHWAB_API_KEY}
       SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}
       SCHWAB_CALLBACK_URL: ${SCHWAB_CALLBACK_URL}
@@ -99,10 +143,14 @@ services:
         condition: service_healthy
       timescaledb:
         condition: service_healthy
+      token_service:
+        condition: service_healthy
       streaming:
         condition: service_started
     environment:
-      # Schwab API credentials (for order execution only)
+      # Token service (centralized OAuth management)
+      TOKEN_SERVICE_URL: http://token_service:8001
+      # Schwab API credentials (legacy - can be removed after migration)
       SCHWAB_API_KEY: ${SCHWAB_API_KEY}
       SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}
       SCHWAB_CALLBACK_URL: ${SCHWAB_CALLBACK_URL}
