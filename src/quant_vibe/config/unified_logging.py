@@ -1,7 +1,7 @@
 """Unified logging configuration for all quant-vibe components.
 
 Provides normalized logging format: [datetime][app][level][msg]
-with proper stack trace handling.
+with proper stack trace handling and calendar-day (EST) rotation.
 """
 
 import logging
@@ -10,6 +10,65 @@ import traceback
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+from logging.handlers import TimedRotatingFileHandler
+import pytz
+
+
+class ESTTimedRotatingFileHandler(TimedRotatingFileHandler):
+    """
+    TimedRotatingFileHandler that rotates at midnight EST instead of local time.
+
+    This ensures logs rotate consistently based on US Eastern Time,
+    regardless of the server's timezone.
+    """
+
+    def __init__(self, filename, when='midnight', interval=1, backupCount=0, encoding=None, delay=False, utc=False):
+        """
+        Initialize handler with EST timezone.
+
+        Args:
+            filename: Log file path
+            when: Type of interval ('midnight' for calendar day rotation)
+            interval: Interval multiplier (1 for daily)
+            backupCount: Number of backup files to keep (0 = keep all)
+            encoding: File encoding
+            delay: Delay file opening
+            utc: Ignored - always uses EST
+        """
+        # Set EST timezone BEFORE calling parent __init__
+        # (parent calls computeRollover which needs self.tz)
+        self.tz = pytz.timezone('America/New_York')
+
+        # Initialize parent with utc=True (we'll handle timezone ourselves)
+        super().__init__(filename, when=when, interval=interval, backupCount=backupCount,
+                         encoding=encoding, delay=delay, utc=True)
+
+        # Override suffix to include timezone indicator
+        if when.upper() == 'MIDNIGHT':
+            self.suffix = "%Y-%m-%d_EST"
+
+    def computeRollover(self, currentTime):
+        """
+        Compute next rollover time at midnight EST.
+
+        Args:
+            currentTime: Current time in seconds since epoch
+
+        Returns:
+            Next rollover time in seconds since epoch
+        """
+        from datetime import timedelta
+
+        # Convert current time to EST
+        current_est = datetime.fromtimestamp(currentTime, tz=self.tz)
+
+        # Calculate next midnight EST
+        next_midnight = current_est.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Add one day to get to next midnight
+        next_midnight += timedelta(days=self.interval)
+
+        # Convert back to UTC timestamp
+        return next_midnight.timestamp()
 
 
 class NormalizedFormatter(logging.Formatter):
@@ -49,8 +108,9 @@ class NormalizedFormatter(logging.Formatter):
         Returns:
             Formatted log string
         """
-        # Format timestamp
-        timestamp = datetime.fromtimestamp(record.created).strftime(self.datefmt)
+        # Format timestamp in EST timezone
+        eastern = pytz.timezone('America/New_York')
+        timestamp = datetime.fromtimestamp(record.created, tz=eastern).strftime(self.datefmt)
 
         # Format level (pad to 8 chars for alignment)
         level = f"{record.levelname:<8}"
@@ -122,9 +182,10 @@ def setup_normalized_logging(
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
 
-    # Generate log file name if not provided
+    # Generate log file name if not provided (use EST timezone)
     if log_file is None:
-        timestamp = datetime.now().strftime("%Y%m%d")
+        eastern = pytz.timezone('America/New_York')
+        timestamp = datetime.now(tz=eastern).strftime("%Y%m%d")
         log_file = f"{app_name}_{timestamp}.log"
 
     full_log_path = log_path / log_file
@@ -140,8 +201,14 @@ def setup_normalized_logging(
     file_formatter = NormalizedFormatter(app_name=app_name, include_func=True)
     console_formatter = NormalizedFormatter(app_name=app_name, include_func=False)
 
-    # File handler - capture everything
-    file_handler = logging.FileHandler(full_log_path, encoding='utf-8')
+    # File handler with EST-based rotation - rotates at midnight EST
+    file_handler = ESTTimedRotatingFileHandler(
+        str(full_log_path),
+        when='midnight',
+        interval=1,
+        backupCount=30,  # Keep 30 days of logs
+        encoding='utf-8'
+    )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)

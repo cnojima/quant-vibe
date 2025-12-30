@@ -73,6 +73,15 @@ logger.error("Error with stack trace", exc_info=True)
 - Stack trace handling with alignment
 - Dual output: console + file
 - Per-component log files: `logs/{app_name}/{app_name}_{date}.log`
+- **Automatic log rotation**: Rotates at midnight EST (Eastern Time)
+- **Timezone-aware**: All timestamps in EST for market alignment
+- **Retention policy**: Keeps 30 days of rotated logs by default
+
+**Log Rotation:**
+- Files automatically rotate at midnight EST (00:00:00 America/New_York)
+- Current file: `app_20251230.log`
+- Rotated files: `app_20251230.log.2025-12-29_EST`
+- See `docs/LOG_ROTATION.md` for detailed documentation
 
 ## Architecture Overview
 
