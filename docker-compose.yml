@@ -60,7 +60,7 @@ services:
     container_name: quant-vibe-token-service
     restart: unless-stopped
     ports:
-      - "8001:8001"
+      - "8100:8100"
     depends_on:
       redis:
         condition: service_healthy
@@ -71,7 +71,7 @@ services:
       SCHWAB_CALLBACK_URL: ${SCHWAB_CALLBACK_URL}
       # Token service settings
       TOKEN_SERVICE_HOST: 0.0.0.0
-      TOKEN_SERVICE_PORT: 8001
+      TOKEN_SERVICE_PORT: 8100
       TOKEN_REFRESH_INTERVAL_MINUTES: 14
       # Redis connection (for event publishing)
       REDIS_HOST: redis
@@ -86,7 +86,7 @@ services:
     networks:
       - quant-vibe-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -108,7 +108,7 @@ services:
         condition: service_healthy
     environment:
       # Token service (centralized OAuth management)
-      TOKEN_SERVICE_URL: http://token_service:8001
+      TOKEN_SERVICE_URL: http://token_service:8100
       # Schwab API credentials (legacy - can be removed after migration)
       SCHWAB_API_KEY: ${SCHWAB_API_KEY}
       SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}
@@ -149,7 +149,7 @@ services:
         condition: service_started
     environment:
       # Token service (centralized OAuth management)
-      TOKEN_SERVICE_URL: http://token_service:8001
+      TOKEN_SERVICE_URL: http://token_service:8100
       # Schwab API credentials (legacy - can be removed after migration)
       SCHWAB_API_KEY: ${SCHWAB_API_KEY}
       SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}

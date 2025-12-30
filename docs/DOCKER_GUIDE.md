@@ -257,9 +257,9 @@ All services communicate via Docker network (`quant-vibe-network`):
 
 **Token Service** (OAuth Manager)
 - Host: `token_service` (Docker service name)
-- Port: `8001`
+- Port: `8100`
 - Purpose: Centralized Schwab API token management
-- API: `http://token_service:8001/token`
+- API: `http://token_service:8100/token`
 
 **Streaming Service** (Data Publisher)
 - Depends on: Redis, TimescaleDB, Token Service
@@ -335,13 +335,13 @@ docker exec quant-vibe-redis redis-cli ping
 ### Token Service Issues
 ```bash
 # Check token service health
-curl http://localhost:8001/health
+curl http://localhost:8100/health
 
 # View token service logs
 docker-compose logs -f token_service
 
 # Get current token status
-curl http://localhost:8001/token
+curl http://localhost:8100/token
 ```
 
 ### Code Changes Not Reflected
@@ -387,7 +387,7 @@ docker-compose restart admin_ui
 lsof -i :5432  # TimescaleDB
 lsof -i :6379  # Redis
 lsof -i :8000  # Admin UI
-lsof -i :8001  # Token Service
+lsof -i :8100  # Token Service
 
 # Stop conflicting service or change port in docker-compose.yml
 ```
@@ -564,7 +564,7 @@ docker exec quant-vibe-redis redis-cli ping
 docker exec quant-vibe-timescaledb pg_isready -U quantvibe -d options_data
 
 # Token service health check
-curl http://localhost:8001/health
+curl http://localhost:8100/health
 
 # Admin UI health check
 curl http://localhost:8000/health
@@ -736,7 +736,7 @@ docker-compose restart admin_ui
 # TimescaleDB: localhost:5432
 # Redis: localhost:6379
 # Admin UI: localhost:8000
-# Token Service: localhost:8001
+# Token Service: localhost:8100
 
 # To restrict access further, remove port mappings from docker-compose.yml
 # and access services only via Docker network
