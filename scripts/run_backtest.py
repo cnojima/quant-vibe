@@ -94,6 +94,34 @@ For more information, see:
         help='Run only this strategy (filters enabled strategies by name)'
     )
 
+    parser.add_argument(
+        '--start-date',
+        type=str,
+        default=None,
+        help='Start date for backtest (YYYY-MM-DD format). Overrides config.'
+    )
+
+    parser.add_argument(
+        '--end-date',
+        type=str,
+        default=None,
+        help='End date for backtest (YYYY-MM-DD format). Overrides config.'
+    )
+
+    parser.add_argument(
+        '--min-dte',
+        type=int,
+        default=None,
+        help='Minimum days to expiration. Overrides config.'
+    )
+
+    parser.add_argument(
+        '--max-dte',
+        type=int,
+        default=None,
+        help='Maximum days to expiration. Overrides config.'
+    )
+
     return parser.parse_args()
 
 
@@ -106,6 +134,25 @@ def main():
     print_banner()
 
     try:
+        # Parse dates if provided
+        start_date = None
+        end_date = None
+        if args.start_date and args.end_date:
+            from datetime import datetime
+            from quant_vibe.utils.datetime_utils import trading_day_to_utc
+
+            # Parse YYYY-MM-DD format
+            start_parts = args.start_date.split('-')
+            end_parts = args.end_date.split('-')
+
+            # Convert to market hours in UTC
+            start_date, _ = trading_day_to_utc(
+                int(start_parts[0]), int(start_parts[1]), int(start_parts[2])
+            )
+            _, end_date = trading_day_to_utc(
+                int(end_parts[0]), int(end_parts[1]), int(end_parts[2])
+            )
+
         # Initialize orchestrator
         orchestrator = BacktestOrchestrator(
             config_path=args.config,
@@ -113,7 +160,12 @@ def main():
         )
 
         # Run backtests
-        results = orchestrator.run()
+        results = orchestrator.run(
+            start_date=start_date,
+            end_date=end_date,
+            min_dte=args.min_dte,
+            max_dte=args.max_dte,
+        )
 
         # Exit with success
         print("\n✓ All backtests completed successfully\n")

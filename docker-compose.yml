@@ -222,10 +222,13 @@ services:
     volumes:
       # Mount Docker socket for service control
       - /var/run/docker.sock:/var/run/docker.sock
-      # Mount config, logs, and tokens directories
+      # Mount config, logs, tokens, scripts, src, and reports directories
       - ./config:/app/config:rw
       - ./logs:/app/logs:rw
       - ./tokens:/app/tokens:rw
+      - ./reports:/app/reports:rw
+      - ./scripts:/app/scripts:ro
+      - ./src:/app/src:ro
     networks:
       - quant-vibe-network
     healthcheck:

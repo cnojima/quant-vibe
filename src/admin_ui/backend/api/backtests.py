@@ -18,8 +18,39 @@ from admin_ui.backend.config import get_settings
 
 router = APIRouter()
 
-# Track running backtests
-_running_backtests: dict[str, dict[str, Any]] = {}
+# Track running backtests (persistent storage)
+def _get_backtest_state_file() -> Path:
+    """Get path to backtest state file."""
+    from admin_ui.backend.config import get_settings
+    settings = get_settings()
+    state_dir = settings.logs_dir / "backtest_state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    return state_dir / "running_backtests.json"
+
+def _load_backtests() -> dict[str, dict[str, Any]]:
+    """Load backtest state from file."""
+    import json
+    state_file = _get_backtest_state_file()
+    if state_file.exists():
+        try:
+            with open(state_file, 'r') as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def _save_backtests(backtests: dict[str, dict[str, Any]]):
+    """Save backtest state to file."""
+    import json
+    state_file = _get_backtest_state_file()
+    try:
+        with open(state_file, 'w') as f:
+            json.dump(backtests, f, indent=2, default=str)
+    except Exception as e:
+        print(f"Error saving backtest state: {e}")
+
+# Load existing state on module init
+_running_backtests: dict[str, dict[str, Any]] = _load_backtests()
 
 
 class BacktestRequest(BaseModel):
@@ -55,6 +86,7 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
     # Update status
     _running_backtests[backtest_id]["status"] = "running"
     _running_backtests[backtest_id]["started_at"] = datetime.now()
+    _save_backtests(_running_backtests)
 
     try:
         # Build command to run backtest
@@ -63,7 +95,18 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
             str(settings.project_root / "scripts" / "run_backtest.py"),
             "--strategy",
             request.strategy_name,
+            "--start-date",
+            request.start_date.strftime("%Y-%m-%d"),
+            "--end-date",
+            request.end_date.strftime("%Y-%m-%d"),
         ]
+
+        # Add DTE parameters if provided
+        if request.parameters:
+            if "min_dte" in request.parameters:
+                cmd.extend(["--min-dte", str(request.parameters["min_dte"])])
+            if "max_dte" in request.parameters:
+                cmd.extend(["--max-dte", str(request.parameters["max_dte"])])
 
         # Run backtest as subprocess
         process = await asyncio.create_subprocess_exec(
@@ -73,7 +116,20 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
             cwd=str(settings.project_root),
         )
 
-        stdout, stderr = await process.communicate()
+        # Wait for process to complete (with timeout for long-running backtests)
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=600.0  # 10 minute timeout for longer backtests
+            )
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            _running_backtests[backtest_id]["status"] = "failed"
+            _running_backtests[backtest_id]["completed_at"] = datetime.now()
+            _running_backtests[backtest_id]["error"] = "Backtest timed out (exceeded 10 minutes)"
+            _save_backtests(_running_backtests)
+            return
 
         if process.returncode == 0:
             # Success - find result files
@@ -82,17 +138,29 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
             _running_backtests[backtest_id]["status"] = "completed"
             _running_backtests[backtest_id]["completed_at"] = datetime.now()
             _running_backtests[backtest_id]["result_files"] = result_files
+            _save_backtests(_running_backtests)
         else:
-            # Failed
-            error_msg = stderr.decode("utf-8") if stderr else "Unknown error"
+            # Failed - capture both stdout and stderr for better error messages
+            error_parts = []
+            if stderr:
+                error_parts.append("STDERR: " + stderr.decode("utf-8"))
+            if stdout:
+                # Get last 50 lines of stdout for context
+                stdout_lines = stdout.decode("utf-8").split('\n')
+                last_lines = stdout_lines[-50:] if len(stdout_lines) > 50 else stdout_lines
+                error_parts.append("STDOUT (last 50 lines): " + '\n'.join(last_lines))
+
+            error_msg = '\n\n'.join(error_parts) if error_parts else "Unknown error"
             _running_backtests[backtest_id]["status"] = "failed"
             _running_backtests[backtest_id]["completed_at"] = datetime.now()
             _running_backtests[backtest_id]["error"] = error_msg
+            _save_backtests(_running_backtests)
 
     except Exception as e:
         _running_backtests[backtest_id]["status"] = "failed"
         _running_backtests[backtest_id]["completed_at"] = datetime.now()
         _running_backtests[backtest_id]["error"] = str(e)
+        _save_backtests(_running_backtests)
 
 
 def find_latest_backtest_results(strategy_name: str) -> Optional[dict[str, str]]:
@@ -106,21 +174,27 @@ def find_latest_backtest_results(strategy_name: str) -> Optional[dict[str, str]]
         Dict with paths to result files (trades, equity)
     """
     settings = get_settings()
-    results_dir = settings.logs_dir / "backtests"
 
-    if not results_dir.exists():
-        return None
+    # Check both reports/backtests (default output) and logs/backtests
+    possible_dirs = [
+        settings.project_root / "reports" / "backtests",
+        settings.logs_dir / "backtests",
+    ]
 
-    # Find all files for this strategy
-    trades_files = list(results_dir.glob(f"{strategy_name}_trades_*.csv"))
-    equity_files = list(results_dir.glob(f"{strategy_name}_equity_*.csv"))
+    all_trades_files = []
+    all_equity_files = []
 
-    if not trades_files or not equity_files:
+    for results_dir in possible_dirs:
+        if results_dir.exists():
+            all_trades_files.extend(results_dir.glob(f"{strategy_name}_trades_*.csv"))
+            all_equity_files.extend(results_dir.glob(f"{strategy_name}_equity_*.csv"))
+
+    if not all_trades_files or not all_equity_files:
         return None
 
     # Get most recent files
-    latest_trades = max(trades_files, key=lambda p: p.stat().st_mtime)
-    latest_equity = max(equity_files, key=lambda p: p.stat().st_mtime)
+    latest_trades = max(all_trades_files, key=lambda p: p.stat().st_mtime)
+    latest_equity = max(all_equity_files, key=lambda p: p.stat().st_mtime)
 
     return {
         "trades": str(latest_trades),
@@ -154,6 +228,7 @@ async def run_backtest(
         "status": "pending",
         "request": request.dict(),
     }
+    _save_backtests(_running_backtests)
 
     # Start backtest in background
     background_tasks.add_task(run_backtest_task, backtest_id, request)
@@ -220,10 +295,14 @@ async def get_backtest_results(
     trades_data = load_csv_file(result_files["trades"])
     equity_data = load_csv_file(result_files["equity"])
 
+    # Calculate basic metrics from the data
+    metrics = calculate_metrics(trades_data, equity_data)
+
     return {
         "backtest_id": backtest_id,
         "trades": trades_data,
-        "equity": equity_data,
+        "equity_curve": equity_data,  # Frontend expects this name
+        "metrics": metrics,
     }
 
 
@@ -282,6 +361,58 @@ async def list_strategies(current_user: User = Depends(get_current_user)):
     return {
         "strategies": strategies,
         "count": len(strategies),
+    }
+
+
+def calculate_metrics(trades: list[dict], equity_curve: list[dict]) -> dict[str, Any]:
+    """
+    Calculate performance metrics from trades and equity curve.
+
+    Args:
+        trades: List of trade dictionaries
+        equity_curve: List of equity curve points
+
+    Returns:
+        Dictionary of performance metrics
+    """
+    if not trades or not equity_curve:
+        return {}
+
+    # Convert string values to floats
+    pnls = [float(t.get('pnl', 0)) for t in trades]
+    win_trades = [p for p in pnls if p > 0]
+
+    # Get initial and final equity
+    initial_equity = float(equity_curve[0].get('portfolio_value', 100000))
+    final_equity = float(equity_curve[-1].get('portfolio_value', initial_equity))
+
+    # Calculate returns
+    total_return = ((final_equity - initial_equity) / initial_equity) * 100
+
+    # Calculate max drawdown from equity curve
+    max_drawdown = 0
+    if equity_curve:
+        drawdowns = [float(row.get('drawdown', 0)) for row in equity_curve]
+        max_drawdown = min(drawdowns) if drawdowns else 0
+
+    # Calculate win rate
+    win_rate = len(win_trades) / len(trades) if trades else 0
+
+    # Calculate Sharpe ratio (simplified - using trade returns)
+    if len(pnls) > 1:
+        import statistics
+        mean_return = statistics.mean(pnls)
+        std_return = statistics.stdev(pnls)
+        sharpe_ratio = (mean_return / std_return) if std_return > 0 else 0
+    else:
+        sharpe_ratio = 0
+
+    return {
+        "total_return": total_return,
+        "max_drawdown": max_drawdown,
+        "win_rate": win_rate,
+        "sharpe_ratio": sharpe_ratio,
+        "total_trades": len(trades),
     }
 
 

@@ -67,21 +67,19 @@ strategies:
         min_volume: 50                # Minimum volume per contract
         min_bid_ask_spread_pct: 10.0  # Maximum bid/ask spread %
 
-    # Example: Bullish Vertical Call Strategy (disabled by default)
-    # - name: bullish_vertical_call
-    #   enabled: false
-    #   params:
-    #     spread_width: 20.0
-    #     observation_period: 15
-    #     pullback_amount: 30.0
-    #     profit_target_min: 0.5
-    #     profit_target_max: 1.0
-    #     trailing_stop_pct: 0.05
-    #     min_dte: 0
-    #     max_dte: 45
-    #     num_spreads: 10
-    #     min_volume: 50
-    #     min_bid_ask_spread_pct: 10.0
+    # Bullish Vertical Call Strategy
+    - name: bullish_vertical_call
+      enabled: true
+      params:
+        spread_width: 20.0
+        observation_period: 15
+        pullback_amount: 30.0
+        profit_target_min: 0.5
+        profit_target_max: 1.0
+        trailing_stop_pct: 0.05
+        min_dte: 0
+        max_dte: 2  # 0-2 DTE for faster data loading
+        num_spreads: 10
 
   # Available strategies:
   # - bullish_vertical_put: Credit spread (sell put, buy lower put)
@@ -100,7 +98,7 @@ data_source:
 
   # DTE range for loading options data
   min_dte: 0
-  max_dte: 45
+  max_dte: 2  # 0-2 DTE for 0 DTE strategies (faster data loading)
 
   # Verbose data loading
   verbose: true

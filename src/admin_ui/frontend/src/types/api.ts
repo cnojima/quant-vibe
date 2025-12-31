@@ -8,15 +8,22 @@ export interface Service {
 }
 
 export interface TokenStatus {
-  access_token_valid: boolean;
-  access_token_expiry: string;
-  access_token_age_seconds: number;
-  refresh_token_valid: boolean;
-  refresh_token_expiry: string;
-  refresh_token_age_seconds: number;
+  has_token: boolean;
+  access_token_issued?: string;
+  refresh_token_issued?: string;
+  access_token_expires_at?: string;
+  refresh_token_expires_at?: string;
+  access_token_expired?: boolean;
+  refresh_token_expired?: boolean;
+  access_token_age_seconds?: number;
+  access_token_age_minutes?: number;
   expires_in?: number;
-  last_refreshed?: string;
+  token_type?: string;
+  scope?: string;
   source?: string;
+  message?: string;
+  database_exists?: boolean;
+  instructions?: string[];
 }
 
 export interface LiveEngineStatus {
@@ -127,6 +134,9 @@ export interface BacktestStatus {
   status: 'pending' | 'running' | 'completed' | 'failed';
   progress: number;
   message: string;
+  error?: string;
+  started_at?: string;
+  completed_at?: string;
 }
 
 export interface EquityPoint {

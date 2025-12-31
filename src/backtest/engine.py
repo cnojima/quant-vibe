@@ -264,9 +264,15 @@ class BacktestOrchestrator:
             if self.config.should_tee_output():
                 tee.close()
 
-    def run(self) -> List[Dict[str, Any]]:
+    def run(self, start_date=None, end_date=None, min_dte=None, max_dte=None) -> List[Dict[str, Any]]:
         """
         Run all configured backtests.
+
+        Args:
+            start_date: Optional start date override (datetime)
+            end_date: Optional end date override (datetime)
+            min_dte: Optional minimum DTE override (int)
+            max_dte: Optional maximum DTE override (int)
 
         Returns:
             List of result dictionaries for each strategy
@@ -279,18 +285,34 @@ class BacktestOrchestrator:
         self.logger.info(f"Strategies to run: {[s['name'] for s in strategies]}")
 
         # Get date range
-        # Check if we have custom dates in config
-        start_date, end_date = self.config.get_date_range()
-
+        # Priority: 1) CLI args, 2) Config, 3) Interactive
         if start_date is None or end_date is None:
-            # Use interactive date selection with preset
-            preset = self.config.get_date_preset()
-            self.logger.info(f"Using date preset: {preset}")
-            start_date, end_date = get_date_range()
+            # Check if we have custom dates in config
+            config_start, config_end = self.config.get_date_range()
+
+            if config_start is not None and config_end is not None:
+                start_date = config_start
+                end_date = config_end
+                self.logger.info("Using custom date range from config")
+                self.logger.info(f"Start: {start_date}")
+                self.logger.info(f"End: {end_date}")
+            else:
+                # Use interactive date selection with preset
+                preset = self.config.get_date_preset()
+                self.logger.info(f"Using date preset: {preset}")
+                start_date, end_date = get_date_range()
         else:
-            self.logger.info("Using custom date range from config")
+            self.logger.info("Using date range from command line")
             self.logger.info(f"Start: {start_date}")
             self.logger.info(f"End: {end_date}")
+
+        # Get DTE range (CLI args override config)
+        if min_dte is None:
+            min_dte = self.config.get_min_dte()
+        if max_dte is None:
+            max_dte = self.config.get_max_dte()
+
+        self.logger.info(f"DTE Range: {min_dte} - {max_dte}")
 
         # Load data once (shared across all strategies)
         self.logger.info("=" * 70)
@@ -301,8 +323,8 @@ class BacktestOrchestrator:
             underlying_ticker=self.config.get_underlying_ticker(),
             start_date=start_date,
             end_date=end_date,
-            min_dte=self.config.get_min_dte(),
-            max_dte=self.config.get_max_dte(),
+            min_dte=min_dte,
+            max_dte=max_dte,
             verbose=self.config.is_verbose(),
             db_profile=self.config.get_db_profile(),
         )

@@ -13,13 +13,15 @@ export function BacktestRunner() {
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [initialCapital, setInitialCapital] = useState<number>(100000);
+  const [minDte, setMinDte] = useState<number>(0);
+  const [maxDte, setMaxDte] = useState<number>(2);
   const [currentBacktestId, setCurrentBacktestId] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState<'run' | 'results' | 'history'>('run');
 
   const { data: strategies, isLoading: strategiesLoading } = useStrategies();
   const runBacktest = useRunBacktest();
   const { data: backtestStatus } = useBacktestStatus(currentBacktestId);
-  const { data: backtestResults } = useBacktestResults(currentBacktestId);
+  const { data: backtestResults } = useBacktestResults(currentBacktestId, backtestStatus?.status);
   const { data: history } = useBacktestHistory(50);
 
   const handleRunBacktest = async () => {
@@ -34,8 +36,14 @@ export function BacktestRunner() {
         start_date: startDate,
         end_date: endDate,
         initial_capital: initialCapital,
-        params: {}, // Strategy-specific parameters
-        parameters: {}, // Strategy-specific parameters (alternative key)
+        params: {
+          min_dte: minDte,
+          max_dte: maxDte,
+        },
+        parameters: {
+          min_dte: minDte,
+          max_dte: maxDte,
+        },
       });
 
       setCurrentBacktestId(result.backtest_id);
@@ -53,7 +61,10 @@ export function BacktestRunner() {
     }).format(value);
   };
 
-  const formatPercent = (value: number) => {
+  const formatPercent = (value: number | undefined | null) => {
+    if (value === undefined || value === null || isNaN(value)) {
+      return 'N/A';
+    }
     return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
   };
 
@@ -74,7 +85,7 @@ export function BacktestRunner() {
     const bucketSize = 50; // $50 buckets
 
     trades.forEach((trade: any) => {
-      const pnl = trade.pnl || trade.profit_loss;
+      const pnl = parseFloat(trade.pnl || trade.profit_loss) || 0;
       const bucket = Math.floor(pnl / bucketSize) * bucketSize;
       const rangeLabel = `$${bucket} to $${bucket + bucketSize}`;
       buckets[rangeLabel] = (buckets[rangeLabel] || 0) + 1;
@@ -195,6 +206,57 @@ export function BacktestRunner() {
               </div>
 
               <div>
+                <label className="label">DTE Range (Days to Expiration)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs text-gray-600">Min DTE</label>
+                    <input
+                      type="number"
+                      className="input"
+                      value={minDte}
+                      onChange={(e) => setMinDte(Number(e.target.value))}
+                      min={0}
+                      max={maxDte}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-600">Max DTE</label>
+                    <input
+                      type="number"
+                      className="input"
+                      value={maxDte}
+                      onChange={(e) => setMaxDte(Number(e.target.value))}
+                      min={minDte}
+                      max={45}
+                    />
+                  </div>
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                    onClick={() => { setMinDte(0); setMaxDte(0); }}
+                  >
+                    0 DTE
+                  </button>
+                  <button
+                    type="button"
+                    className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                    onClick={() => { setMinDte(0); setMaxDte(2); }}
+                  >
+                    0-2 DTE
+                  </button>
+                  <button
+                    type="button"
+                    className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                    onClick={() => { setMinDte(0); setMaxDte(7); }}
+                  >
+                    0-7 DTE
+                  </button>
+                </div>
+              </div>
+
+              <div>
                 <label className="label">Initial Capital</label>
                 <input
                   type="number"
@@ -283,6 +345,14 @@ export function BacktestRunner() {
                   <div className="font-medium mb-1">
                     Backtest Status: {backtestStatus.status}
                   </div>
+                  {backtestStatus.status === 'failed' && backtestStatus.error && (
+                    <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded">
+                      <div className="text-sm font-medium text-red-800">Error:</div>
+                      <pre className="text-xs text-red-700 mt-1 whitespace-pre-wrap overflow-x-auto">
+                        {backtestStatus.error}
+                      </pre>
+                    </div>
+                  )}
                   {backtestStatus.progress !== undefined && (
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div
@@ -367,27 +437,32 @@ export function BacktestRunner() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      {backtestResults.trades?.slice(0, 50).map((trade: any, idx: number) => (
-                        <tr key={idx} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 text-sm">
-                            {new Date(trade.entry_time).toLocaleDateString()}
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            {new Date(trade.exit_time).toLocaleDateString()}
-                          </td>
-                          <td className="px-4 py-3 text-sm font-mono">{trade.symbol}</td>
-                          <td className={`px-4 py-3 text-sm text-right font-medium ${
-                            trade.pnl >= 0 ? 'text-green-600' : 'text-red-600'
-                          }`}>
-                            {formatCurrency(trade.pnl)}
-                          </td>
-                          <td className={`px-4 py-3 text-sm text-right font-medium ${
-                            trade.return_pct >= 0 ? 'text-green-600' : 'text-red-600'
-                          }`}>
-                            {formatPercent(trade.return_pct)}
-                          </td>
-                        </tr>
-                      ))}
+                      {backtestResults.trades?.slice(0, 50).map((trade: any, idx: number) => {
+                        const pnl = parseFloat(trade.pnl) || 0;
+                        const returnPct = parseFloat(trade.pnl_percent || trade.return_pct) || 0;
+
+                        return (
+                          <tr key={idx} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm">
+                              {new Date(trade.entry_time).toLocaleDateString()}
+                            </td>
+                            <td className="px-4 py-3 text-sm">
+                              {new Date(trade.exit_time).toLocaleDateString()}
+                            </td>
+                            <td className="px-4 py-3 text-sm font-mono">{trade.position_id || trade.symbol || 'N/A'}</td>
+                            <td className={`px-4 py-3 text-sm text-right font-medium ${
+                              pnl >= 0 ? 'text-green-600' : 'text-red-600'
+                            }`}>
+                              {formatCurrency(pnl)}
+                            </td>
+                            <td className={`px-4 py-3 text-sm text-right font-medium ${
+                              returnPct >= 0 ? 'text-green-600' : 'text-red-600'
+                            }`}>
+                              {formatPercent(returnPct)}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -413,9 +488,13 @@ export function BacktestRunner() {
               <Card key={backtest.backtest_id}>
                 <div className="flex justify-between items-start">
                   <div>
-                    <h4 className="font-semibold text-lg">{backtest.strategy_name}</h4>
+                    <h4 className="font-semibold text-lg">{(backtest as any).request?.strategy_name || backtest.strategy_name || 'Unknown Strategy'}</h4>
                     <p className="text-sm text-gray-600">
-                      {new Date(backtest.start_date).toLocaleDateString()} - {new Date(backtest.end_date).toLocaleDateString()}
+                      {(backtest as any).request?.start_date && (backtest as any).request?.end_date
+                        ? `${new Date((backtest as any).request.start_date).toLocaleDateString()} - ${new Date((backtest as any).request.end_date).toLocaleDateString()}`
+                        : backtest.start_date && backtest.end_date
+                        ? `${new Date(backtest.start_date).toLocaleDateString()} - ${new Date(backtest.end_date).toLocaleDateString()}`
+                        : 'Date not available'}
                     </p>
                   </div>
                   <div className="text-right">

@@ -214,16 +214,21 @@ class BullishVerticalPutStrategy(OptionsStrategy):
                 # Log observation results
                 print(f"\n  📊 OBSERVATION COMPLETE (after {self.observation_period} mins)")
                 print(f"     Direction: {analysis['direction'].upper()}")
-                print(f"     Momentum: {analysis['momentum']:.4f} pts/bar")
-                print(f"     Price Change: ${analysis['price_change']:.2f}")
-                print(f"     Opening Range: ${self.opening_low:.2f} - ${self.opening_high:.2f}")
-                print(f"     Opening Mean: ${self.opening_mean:.2f}, Std Dev: ${self.opening_std:.2f}")
+                print(f"     Momentum: {analysis.get('momentum', 0):.4f} pts/bar")
+                print(f"     Price Change: ${analysis.get('price_change', 0):.2f}")
 
-                if self.is_bullish:
+                # Only print range stats if we have valid data
+                if self.opening_low is not None and self.opening_high is not None:
+                    print(f"     Opening Range: ${self.opening_low:.2f} - ${self.opening_high:.2f}")
+                    print(f"     Opening Mean: ${self.opening_mean:.2f}, Std Dev: ${self.opening_std:.2f}")
+                else:
+                    print(f"     Opening Range: Insufficient data")
+
+                if self.is_bullish and self.opening_high is not None:
                     pullback_threshold = self.opening_high - self.pullback_amount
                     print(f"     → Waiting for pullback to ${pullback_threshold:.2f}")
                 else:
-                    print(f"     → No entry - market not bullish")
+                    print(f"     → No entry - market not bullish or insufficient data")
 
         # After observation period - check for pullback
         elif self.observation_complete and self.is_bullish:

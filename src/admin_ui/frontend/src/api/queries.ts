@@ -209,7 +209,7 @@ export function useBacktestStatus(backtestId: string | null) {
   });
 }
 
-export function useBacktestResults(backtestId: string | null) {
+export function useBacktestResults(backtestId: string | null, status?: string) {
   return useQuery({
     queryKey: ['backtest-results', backtestId],
     queryFn: async () => {
@@ -217,7 +217,7 @@ export function useBacktestResults(backtestId: string | null) {
       const response = await apiClient.get<BacktestResult>(`/backtests/${backtestId}/results`);
       return response.data;
     },
-    enabled: !!backtestId,
+    enabled: !!backtestId && status === 'completed',
   });
 }
 
@@ -225,10 +225,10 @@ export function useBacktestHistory(limit: number = 50) {
   return useQuery({
     queryKey: ['backtest-history', limit],
     queryFn: async () => {
-      const response = await apiClient.get<BacktestResult[]>('/backtests/history', {
+      const response = await apiClient.get<{ backtests: BacktestResult[]; total: number }>('/backtests/history', {
         params: { limit },
       });
-      return response.data;
+      return response.data.backtests;
     },
   });
 }

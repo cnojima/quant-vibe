@@ -68,11 +68,12 @@ def get_last_sync_time(local_conn, source='remote_sync'):
         result = cur.fetchone()
         return result[0] if result and result[0] else None
 
-def sync_options_bars(since_time=None, batch_size=10000):
-    """Sync options_bars from remote to local.
+def sync_options_bars_with_until(since_time=None, until_time=None, batch_size=10000):
+    """Sync options_bars from remote to local with date range.
 
     Args:
         since_time: Only sync data after this timestamp (None = last 24 hours)
+        until_time: Only sync data before this timestamp (None = no upper bound)
         batch_size: Number of rows per batch insert
     """
     # Validate configuration first
@@ -86,6 +87,8 @@ def sync_options_bars(since_time=None, batch_size=10000):
     print(f"SYNCING OPTIONS DATA FROM REMOTE")
     print(f"{'='*70}")
     print(f"Since: {since_time}")
+    if until_time:
+        print(f"Until: {until_time}")
     print(f"Batch size: {batch_size:,}")
     print()
 
@@ -112,20 +115,38 @@ def sync_options_bars(since_time=None, batch_size=10000):
 
     try:
         # Query remote data
-        print(f"\n3. Querying remote data since {since_time}...")
+        query_msg = f"\n3. Querying remote data since {since_time}"
+        if until_time:
+            query_msg += f" until {until_time}"
+        print(query_msg + "...")
+
         with remote_conn.cursor() as cur:
-            cur.execute("""
-                SELECT 
-                    timestamp, option_ticker, underlying_ticker,
-                    open, high, low, close, volume, vwap, transactions,
-                    bid, ask, bid_size, ask_size,
-                    strike_price, contract_type, expiration_date,
-                    implied_volatility, delta, gamma, theta, vega, rho,
-                    data_source
-                FROM options_bars
-                WHERE timestamp > %s
-                ORDER BY timestamp ASC
-            """, (since_time,))
+            if until_time:
+                cur.execute("""
+                    SELECT
+                        timestamp, option_ticker, underlying_ticker,
+                        open, high, low, close, volume, vwap, transactions,
+                        bid, ask, bid_size, ask_size,
+                        strike_price, contract_type, expiration_date,
+                        implied_volatility, delta, gamma, theta, vega, rho,
+                        data_source
+                    FROM options_bars
+                    WHERE timestamp >= %s AND timestamp < %s
+                    ORDER BY timestamp ASC
+                """, (since_time, until_time))
+            else:
+                cur.execute("""
+                    SELECT
+                        timestamp, option_ticker, underlying_ticker,
+                        open, high, low, close, volume, vwap, transactions,
+                        bid, ask, bid_size, ask_size,
+                        strike_price, contract_type, expiration_date,
+                        implied_volatility, delta, gamma, theta, vega, rho,
+                        data_source
+                    FROM options_bars
+                    WHERE timestamp >= %s
+                    ORDER BY timestamp ASC
+                """, (since_time,))
 
             rows = cur.fetchall()
             total_rows = len(rows)
@@ -205,14 +226,27 @@ def sync_options_bars(since_time=None, batch_size=10000):
         print("SYNC COMPLETE")
         print(f"{'='*70}\n")
 
+
+def sync_options_bars(since_time=None, batch_size=10000):
+    """Sync options_bars from remote to local (backward compatible).
+
+    Args:
+        since_time: Only sync data after this timestamp (None = last 24 hours)
+        batch_size: Number of rows per batch insert
+    """
+    return sync_options_bars_with_until(since_time=since_time, until_time=None, batch_size=batch_size)
+
+
 if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser(description='Sync options data from remote to local DB')
     parser.add_argument('--since', type=str, help='Sync data since this date (YYYY-MM-DD)')
+    parser.add_argument('--until', type=str, help='Sync data until this date (YYYY-MM-DD, exclusive)')
     parser.add_argument('--hours', type=int, help='Sync last N hours')
-    parser.add_argument('--days', type=int, default=1, help='Sync last N days (default: 1)')
+    parser.add_argument('--days', type=int, help='Sync last N days (default: 1 if no args)')
     parser.add_argument('--auto', action='store_true', help='Auto-detect last sync time')
+    parser.add_argument('--batch-days', type=int, default=7, help='Split large ranges into N-day batches (default: 7)')
 
     args = parser.parse_args()
 
@@ -226,12 +260,47 @@ if __name__ == '__main__':
         if since_time is None:
             since_time = datetime.now(timezone.utc) - timedelta(days=7)
             print(f"No previous sync found. Starting from 7 days ago.")
+        until_time = None
+    elif args.since and args.until:
+        since_parts = args.since.split('-')
+        since_time = datetime(int(since_parts[0]), int(since_parts[1]), int(since_parts[2]), tzinfo=timezone.utc)
+        until_parts = args.until.split('-')
+        until_time = datetime(int(until_parts[0]), int(until_parts[1]), int(until_parts[2]), tzinfo=timezone.utc)
     elif args.since:
         parts = args.since.split('-')
         since_time = datetime(int(parts[0]), int(parts[1]), int(parts[2]), tzinfo=timezone.utc)
+        until_time = None
     elif args.hours:
         since_time = datetime.now(timezone.utc) - timedelta(hours=args.hours)
-    else:
+        until_time = None
+    elif args.days:
         since_time = datetime.now(timezone.utc) - timedelta(days=args.days)
+        until_time = None
+    else:
+        # Default: last 24 hours
+        since_time = datetime.now(timezone.utc) - timedelta(days=1)
+        until_time = None
 
-    sync_options_bars(since_time=since_time)
+    # If date range is large, split into batches
+    if until_time and (until_time - since_time).days > args.batch_days:
+        print(f"\n📦 Large date range detected. Splitting into {args.batch_days}-day batches...\n")
+        current = since_time
+        batch_num = 1
+
+        while current < until_time:
+            batch_end = min(current + timedelta(days=args.batch_days), until_time)
+            print(f"\n{'='*70}")
+            print(f"BATCH {batch_num}: {current.date()} to {batch_end.date()}")
+            print(f"{'='*70}\n")
+
+            # Temporarily modify since_time for this batch
+            sync_options_bars_with_until(since_time=current, until_time=batch_end)
+
+            current = batch_end
+            batch_num += 1
+    else:
+        # Single sync
+        if until_time:
+            sync_options_bars_with_until(since_time=since_time, until_time=until_time)
+        else:
+            sync_options_bars(since_time=since_time)

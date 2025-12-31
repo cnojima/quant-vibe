@@ -127,7 +127,7 @@ class BullishVerticalCallStrategy(OptionsStrategy):
         if underlying_data.empty:
             return analysis
 
-        current_price = underlying_data['Close'].iloc[-1]
+        current_price = underlying_data['close'].iloc[-1]
         analysis['current_price'] = current_price
 
         # Check if this is a new trading day
@@ -169,13 +169,13 @@ class BullishVerticalCallStrategy(OptionsStrategy):
             ]
 
             if len(opening_data) >= 2:
-                self.opening_high = opening_data['High'].max()
-                self.opening_low = opening_data['Low'].min()
-                self.opening_mean = opening_data['Close'].mean()
-                self.opening_std = opening_data['Close'].std()
+                self.opening_high = opening_data['high'].max()
+                self.opening_low = opening_data['low'].min()
+                self.opening_mean = opening_data['close'].mean()
+                self.opening_std = opening_data['close'].std()
 
                 # Calculate momentum (price change / time)
-                price_change = opening_data['Close'].iloc[-1] - opening_data['Close'].iloc[0]
+                price_change = opening_data['close'].iloc[-1] - opening_data['close'].iloc[0]
                 time_elapsed = len(opening_data)
                 momentum = price_change / time_elapsed if time_elapsed > 0 else 0
 
@@ -197,16 +197,21 @@ class BullishVerticalCallStrategy(OptionsStrategy):
                 # Log observation results
                 print(f"\n  📊 OBSERVATION COMPLETE (after {self.observation_period} mins)")
                 print(f"     Direction: {analysis['direction'].upper()}")
-                print(f"     Momentum: {analysis['momentum']:.4f} pts/bar")
-                print(f"     Price Change: ${analysis['price_change']:.2f}")
-                print(f"     Opening Range: ${self.opening_low:.2f} - ${self.opening_high:.2f}")
-                print(f"     Opening Mean: ${self.opening_mean:.2f}, Std Dev: ${self.opening_std:.2f}")
+                print(f"     Momentum: {analysis.get('momentum', 0):.4f} pts/bar")
+                print(f"     Price Change: ${analysis.get('price_change', 0):.2f}")
 
-                if self.is_bullish:
+                # Only print range stats if we have valid data
+                if self.opening_low is not None and self.opening_high is not None:
+                    print(f"     Opening Range: ${self.opening_low:.2f} - ${self.opening_high:.2f}")
+                    print(f"     Opening Mean: ${self.opening_mean:.2f}, Std Dev: ${self.opening_std:.2f}")
+                else:
+                    print(f"     Opening Range: Insufficient data")
+
+                if self.is_bullish and self.opening_high is not None:
                     pullback_threshold = self.opening_high - self.pullback_amount
                     print(f"     → Waiting for pullback to ${pullback_threshold:.2f}")
                 else:
-                    print(f"     → No entry - market not bullish")
+                    print(f"     → No entry - market not bullish or insufficient data")
 
         # After observation period - check for pullback
         elif self.observation_complete and self.is_bullish:
@@ -308,7 +313,8 @@ class BullishVerticalCallStrategy(OptionsStrategy):
         underlying_data: pd.DataFrame,
         options_data: pd.DataFrame,
         current_time: datetime,
-        market_analysis: Dict
+        market_analysis: Dict,
+        full_options_data: Optional[pd.DataFrame] = None
     ) -> Optional[OptionsPosition]:
         """
         Construct a bullish vertical call spread.
@@ -450,7 +456,8 @@ class BullishVerticalCallStrategy(OptionsStrategy):
             Tuple of (should_exit, exit_reason)
         """
         # Update position value
-        self.update_position_value(position, options_data, underlying_data)
+        current_underlying_price = underlying_data['close'].iloc[-1] if not underlying_data.empty else None
+        self.update_position_value(position, options_data, current_underlying_price)
 
         # Check profit target
         if self.check_profit_target(position):

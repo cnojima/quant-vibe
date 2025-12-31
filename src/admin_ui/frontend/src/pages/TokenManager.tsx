@@ -29,7 +29,7 @@ export function TokenManager() {
   }
 
   const getStatusBadge = () => {
-    if (!tokenStatus?.access_token_valid) {
+    if (!tokenStatus?.has_token || tokenStatus?.access_token_expired) {
       return <Badge variant="error">Invalid/Expired</Badge>;
     }
     if (tokenStatus.expires_in && tokenStatus.expires_in < 300) {
@@ -75,11 +75,11 @@ export function TokenManager() {
             <div className="flex items-center justify-between">
               <span className="text-gray-600">Status:</span>
               <span className="font-medium">
-                {tokenStatus?.access_token_valid ? 'Valid' : 'Invalid/Expired'}
+                {tokenStatus?.has_token && !tokenStatus?.access_token_expired ? 'Valid' : 'Invalid/Expired'}
               </span>
             </div>
 
-            {tokenStatus?.access_token_valid && (
+            {tokenStatus?.has_token && !tokenStatus?.access_token_expired && (
               <div className="flex items-center justify-between">
                 <span className="text-gray-600">Expires in:</span>
                 <span className="font-medium font-mono">{getTimeRemaining()}</span>

@@ -601,6 +601,36 @@ if __name__ == "__main__":
 - **Error Handling**: Built-in validation and error messages
 - **Extensibility**: Easy to add new metrics or output formats
 
+### Data Sync (Remote to Local)
+
+**Syncing data from remote TimescaleDB (Moirae) to local development database:**
+
+```bash
+# Automated workflow (recommended)
+./scripts/auto_sync_gaps.sh                    # Interactive mode
+./scripts/auto_sync_gaps.sh --auto             # Fully automated
+./scripts/auto_sync_gaps.sh --quick            # Quick scan (30 days)
+
+# Manual analysis + sync
+python scripts/analyze_data_gaps.py --quick --detailed
+python scripts/sync_moirae.py --since 2025-12-01 --until 2025-12-31
+
+# Daily sync (add to cron)
+./scripts/auto_sync_gaps.sh --auto >> logs/daily_sync.log 2>&1
+```
+
+**Gap Analysis:**
+- `analyze_data_gaps.py` - Identifies missing/incomplete data
+- Detects: missing days, partial days (<80% coverage), sparse contracts
+- Generates sync commands automatically
+
+**Sync Tool:**
+- `sync_moirae.py` - Syncs data with conflict handling (idempotent)
+- Supports date ranges, auto-batching for large ranges
+- Uses `ON CONFLICT` to update existing bars safely
+
+**See:** `docs/DATA_SYNC_GUIDE.md` for comprehensive documentation
+
 ### Database Configuration
 
 **Local vs Remote TimescaleDB**
