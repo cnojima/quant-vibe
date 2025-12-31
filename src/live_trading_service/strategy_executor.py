@@ -261,10 +261,12 @@ class StrategyExecutor:
             )
             return
 
-        # Track position
+        # Track position with fill price from order
+        fill_price = order.filled_total_price if order else position.entry_cost
         self.position_manager.add_position(
             position=position,
             strategy_name=strategy_name,
+            fill_price=fill_price,
         )
 
         # Update strategy state
