@@ -15,6 +15,8 @@ def setup_logging(
     """
     Set up comprehensive logging for live trading.
 
+    This is a legacy wrapper - new code should use setup_normalized_logging.
+
     Args:
         log_dir: Directory to store log files
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -23,51 +25,14 @@ def setup_logging(
     Returns:
         Configured logger instance
     """
-    # Create log directory
-    log_path = Path(log_dir)
-    log_path.mkdir(parents=True, exist_ok=True)
+    # Use unified normalized logging for consistent EST timestamps
+    from quant_vibe.config.logging_config import setup_normalized_logging
 
-    # Create logger
-    logger = logging.getLogger('live_trading')
-    logger.setLevel(getattr(logging, log_level.upper()))
-
-    # Remove existing handlers to avoid duplicates
-    logger.handlers = []
-
-    # File handler - daily rotating log
-    timestamp = datetime.now().strftime("%Y%m%d")
-    file_handler = logging.FileHandler(
-        log_path / f"live_trading_{timestamp}.log",
-        encoding='utf-8'
+    return setup_normalized_logging(
+        app_name="live_trading",
+        log_level=log_level,
+        log_dir=log_dir,
     )
-    file_handler.setLevel(logging.DEBUG)  # Capture everything to file
-
-    # Console handler - configurable
-    if console_output:
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(getattr(logging, log_level.upper()))
-
-    # Detailed formatter for file
-    file_formatter = logging.Formatter(
-        '%(asctime)s | %(levelname)-8s | %(name)s | %(funcName)s:%(lineno)d | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler.setFormatter(file_formatter)
-
-    # Simpler formatter for console
-    if console_output:
-        console_formatter = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | %(message)s',
-            datefmt='%H:%M:%S'
-        )
-        console_handler.setFormatter(console_formatter)
-
-    # Add handlers
-    logger.addHandler(file_handler)
-    if console_output:
-        logger.addHandler(console_handler)
-
-    return logger
 
 
 def format_currency(value: float) -> str:
