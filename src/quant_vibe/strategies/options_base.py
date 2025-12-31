@@ -17,6 +17,7 @@ class OptionType(Enum):
 
 class SpreadType(Enum):
     """Options spread types."""
+    SINGLE = "SINGLE"  # Single-leg position (not a spread)
     VERTICAL_CALL = "VERTICAL_CALL"
     VERTICAL_PUT = "VERTICAL_PUT"
     IRON_CONDOR = "IRON_CONDOR"
@@ -57,6 +58,7 @@ class OptionsPosition:
     exit_time: Optional[datetime] = None
     exit_value: Optional[float] = None
     exit_reason: Optional[str] = None
+    has_valid_market_data: bool = True  # Track if current_value is from actual market data
 
     @property
     def pnl(self) -> Optional[float]:
@@ -236,6 +238,7 @@ class OptionsStrategy(ABC):
         """
         current_value = 0.0
         missing_legs = []
+        used_fallback = False  # Track if we used fallback pricing
 
         for leg in position.legs:
             # Find current price for this contract
@@ -251,6 +254,7 @@ class OptionsStrategy(ABC):
                 if pd.isna(current_price) or current_price < 0:
                     # Mark price invalid - try to calculate intrinsic value
                     missing_legs.append(leg.contract_symbol)
+                    used_fallback = True  # Using fallback pricing
                     if underlying_price is not None:
                         # Use intrinsic value (conservative estimate)
                         current_price = self._calculate_intrinsic_value(leg, underlying_price)
@@ -270,12 +274,13 @@ class OptionsStrategy(ABC):
             else:
                 # No data for this leg at this timestamp - this is a DATA QUALITY ISSUE
                 missing_legs.append(leg.contract_symbol)
+                used_fallback = True  # Using fallback pricing
 
                 # Try to estimate price from similar strikes
                 # Get other contracts at same expiration
                 same_exp = options_data[
                     (options_data['expiration_date'] == leg.expiration_date) &
-                    (options_data['option_type'] == ('P' if leg.option_type == OptionType.PUT else 'C'))
+                    (options_data['contract_type'] == ('put' if leg.option_type == OptionType.PUT else 'call'))
                 ]
 
                 if not same_exp.empty:
@@ -319,6 +324,7 @@ class OptionsStrategy(ABC):
             print(f"   ⚠️  Missing/invalid data for legs: {', '.join(missing_legs)}")
 
         position.current_value = current_value
+        position.has_valid_market_data = not used_fallback  # Mark if using real market data
 
         # Validate current_value is reasonable for the spread
         # For credit spreads (entry_cost < 0), max loss is limited to spread width

@@ -136,6 +136,13 @@ For more information, see:
         help='Initial capital amount. Overrides config.'
     )
 
+    parser.add_argument(
+        '--backtest-id',
+        type=str,
+        default=None,
+        help='Backtest ID to use for database storage. Auto-generated if not provided.'
+    )
+
     return parser.parse_args()
 
 
@@ -181,6 +188,7 @@ def main():
             max_dte=args.max_dte,
             max_trades_daily=args.max_trades_daily,
             initial_capital=args.initial_capital,
+            backtest_id=args.backtest_id,
         )
 
         # Exit with success

@@ -91,6 +91,21 @@ STRATEGY_METADATA = {
             "iv_lookback": 30,
         },
     },
+    "coin_toss": {
+        "description": "Naive strategy that randomly picks direction and buys 10 contracts near $2, sells at $2 (educational/experimental only)",
+        "default_params": {
+            "target_price": 2.0,
+            "buy_limit": 1.0,
+            "sell_target": 2.0,
+            "price_tolerance": 0.50,
+            "max_trades_daily": 5,
+            "quantity": 10,
+            "min_dte": 0,
+            "max_dte": 45,
+            "profit_target_pct": 1.0,
+            "stop_loss_pct": None,
+        },
+    },
 }
 
 

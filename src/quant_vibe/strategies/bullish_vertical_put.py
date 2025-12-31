@@ -369,11 +369,11 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         max_date = pd.Timestamp(max_date).normalize().tz_localize(None)
 
         # Filter for PUT options within DTE range
-        # Option type is 'PUT' for puts (uppercase word)
+        # contract_type is 'put' (lowercase enum value)
         valid_options = options_data[
             (options_data['expiration_date'] >= target_date) &
             (options_data['expiration_date'] <= max_date) &
-            (options_data['option_type'] == 'PUT')
+            (options_data['contract_type'] == 'put')
         ]
 
         if valid_options.empty:

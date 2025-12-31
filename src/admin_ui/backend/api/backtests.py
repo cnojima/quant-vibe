@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
 from quant_vibe.data.timescale_store import TimescaleStore
+from backtest.config_loader import BacktestConfig
 
 router = APIRouter()
 
@@ -125,6 +126,9 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
         # Add initial capital if provided
         if request.initial_capital is not None:
             cmd.extend(["--initial-capital", str(request.initial_capital)])
+
+        # Add backtest ID to ensure database and API use the same ID
+        cmd.extend(["--backtest-id", backtest_id])
 
         # Add DTE parameters if provided
         if request.parameters:
@@ -748,39 +752,63 @@ async def delete_backtest(
 @router.get("/strategies")
 async def list_strategies(current_user: User = Depends(get_current_user)):
     """
-    List available strategies.
+    List available strategies from backtest.yaml configuration.
 
     Args:
         current_user: Authenticated user
 
     Returns:
-        List of available strategies
+        List of available strategies with their enabled status
     """
-    # TODO: Dynamically load from backtest.yaml or strategy registry
-    # For now, return hardcoded list
+    settings = get_settings()
+    config_path = settings.project_root / "config" / "backtest.yaml"
 
-    strategies = [
-        {
-            "name": "bullish_vertical_put",
-            "display_name": "Bullish Vertical Put",
-            "description": "0 DTE bullish vertical put spread strategy",
-        },
-        {
-            "name": "bullish_vertical_call",
-            "display_name": "Bullish Vertical Call",
-            "description": "0 DTE bullish vertical call spread strategy",
-        },
-        {
-            "name": "bearish_iv_scalp",
-            "display_name": "Bearish IV Scalp",
-            "description": "0 DTE bearish IV scalping with vertical call spreads - profit from IV contraction during bearish moves",
-        },
-    ]
+    try:
+        # Load backtest configuration
+        backtest_config = BacktestConfig(str(config_path))
 
-    return {
-        "strategies": strategies,
-        "count": len(strategies),
-    }
+        # Get all strategies from config (both enabled and disabled)
+        all_strategies_config = backtest_config.config.get('strategies', {}).get('enabled', [])
+
+        # Import strategy metadata for descriptions
+        try:
+            from admin_ui.backend.api.strategies import STRATEGY_METADATA
+        except ImportError:
+            STRATEGY_METADATA = {}
+
+        # Build list of strategies
+        strategies = []
+        for strategy_config in all_strategies_config:
+            name = strategy_config.get('name')
+            enabled = strategy_config.get('enabled', False)
+
+            # Get description from metadata, fallback to generic description
+            metadata = STRATEGY_METADATA.get(name, {})
+            description = metadata.get('description', f'{name} strategy')
+
+            # Format display name (convert snake_case to Title Case)
+            display_name = ' '.join(word.capitalize() for word in name.split('_'))
+
+            strategies.append({
+                "name": name,
+                "display_name": display_name,
+                "description": description,
+                "enabled": enabled,
+            })
+
+        return {
+            "strategies": strategies,
+            "count": len(strategies),
+        }
+
+    except Exception as e:
+        # Fallback to empty list if config can't be loaded
+        print(f"Error loading strategies from config: {e}")
+        return {
+            "strategies": [],
+            "count": 0,
+            "error": str(e),
+        }
 
 
 def calculate_metrics(trades: list[dict], equity_curve: list[dict]) -> dict[str, Any]:

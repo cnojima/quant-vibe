@@ -169,7 +169,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
 
         atm_range = current_price * 0.02  # ±2%
         atm_calls = options_data[
-            (options_data['option_type'] == 'CALL') &
+            (options_data['contract_type'] == 'call') &
             (options_data['strike_price'] >= current_price - atm_range) &
             (options_data['strike_price'] <= current_price + atm_range) &
             (options_data['implied_volatility'].notna()) &
@@ -439,9 +439,10 @@ class BearishIVScalpStrategy(OptionsStrategy):
         today = pd.Timestamp(current_time.date()).tz_localize(None)
 
         # Filter for CALL options expiring today
+        # contract_type is 'call' (lowercase enum value)
         valid_options = options_data[
             (options_data['expiration_date'] == today) &
-            (options_data['option_type'] == 'CALL')
+            (options_data['contract_type'] == 'call')
         ]
 
         if valid_options.empty:

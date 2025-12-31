@@ -146,21 +146,22 @@ def get_date_range() -> Tuple[datetime, datetime]:
     print()
     print("Available date range options:")
     print("  1. Today (market hours only)")
-    print("  2. This week (Mon-Fri market hours)")
-    print("  3. This month (trading days only)")
-    print("  4. This quarter (trading days only)")
-    print("  5. This year (trading days only)")
-    print("  6. Custom date range (trading days only)")
+    print("  2. Yesterday (market hours only)")
+    print("  3. This week (Mon-Fri market hours)")
+    print("  4. This month (trading days only)")
+    print("  5. This quarter (trading days only)")
+    print("  6. This year (trading days only)")
+    print("  7. Custom date range (trading days only)")
     print()
     print("Note: All dates use US Eastern Time (EST)")
     print("      Market hours: 9:30 AM - 4:00 PM EST")
     print()
 
     while True:
-        choice = input("Enter your choice (1-6): ").strip()
+        choice = input("Enter your choice (1-7): ").strip()
 
-        if choice not in ["1", "2", "3", "4", "5", "6"]:
-            print("Invalid choice. Please enter a number between 1 and 6.")
+        if choice not in ["1", "2", "3", "4", "5", "6", "7"]:
+            print("Invalid choice. Please enter a number between 1 and 7.")
             continue
 
         # Get current date in EST
@@ -169,7 +170,14 @@ def get_date_range() -> Tuple[datetime, datetime]:
         if choice == "1":  # Today (market hours only)
             start_date, end_date = trading_day_to_utc(now_est.year, now_est.month, now_est.day)
 
-        elif choice == "2":  # This week (Monday to Friday)
+        elif choice == "2":  # Yesterday (market hours only)
+            yesterday = now_est - timedelta(days=1)
+            # If yesterday was a weekend, find the previous trading day
+            while not is_trading_day(yesterday.year, yesterday.month, yesterday.day):
+                yesterday = yesterday - timedelta(days=1)
+            start_date, end_date = trading_day_to_utc(yesterday.year, yesterday.month, yesterday.day)
+
+        elif choice == "3":  # This week (Monday to Friday)
             days_since_monday = now_est.weekday()
             monday = now_est - timedelta(days=days_since_monday)
             friday = monday + timedelta(days=4)  # Friday
@@ -193,7 +201,7 @@ def get_date_range() -> Tuple[datetime, datetime]:
                 print("No trading days found this week.")
                 continue
 
-        elif choice == "3":  # This month
+        elif choice == "4":  # This month
             # First day of month
             first_day = datetime(now_est.year, now_est.month, 1)
 
@@ -221,7 +229,7 @@ def get_date_range() -> Tuple[datetime, datetime]:
                 print("No trading days found this month.")
                 continue
 
-        elif choice == "4":  # This quarter
+        elif choice == "5":  # This quarter
             # Q1: Jan-Mar, Q2: Apr-Jun, Q3: Jul-Sep, Q4: Oct-Dec
             quarter = (now_est.month - 1) // 3 + 1
             quarter_start_month = (quarter - 1) * 3 + 1
@@ -254,7 +262,7 @@ def get_date_range() -> Tuple[datetime, datetime]:
                 print("No trading days found this quarter.")
                 continue
 
-        elif choice == "5":  # This year
+        elif choice == "6":  # This year
             first_day = datetime(now_est.year, 1, 1)
             last_day = datetime(now_est.year, 12, 31)
 
@@ -275,7 +283,7 @@ def get_date_range() -> Tuple[datetime, datetime]:
                 print("No trading days found this year.")
                 continue
 
-        elif choice == "6":  # Custom
+        elif choice == "7":  # Custom
             print()
             print("Enter custom date range (format: YYYY-MM-DD)")
             print("Note: Dates are in US Eastern Time")

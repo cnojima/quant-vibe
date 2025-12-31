@@ -13,6 +13,7 @@ from .bollinger_bands import BollingerBandsStrategy
 from .multi_rsi import MultiRSIStrategy
 from .rsi_macd_confirmation import RSIMACDConfirmationStrategy
 from .bearish_iv_scalp import BearishIVScalpStrategy
+from .coin_toss import CoinTossStrategy
 
 __all__ = [
     "Strategy",
@@ -29,4 +30,5 @@ __all__ = [
     "MultiRSIStrategy",
     "RSIMACDConfirmationStrategy",
     "BearishIVScalpStrategy",
+    "CoinTossStrategy",
 ]

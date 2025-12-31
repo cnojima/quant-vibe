@@ -343,11 +343,11 @@ class BullishVerticalCallStrategy(OptionsStrategy):
         max_date = pd.Timestamp(max_date).normalize().tz_localize(None)
 
         # Filter for CALL options within DTE range
-        # Option type is 'CALL' for calls, 'PUT' for puts (uppercase word)
+        # contract_type is 'call' (lowercase enum value)
         valid_options = options_data[
             (options_data['expiration_date'] >= target_date) &
             (options_data['expiration_date'] <= max_date) &
-            (options_data['option_type'] == 'CALL')
+            (options_data['contract_type'] == 'call')
         ]
 
         if valid_options.empty:

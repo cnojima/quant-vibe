@@ -257,17 +257,20 @@ class OptionsBacktestEngine:
         if strategy.active_position is not None:
             print(f"\n⚠️  Closing position at end of backtest period")
             # Get final underlying price
-            final_underlying_price = underlying_data['Close'].iloc[-1] if not underlying_data.empty else None
+            final_underlying_price = underlying_data['close'].iloc[-1] if not underlying_data.empty else None
+
+            # Save position reference before closing (active_position will be set to None)
+            position = strategy.active_position
 
             self._close_position(
                 strategy,
-                strategy.active_position,
+                position,
                 end_date,
                 "End of backtest",
                 cash,
                 final_underlying_price
             )
-            cash += strategy.active_position.exit_value
+            cash += position.exit_value
 
         # Calculate final results
         self._calculate_results(strategy, cash)

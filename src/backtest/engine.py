@@ -102,6 +102,7 @@ class BacktestOrchestrator:
             'bullish_vertical_put': 'quant_vibe.strategies.bullish_vertical_put.BullishVerticalPutStrategy',
             'bullish_vertical_call': 'quant_vibe.strategies.bullish_vertical_call.BullishVerticalCallStrategy',
             'bearish_iv_scalp': 'quant_vibe.strategies.bearish_iv_scalp.BearishIVScalpStrategy',
+            'coin_toss': 'quant_vibe.strategies.coin_toss.CoinTossStrategy',
         }
 
         if strategy_name not in strategy_map:
@@ -132,6 +133,7 @@ class BacktestOrchestrator:
         start_date: datetime,
         end_date: datetime,
         initial_capital: float,
+        backtest_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Run a single backtest for one strategy.
@@ -144,6 +146,7 @@ class BacktestOrchestrator:
             start_date: Backtest start date
             end_date: Backtest end date
             initial_capital: Initial capital amount
+            backtest_id: Optional backtest ID for database storage
 
         Returns:
             Dictionary with backtest results
@@ -244,10 +247,11 @@ class BacktestOrchestrator:
                     self.logger.info(f"  {file_type}: {file_path}")
 
                 # Also save to PostgreSQL database
-                backtest_id = f"{strategy_name}_{timestamp}"
+                # Use provided backtest_id or generate one from timestamp
+                db_backtest_id = backtest_id if backtest_id else f"{strategy_name}_{timestamp}"
                 try:
                     save_backtest_to_db(
-                        backtest_id=backtest_id,
+                        backtest_id=db_backtest_id,
                         strategy_name=strategy_name,
                         start_date=start_date,
                         end_date=end_date,
@@ -289,7 +293,7 @@ class BacktestOrchestrator:
             if self.config.should_tee_output():
                 tee.close()
 
-    def run(self, start_date=None, end_date=None, min_dte=None, max_dte=None, max_trades_daily=None, initial_capital=None) -> List[Dict[str, Any]]:
+    def run(self, start_date=None, end_date=None, min_dte=None, max_dte=None, max_trades_daily=None, initial_capital=None, backtest_id=None) -> List[Dict[str, Any]]:
         """
         Run all configured backtests.
 
@@ -300,6 +304,7 @@ class BacktestOrchestrator:
             max_dte: Optional maximum DTE override (int)
             max_trades_daily: Optional max trades per day override (int)
             initial_capital: Optional initial capital override (float)
+            backtest_id: Optional backtest ID for database storage (str)
 
         Returns:
             List of result dictionaries for each strategy
@@ -387,6 +392,7 @@ class BacktestOrchestrator:
                 start_date=start_date,
                 end_date=end_date,
                 initial_capital=initial_capital,
+                backtest_id=backtest_id,
             )
 
             results.append(result)

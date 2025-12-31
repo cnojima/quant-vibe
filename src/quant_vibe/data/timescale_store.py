@@ -475,17 +475,19 @@ class TimescaleStore:
 
         Returns:
             DataFrame with all options data in the time range, with columns:
-            - timestamp, option_ticker (contract_symbol), strike_price, contract_type
+            - timestamp, contract_symbol, strike_price, contract_type
             - expiration_date, open, high, low, close, volume
             - bid, ask, mark (calculated as mid), bid_size, ask_size
             - delta, gamma, theta, vega, rho, implied_volatility
+
+            Note: contract_type values are lowercase enum: 'call', 'put'
         """
         query = """
         SELECT
             timestamp,
             option_ticker as contract_symbol,
             strike_price,
-            contract_type as option_type,
+            contract_type,
             expiration_date,
             open, high, low, close, volume,
             bid, ask,
@@ -517,9 +519,8 @@ class TimescaleStore:
 
         df = pd.read_sql_query(query, self.engine, params=tuple(params), parse_dates=['timestamp', 'expiration_date'])
 
-        # Convert contract_type to uppercase for consistency
-        if not df.empty and 'option_type' in df.columns:
-            df['option_type'] = df['option_type'].str.upper()
+        # Note: contract_type is stored as lowercase enum ('call', 'put') in database
+        # No conversion needed - use values as-is
 
         # Normalize contract symbols to canonical format
         if not df.empty and 'contract_symbol' in df.columns:

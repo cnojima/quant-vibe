@@ -106,13 +106,25 @@ export function BacktestRunner() {
   // Transform trades to match chart component's expected format
   const getTransformedTrades = () => {
     if (!backtestResults?.trades) return [];
-    return backtestResults.trades.map((trade: any) => ({
-      ...trade,
-      legs: trade.legs?.map((leg: any) => ({
-        ...leg,
-        option_type: leg.option_type || leg.contract_type,
-      })) || [],
-    }));
+    return backtestResults.trades.map((trade: any) => {
+      // Parse legs if it's a JSON string
+      let legs = trade.legs;
+      if (typeof legs === 'string') {
+        try {
+          legs = JSON.parse(legs);
+        } catch (e) {
+          legs = [];
+        }
+      }
+
+      return {
+        ...trade,
+        legs: Array.isArray(legs) ? legs.map((leg: any) => ({
+          ...leg,
+          option_type: leg.option_type || leg.contract_type,
+        })) : [],
+      };
+    });
   };
 
   const getPnLDistribution = () => {
@@ -336,6 +348,23 @@ export function BacktestRunner() {
           <Card>
             <h3 className="text-lg font-semibold mb-4">Quick Date Presets</h3>
             <div className="space-y-2">
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={() => {
+                  const yesterday = new Date();
+                  yesterday.setDate(yesterday.getDate() - 1);
+                  // If yesterday was a weekend, go back to Friday
+                  while (yesterday.getDay() === 0 || yesterday.getDay() === 6) {
+                    yesterday.setDate(yesterday.getDate() - 1);
+                  }
+                  const dateStr = yesterday.toISOString().split('T')[0];
+                  setStartDate(dateStr);
+                  setEndDate(dateStr);
+                }}
+              >
+                Yesterday
+              </Button>
               <Button
                 variant="secondary"
                 className="w-full"
