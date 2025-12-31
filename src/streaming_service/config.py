@@ -26,7 +26,7 @@ class StreamingConfig:
         use_token_service: Use centralized token service instead of local tokens (default: True)
     """
 
-    max_dte: int = 45
+    max_dte: int = 7
     min_dte: int = 0
     strike_range_pct: float = 0.10
     aggregate_interval_seconds: int = 60

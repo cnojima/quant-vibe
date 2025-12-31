@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime
 from collections import defaultdict, deque
 from typing import Dict, List, Optional, Callable
+import math
 
 import pandas as pd
 
@@ -17,7 +18,11 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from quant_vibe.messaging import RedisMessageBroker, Topic
-from quant_vibe.utils import parse_expiration_from_ticker, parse_contract_type_from_ticker
+from quant_vibe.utils import (
+    parse_expiration_from_ticker,
+    parse_contract_type_from_ticker,
+    normalize_option_ticker,
+)
 from .utils import setup_logging
 
 
@@ -179,23 +184,62 @@ class RedisDataFeed:
         # Debug: Log first bar to see what fields we're getting
         if self.bars_received == 0:
             self.logger.info(f"First option bar received: {list(bar.keys())}")
+            self.logger.info(f"  Symbol: {symbol}")
             self.logger.info(f"  Has expiration_date: {'expiration_date' in bar}")
+            self.logger.info(f"  expiration_date value: {bar.get('expiration_date')}")
             self.logger.info(f"  Has contract_type: {'contract_type' in bar}")
+            self.logger.info(f"  contract_type value: {bar.get('contract_type')}")
             self.logger.info(f"  Has strike_price: {'strike_price' in bar}")
 
         # Enrich bar with missing fields by parsing from symbol
         # This handles cases where remote streaming service doesn't enrich data
-        if 'expiration_date' not in bar or bar.get('expiration_date') is None:
-            expiration = parse_expiration_from_ticker(symbol)
-            if expiration:
-                bar['expiration_date'] = expiration
-                self.logger.debug(f"Enriched expiration_date from symbol: {expiration}")
+        needs_enrichment = False
 
-        if 'contract_type' not in bar or bar.get('contract_type') is None:
-            contract_type = parse_contract_type_from_ticker(symbol)
+        # Normalize symbol for parsing (remove spaces)
+        normalized_symbol = normalize_option_ticker(symbol)
+
+        # Check expiration_date (handle None, nan, and missing)
+        exp_value = bar.get('expiration_date')
+
+        # Log what we're checking
+        if self.bars_received < 3:
+            self.logger.info(f"Checking expiration_date: in_bar={'expiration_date' in bar}, value={exp_value}, type={type(exp_value)}")
+            self.logger.info(f"  Normalized symbol: {normalized_symbol}")
+
+        # Use pd.isna() which handles all types of missing values
+        if 'expiration_date' not in bar or pd.isna(exp_value):
+            expiration = parse_expiration_from_ticker(normalized_symbol)
+            if expiration:
+                # Convert to pd.Timestamp for consistency with strategy comparisons
+                bar['expiration_date'] = pd.Timestamp(expiration)
+                needs_enrichment = True
+                if self.bars_received < 3:  # Log first few
+                    self.logger.info(f"✓ Enriched expiration_date: {normalized_symbol} -> {expiration}")
+            else:
+                if self.bars_received < 3:
+                    self.logger.warning(f"Failed to parse expiration_date from symbol: {normalized_symbol}")
+
+        # Check contract_type (handle None, nan, and missing)
+        ct_value = bar.get('contract_type')
+
+        # Log what we're checking
+        if self.bars_received < 3:
+            self.logger.info(f"Checking contract_type: in_bar={'contract_type' in bar}, value={ct_value}, type={type(ct_value)}")
+
+        # Use pd.isna() which handles all types of missing values
+        if 'contract_type' not in bar or pd.isna(ct_value):
+            contract_type = parse_contract_type_from_ticker(normalized_symbol)
             if contract_type:
                 bar['contract_type'] = contract_type
-                self.logger.debug(f"Enriched contract_type from symbol: {contract_type}")
+                needs_enrichment = True
+                if self.bars_received < 3:  # Log first few
+                    self.logger.info(f"✓ Enriched contract_type: {normalized_symbol} -> {contract_type}")
+            else:
+                if self.bars_received < 3:
+                    self.logger.warning(f"Failed to parse contract_type from symbol: {normalized_symbol}")
+
+        if needs_enrichment and self.bars_received == 0:
+            self.logger.info(f"Enriched bar now has: expiration_date={bar.get('expiration_date')}, contract_type={bar.get('contract_type')}")
 
         # Add to deque
         self.option_bars[symbol].append(bar)
