@@ -233,7 +233,7 @@ try:
     # Verify strategies were reset
     for strategy in strategies:
         assert strategy.observation_complete == False
-        assert strategy.has_traded_today == False
+        assert strategy.trades_today == 0
 
     print(f"      - Strategy states reset: ✅")
 

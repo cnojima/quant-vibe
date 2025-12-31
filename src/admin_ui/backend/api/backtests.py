@@ -79,6 +79,7 @@ class BacktestRequest(BaseModel):
     strategy_name: str
     start_date: datetime
     end_date: datetime
+    initial_capital: Optional[float] = 100000.0  # Default $100k
     parameters: Optional[dict[str, Any]] = None
 
 
@@ -121,12 +122,18 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
             request.end_date.strftime("%Y-%m-%d"),
         ]
 
+        # Add initial capital if provided
+        if request.initial_capital is not None:
+            cmd.extend(["--initial-capital", str(request.initial_capital)])
+
         # Add DTE parameters if provided
         if request.parameters:
             if "min_dte" in request.parameters:
                 cmd.extend(["--min-dte", str(request.parameters["min_dte"])])
             if "max_dte" in request.parameters:
                 cmd.extend(["--max-dte", str(request.parameters["max_dte"])])
+            if "max_trades_daily" in request.parameters:
+                cmd.extend(["--max-trades-daily", str(request.parameters["max_trades_daily"])])
 
         # Run backtest as subprocess
         process = await asyncio.create_subprocess_exec(
@@ -154,6 +161,42 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
         if process.returncode == 0:
             # Success - find result files
             result_files = find_latest_backtest_results(request.strategy_name)
+
+            # Wait for database writes to complete before marking as completed
+            # This prevents race condition where frontend fetches incomplete data
+            max_retries = 10
+            retry_count = 0
+            db_ready = False
+
+            while retry_count < max_retries and not db_ready:
+                try:
+                    ts_store = _get_timescale_store()
+                    try:
+                        # Check if backtest data is in database
+                        backtest_run = ts_store.get_backtest_run(backtest_id)
+                        if backtest_run:
+                            # Verify we have trades and equity data
+                            trades_df = ts_store.get_backtest_trades(backtest_id)
+                            equity_df = ts_store.get_backtest_equity_curve(backtest_id)
+
+                            if not trades_df.empty and not equity_df.empty:
+                                db_ready = True
+                                print(f"Database verification successful for {backtest_id}: {len(trades_df)} trades, {len(equity_df)} equity points")
+                            else:
+                                print(f"Database check {retry_count + 1}/{max_retries}: Backtest exists but data incomplete (trades: {len(trades_df)}, equity: {len(equity_df)})")
+                        else:
+                            print(f"Database check {retry_count + 1}/{max_retries}: Backtest not found yet")
+                    finally:
+                        ts_store.close()
+                except Exception as e:
+                    print(f"Database check {retry_count + 1}/{max_retries} failed: {e}")
+
+                if not db_ready:
+                    await asyncio.sleep(0.5)  # Wait 500ms before retry
+                    retry_count += 1
+
+            if not db_ready:
+                print(f"WARNING: Database verification failed after {max_retries} retries, marking as completed anyway")
 
             _running_backtests[backtest_id]["status"] = "completed"
             _running_backtests[backtest_id]["completed_at"] = datetime.now()
@@ -337,10 +380,11 @@ async def get_backtest_results(
 
                 # Get underlying price bars for the backtest date range
                 underlying_data = []
+                underlying_fetch_error = None
                 try:
                     start_date = backtest_run.get('start_date')
                     end_date = backtest_run.get('end_date')
-                    print(f"Fetching underlying bars for backtest {backtest_id}")
+                    print(f"📊 Fetching underlying bars for backtest {backtest_id}")
                     print(f"  Start date: {start_date}, End date: {end_date}")
 
                     if start_date and end_date:
@@ -415,12 +459,14 @@ async def get_backtest_results(
                         else:
                             underlying_data = []
                     else:
-                        print(f"  No start/end date found in backtest_run")
+                        print(f"⚠️  No start/end date found in backtest_run")
+                        underlying_fetch_error = "No start/end date in backtest metadata"
                 except Exception as e:
-                    print(f"ERROR: Could not fetch underlying bars: {e}")
+                    print(f"❌ ERROR: Could not fetch underlying bars: {e}")
                     import traceback
                     traceback.print_exc()
                     underlying_data = []
+                    underlying_fetch_error = str(e)
 
                 # Convert DataFrames to list of dicts for JSON serialization
                 trades_data = trades_df.to_dict('records') if not trades_df.empty else []
@@ -495,10 +541,12 @@ async def get_backtest_results(
                     import json
                     parameters = json.loads(parameters)
 
-                print(f"Returning backtest results:")
+                print(f"✅ Returning backtest results:")
                 print(f"  Trades: {len(trades_data)}")
                 print(f"  Equity curve points: {len(equity_data)}")
                 print(f"  Underlying bars: {len(underlying_data)}")
+                if underlying_fetch_error:
+                    print(f"  ⚠️  Underlying fetch error: {underlying_fetch_error}")
 
                 return {
                     "backtest_id": backtest_id,
@@ -512,6 +560,10 @@ async def get_backtest_results(
                     "end_date": backtest_run.get('end_date').isoformat() if backtest_run.get('end_date') else None,
                     "initial_capital": safe_float(backtest_run.get('initial_capital'), default=100000.0),
                     "source": "database",
+                    "debug": {
+                        "underlying_fetch_error": underlying_fetch_error,
+                        "underlying_count": len(underlying_data),
+                    } if underlying_fetch_error else None,
                 }
         finally:
             ts_store.close()

@@ -130,6 +130,7 @@ class BacktestOrchestrator:
         options_data,
         start_date: datetime,
         end_date: datetime,
+        initial_capital: float,
     ) -> Dict[str, Any]:
         """
         Run a single backtest for one strategy.
@@ -141,6 +142,7 @@ class BacktestOrchestrator:
             options_data: Options chain data
             start_date: Backtest start date
             end_date: Backtest end date
+            initial_capital: Initial capital amount
 
         Returns:
             Dictionary with backtest results
@@ -191,7 +193,7 @@ class BacktestOrchestrator:
 
             # Run backtest
             engine = OptionsBacktestEngine(
-                initial_capital=self.config.get_initial_capital()
+                initial_capital=initial_capital
             )
 
             results = engine.run(
@@ -218,7 +220,7 @@ class BacktestOrchestrator:
                 reporter.print_educational_metrics(
                     results["trades"],
                     results["equity_curve"],
-                    self.config.get_initial_capital(),
+                    initial_capital,
                 )
 
             # Save results
@@ -248,7 +250,7 @@ class BacktestOrchestrator:
                         strategy_name=strategy_name,
                         start_date=start_date,
                         end_date=end_date,
-                        initial_capital=self.config.get_initial_capital(),
+                        initial_capital=initial_capital,
                         results=results,
                         parameters=strategy_params,
                         max_positions=1,
@@ -268,6 +270,7 @@ class BacktestOrchestrator:
                 'results': results,
                 'output_dir': output_dir,
                 'timestamp': timestamp,
+                'initial_capital': initial_capital,
             }
 
         finally:
@@ -285,7 +288,7 @@ class BacktestOrchestrator:
             if self.config.should_tee_output():
                 tee.close()
 
-    def run(self, start_date=None, end_date=None, min_dte=None, max_dte=None) -> List[Dict[str, Any]]:
+    def run(self, start_date=None, end_date=None, min_dte=None, max_dte=None, max_trades_daily=None, initial_capital=None) -> List[Dict[str, Any]]:
         """
         Run all configured backtests.
 
@@ -294,6 +297,8 @@ class BacktestOrchestrator:
             end_date: Optional end date override (datetime)
             min_dte: Optional minimum DTE override (int)
             max_dte: Optional maximum DTE override (int)
+            max_trades_daily: Optional max trades per day override (int)
+            initial_capital: Optional initial capital override (float)
 
         Returns:
             List of result dictionaries for each strategy
@@ -335,6 +340,14 @@ class BacktestOrchestrator:
 
         self.logger.info(f"DTE Range: {min_dte} - {max_dte}")
 
+        # Get initial capital (CLI arg overrides config)
+        if initial_capital is None:
+            initial_capital = self.config.get_initial_capital()
+        else:
+            self.logger.info(f"Overriding initial capital: ${initial_capital:,.2f}")
+
+        self.logger.info(f"Initial Capital: ${initial_capital:,.2f}")
+
         # Load data once (shared across all strategies)
         self.logger.info("=" * 70)
         self.logger.info("LOADING DATA")
@@ -359,6 +372,12 @@ class BacktestOrchestrator:
             strategy_name = strategy_config['name']
             strategy_params = strategy_config.get('params', {})
 
+            # Override max_trades_daily if provided via CLI
+            if max_trades_daily is not None:
+                strategy_params = strategy_params.copy()  # Don't modify original config
+                strategy_params['max_trades_daily'] = max_trades_daily
+                self.logger.info(f"Overriding max_trades_daily: {max_trades_daily}")
+
             result = self._run_single_backtest(
                 strategy_name=strategy_name,
                 strategy_params=strategy_params,
@@ -366,6 +385,7 @@ class BacktestOrchestrator:
                 options_data=options_data,
                 start_date=start_date,
                 end_date=end_date,
+                initial_capital=initial_capital,
             )
 
             results.append(result)
@@ -392,6 +412,7 @@ class BacktestOrchestrator:
             strategy_name = result['strategy_name']
             trades = result['results']['trades']
             equity = result['results']['equity_curve']
+            initial_capital = result['initial_capital']
 
             total_trades = len(trades)
             # Handle empty equity curve
@@ -400,10 +421,10 @@ class BacktestOrchestrator:
             elif len(equity) > 0 and 'equity' in equity.columns:
                 final_equity = equity['equity'].iloc[-1]
             else:
-                final_equity = self.config.get_initial_capital()
+                final_equity = initial_capital
 
-            total_return = final_equity - self.config.get_initial_capital()
-            return_pct = (total_return / self.config.get_initial_capital()) * 100
+            total_return = final_equity - initial_capital
+            return_pct = (total_return / initial_capital) * 100
 
             self.logger.info(f"Strategy: {strategy_name}")
             self.logger.info(f"  Total Trades: {total_trades}")

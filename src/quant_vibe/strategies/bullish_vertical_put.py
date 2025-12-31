@@ -54,6 +54,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         num_spreads: int = 10,  # number of spreads to open per signal
         min_volume: int = 50,  # minimum volume per contract
         min_bid_ask_spread_pct: float = 10.0,  # maximum bid/ask spread percentage
+        max_trades_daily: int = 1,  # maximum trades per day
     ) -> None:
         """
         Initialize Bullish Vertical Put Strategy.
@@ -70,8 +71,9 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             num_spreads: Number of spreads to open per buy signal (default: 10)
             min_volume: Minimum volume per contract for liquidity filter (default: 50)
             min_bid_ask_spread_pct: Maximum bid/ask spread percentage (default: 10%)
+            max_trades_daily: Maximum trades allowed per day (default: 1)
         """
-        super().__init__(name=f"BullishVerticalPut_{spread_width}")
+        super().__init__(name=f"BullishVerticalPut_{spread_width}", max_trades_daily=max_trades_daily)
         self.spread_width = spread_width
         self.observation_period = observation_period
         self.pullback_amount = pullback_amount
@@ -95,10 +97,10 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         self.current_day: Optional[datetime] = None
         self.last_monitoring_log_time: Optional[datetime] = None
         self.monitoring_log_interval: int = 30  # Log every 30 minutes during monitoring
-        self.has_traded_today: bool = False  # Track if we've entered a position today
 
     def reset_daily_state(self):
         """Reset state for a new trading day."""
+        super().reset_daily_state()  # Reset trades_today counter
         self.market_open_time = None
         self.opening_high = None
         self.opening_low = None
@@ -107,7 +109,6 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         self.is_bullish = False
         self.observation_complete = False
         self.last_monitoring_log_time = None
-        self.has_traded_today = False  # Reset daily trade flag
 
     def analyze_market(
         self,
@@ -286,8 +287,8 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         if self.active_position is not None:
             return False
 
-        # Don't enter if we've already traded today (only 1 position per day)
-        if self.has_traded_today:
+        # Don't enter if we've exceeded daily trade limit
+        if not self.can_enter_new_position():
             return False
 
         # Must complete observation period
@@ -539,8 +540,8 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             trailing_stop=self.trailing_stop_pct
         )
 
-        # Mark that we've traded today (only 1 position per day)
-        self.has_traded_today = True
+        # Increment daily trade counter
+        self.increment_daily_trade_count()
 
         return position
 

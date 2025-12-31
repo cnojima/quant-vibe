@@ -41,6 +41,9 @@ strategies:
     - name: bullish_vertical_put
       enabled: true
       params:
+        # Trade frequency
+        max_trades_daily: 1           # Maximum trades per day (default: 1)
+
         # Spread parameters
         spread_width: 10.0           # Width of spread in dollars
 
@@ -66,6 +69,7 @@ strategies:
     # - name: bullish_vertical_call
     #   enabled: true
     #   params:
+    #     max_trades_daily: 1           # Maximum trades per day (default: 1)
     #     spread_width: 25.0
     #     profit_target_pct: 0.50
     #     stop_loss_pct: 0.30

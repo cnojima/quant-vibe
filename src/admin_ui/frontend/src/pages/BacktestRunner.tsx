@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useStrategies, useRunBacktest, useBacktestStatus, useBacktestResults, useBacktestHistory, useDeleteBacktest } from '../api/queries';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
@@ -15,15 +16,24 @@ export function BacktestRunner() {
   const [initialCapital, setInitialCapital] = useState<number>(100000);
   const [minDte, setMinDte] = useState<number>(0);
   const [maxDte, setMaxDte] = useState<number>(2);
+  const [maxTradesDaily, setMaxTradesDaily] = useState<number>(1);
   const [currentBacktestId, setCurrentBacktestId] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState<'run' | 'results' | 'history'>('run');
 
+  const queryClient = useQueryClient();
   const { data: strategies, isLoading: strategiesLoading } = useStrategies();
   const runBacktest = useRunBacktest();
   const { data: backtestStatus } = useBacktestStatus(currentBacktestId);
   const { data: backtestResults } = useBacktestResults(currentBacktestId, backtestStatus?.status);
   const { data: history } = useBacktestHistory(50);
   const deleteBacktest = useDeleteBacktest();
+
+  // Invalidate history when backtest completes
+  useEffect(() => {
+    if (backtestStatus?.status === 'completed' || backtestStatus?.status === 'failed') {
+      queryClient.invalidateQueries({ queryKey: ['backtest-history'] });
+    }
+  }, [backtestStatus?.status, queryClient]);
 
   const handleRunBacktest = async () => {
     if (!selectedStrategy || !startDate || !endDate) {
@@ -40,10 +50,12 @@ export function BacktestRunner() {
         params: {
           min_dte: minDte,
           max_dte: maxDte,
+          max_trades_daily: maxTradesDaily,
         },
         parameters: {
           min_dte: minDte,
           max_dte: maxDte,
+          max_trades_daily: maxTradesDaily,
         },
       });
 
@@ -280,6 +292,22 @@ export function BacktestRunner() {
                   step={1000}
                   min={1000}
                 />
+              </div>
+
+              <div>
+                <label className="label">Max Trades Per Day</label>
+                <input
+                  type="number"
+                  className="input"
+                  value={maxTradesDaily}
+                  onChange={(e) => setMaxTradesDaily(Number(e.target.value))}
+                  step={1}
+                  min={0}
+                  max={999}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Maximum number of trades allowed per day (1 = default, 0 = no trades, 999 = unlimited)
+                </p>
               </div>
 
               <Button

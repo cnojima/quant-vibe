@@ -122,6 +122,20 @@ For more information, see:
         help='Maximum days to expiration. Overrides config.'
     )
 
+    parser.add_argument(
+        '--max-trades-daily',
+        type=int,
+        default=None,
+        help='Maximum trades per day. Overrides config.'
+    )
+
+    parser.add_argument(
+        '--initial-capital',
+        type=float,
+        default=None,
+        help='Initial capital amount. Overrides config.'
+    )
+
     return parser.parse_args()
 
 
@@ -165,6 +179,8 @@ def main():
             end_date=end_date,
             min_dte=args.min_dte,
             max_dte=args.max_dte,
+            max_trades_daily=args.max_trades_daily,
+            initial_capital=args.initial_capital,
         )
 
         # Exit with success

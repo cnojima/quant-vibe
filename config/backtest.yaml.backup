@@ -20,23 +20,23 @@ strategies:
       observation_period: 15
       pullback_amount: 30
       profit_target_min: 0.5
-      profit_target_max: 2
-      trailing_stop_pct: 0.30  # 30% for 0-DTE options volatility (was 0.05)
+      profit_target_max: 1
+      trailing_stop_pct: 0.05
       min_dte: 0
       max_dte: 2
       num_spreads: 10
-      min_volume: 30
-      min_bid_ask_spread_pct: 15
+      min_volume: 50
+      min_bid_ask_spread_pct: 10
   - name: bullish_vertical_call
     enabled: true
     params:
       max_trades_daily: 1
-      spread_width: 10
+      spread_width: 20
       observation_period: 15
-      pullback_amount: 25
+      pullback_amount: 30
       profit_target_min: 0.5
       profit_target_max: 1
-      trailing_stop_pct: 0.30  # 30% for 0-DTE options volatility (was 0.05)
+      trailing_stop_pct: 0.05
       min_dte: 0
       max_dte: 2
       num_spreads: 10

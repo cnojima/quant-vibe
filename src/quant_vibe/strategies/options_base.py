@@ -94,14 +94,17 @@ class OptionsPosition:
 class OptionsStrategy(ABC):
     """Base class for options trading strategies."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, max_trades_daily: int = 1) -> None:
         """
         Initialize options strategy.
 
         Args:
             name: Strategy name
+            max_trades_daily: Maximum number of trades allowed per day (default: 1)
         """
         self.name = name
+        self.max_trades_daily = max_trades_daily
+        self.trades_today = 0  # Track number of trades entered today
         self.positions: List[OptionsPosition] = []
         self.active_position: Optional[OptionsPosition] = None
 
@@ -380,6 +383,29 @@ class OptionsStrategy(ABC):
         # Calculate drawdown from highest value
         drawdown = (position.highest_value - position.current_value) / position.highest_value
         return drawdown >= position.trailing_stop
+
+    def can_enter_new_position(self) -> bool:
+        """
+        Check if we can enter a new position today.
+
+        Returns:
+            True if trades_today < max_trades_daily
+        """
+        return self.trades_today < self.max_trades_daily
+
+    def increment_daily_trade_count(self) -> None:
+        """Increment the daily trade counter after entering a position."""
+        self.trades_today += 1
+
+    def reset_daily_state(self) -> None:
+        """
+        Reset state for a new trading day.
+
+        This method is called automatically by the backtesting engine when
+        the date changes. Subclasses should override this to reset additional
+        strategy-specific state.
+        """
+        self.trades_today = 0
 
     def validate_data_completeness(
         self,

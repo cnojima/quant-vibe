@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceDot } from 'recharts';
 
 interface EquityCurveData {
@@ -14,10 +15,25 @@ interface UnderlyingBar {
   volume: number;
 }
 
+interface OptionLeg {
+  contract_symbol: string;
+  option_type: string;
+  strike_price: number;
+  action: string; // "BUY" or "SELL"
+  quantity: number;
+  entry_price: number;
+  exit_price?: number;
+  expiration_date?: string;
+}
+
 interface TradeData {
   entry_time: string;
   exit_time: string;
   pnl?: number;
+  spread_type?: string;
+  legs?: OptionLeg[];
+  entry_trigger?: string;
+  exit_reason?: string;
 }
 
 interface EquityCurveChartProps {
@@ -28,6 +44,8 @@ interface EquityCurveChartProps {
 }
 
 export function EquityCurveChart({ data, underlyingData = [], trades = [] }: EquityCurveChartProps) {
+  const [selectedTradeIndex, setSelectedTradeIndex] = useState<number | null>(null);
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -47,6 +65,77 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(value);
+  };
+
+  // Custom tooltip component
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload || !payload.length) return null;
+
+    // Find if there's a trade at this timestamp
+    const timestamp = label;
+    const tradeAtPoint = tradeMarkers.find(m => m.timestamp === timestamp);
+
+    // Parse legs if it's a string (comes from database as JSON string)
+    let legs: OptionLeg[] = [];
+    if (tradeAtPoint?.trade?.legs) {
+      if (typeof tradeAtPoint.trade.legs === 'string') {
+        try {
+          legs = JSON.parse(tradeAtPoint.trade.legs);
+        } catch (e) {
+          console.error('Failed to parse legs:', e);
+        }
+      } else if (Array.isArray(tradeAtPoint.trade.legs)) {
+        legs = tradeAtPoint.trade.legs;
+      }
+    }
+
+    return (
+      <div className="bg-white p-3 border border-gray-300 rounded shadow-lg">
+        <p className="font-semibold text-gray-700 mb-1">{formatDate(timestamp)}</p>
+        {payload.map((entry: any, index: number) => (
+          <p key={index} className="text-sm" style={{ color: entry.color }}>
+            {entry.name}: {entry.name === 'Portfolio Value' ? formatCurrency(entry.value) : formatPrice(entry.value)}
+          </p>
+        ))}
+        {tradeAtPoint && tradeAtPoint.trade && (
+          <div className="mt-2 pt-2 border-t border-gray-200">
+            <p className="font-semibold text-sm text-gray-700 mb-1">
+              {tradeAtPoint.type === 'entry' ? '🔵 Trade Entry' : tradeAtPoint.pnl && tradeAtPoint.pnl >= 0 ? '🟢 Trade Exit' : '🔴 Trade Exit'}
+            </p>
+            {tradeAtPoint.trade.spread_type && (
+              <p className="text-xs text-gray-600">Spread: {tradeAtPoint.trade.spread_type}</p>
+            )}
+            {legs.length > 0 && (
+              <div className="text-xs text-gray-600 mt-1">
+                {legs.map((leg, idx) => {
+                  const action = leg.action || (leg.quantity > 0 ? 'BUY' : 'SELL');
+                  const qty = leg.quantity;
+                  const strike = leg.strike_price?.toFixed(2) || '0.00';
+                  const price = leg.entry_price?.toFixed(2) || '0.00';
+                  const optionType = leg.option_type?.toUpperCase() || 'OPTION';
+                  return (
+                    <div key={idx}>
+                      {action} {qty}x {optionType} {strike} @ ${price}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {tradeAtPoint.type === 'entry' && tradeAtPoint.trade.entry_trigger && (
+              <p className="text-xs text-gray-600 mt-1">Trigger: {tradeAtPoint.trade.entry_trigger}</p>
+            )}
+            {tradeAtPoint.type === 'exit' && tradeAtPoint.trade.exit_reason && (
+              <p className="text-xs text-gray-600 mt-1">Exit: {tradeAtPoint.trade.exit_reason}</p>
+            )}
+            {tradeAtPoint.type === 'exit' && tradeAtPoint.pnl !== undefined && (
+              <p className={`text-xs font-semibold mt-1 ${tradeAtPoint.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                P&L: {formatCurrency(tradeAtPoint.pnl)}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   // Sort and prepare underlying data with timestamps
@@ -95,7 +184,7 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
   });
 
   // Process trade entry/exit points to match with equity curve data
-  const tradeMarkers = trades.flatMap(trade => {
+  const tradeMarkers = trades.flatMap((trade, tradeIndex) => {
     const markers = [];
 
     // Entry marker
@@ -110,6 +199,8 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
           timestamp: entryPoint.timestamp,
           portfolioValue: entryPoint.portfolioValue,
           type: 'entry' as const,
+          trade: trade, // Store complete trade data
+          tradeIndex: tradeIndex, // Store trade index for selection
         });
       }
     }
@@ -127,6 +218,8 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
           portfolioValue: exitPoint.portfolioValue,
           type: 'exit' as const,
           pnl: trade.pnl,
+          trade: trade, // Store complete trade data
+          tradeIndex: tradeIndex, // Store trade index for selection
         });
       }
     }
@@ -161,8 +254,26 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
     }
   }
 
+  // Get selected trade data
+  const selectedTrade = selectedTradeIndex !== null ? trades[selectedTradeIndex] : null;
+
+  // Parse legs for selected trade
+  let selectedLegs: OptionLeg[] = [];
+  if (selectedTrade?.legs) {
+    if (typeof selectedTrade.legs === 'string') {
+      try {
+        selectedLegs = JSON.parse(selectedTrade.legs);
+      } catch (e) {
+        console.error('Failed to parse legs:', e);
+      }
+    } else if (Array.isArray(selectedTrade.legs)) {
+      selectedLegs = selectedTrade.legs;
+    }
+  }
+
   return (
-    <ResponsiveContainer width="100%" height={400}>
+    <div>
+      <ResponsiveContainer width="100%" height={400}>
       <LineChart data={mergedData} margin={{ top: 5, right: 60, left: 20, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis
@@ -187,17 +298,7 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
           domain={['dataMin', 'dataMax']}
           label={{ value: 'SPX Price', angle: 90, position: 'insideRight', style: { fontSize: 12 } }}
         />
-        <Tooltip
-          formatter={(value: any, name: string) => {
-            if (value === null || value === undefined) return ['N/A', name];
-            const numValue = typeof value === 'number' ? value : parseFloat(value);
-            if (isNaN(numValue)) return ['N/A', name];
-            if (name === 'Portfolio Value') return [formatCurrency(numValue), name];
-            if (name === 'SPX Price') return [formatPrice(numValue), name];
-            return [numValue, name];
-          }}
-          labelFormatter={formatDate}
-        />
+        <Tooltip content={<CustomTooltip />} />
         <Legend />
         <Line
           yAxisId="left"
@@ -220,7 +321,7 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
             connectNulls={true}
           />
         )}
-        {/* Trade Entry Points - Green Circles */}
+        {/* Trade Entry Points - Blue Circles */}
         {tradeMarkers
           .filter(marker => marker.type === 'entry')
           .map((marker, index) => (
@@ -229,10 +330,12 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
               yAxisId="left"
               x={marker.timestamp}
               y={marker.portfolioValue}
-              r={6}
-              fill="#10b981"
+              r={10}
+              fill="#3b82f6"
               stroke="#ffffff"
               strokeWidth={2}
+              onClick={() => setSelectedTradeIndex(marker.tradeIndex)}
+              style={{ cursor: 'pointer' }}
             />
           ))}
         {/* Trade Exit Points - Colored by P&L */}
@@ -246,14 +349,112 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
                 yAxisId="left"
                 x={marker.timestamp}
                 y={marker.portfolioValue}
-                r={6}
+                r={10}
                 fill={isProfit ? '#22c55e' : '#ef4444'}
                 stroke="#ffffff"
                 strokeWidth={2}
+                onClick={() => setSelectedTradeIndex(marker.tradeIndex)}
+                style={{ cursor: 'pointer' }}
               />
             );
           })}
       </LineChart>
     </ResponsiveContainer>
+
+    {/* Trade Info Card */}
+    {selectedTrade && (
+      <div className="mt-4 p-4 bg-white border border-gray-300 rounded-lg shadow-md">
+        <div className="flex justify-between items-start mb-3">
+          <h3 className="text-lg font-semibold text-gray-800">
+            Trade Details
+          </h3>
+          <button
+            onClick={() => setSelectedTradeIndex(null)}
+            className="text-gray-500 hover:text-gray-700 font-bold text-xl leading-none"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          {/* Left Column */}
+          <div>
+            {selectedTrade.spread_type && (
+              <div className="mb-2">
+                <span className="text-sm font-semibold text-gray-600">Spread Type:</span>
+                <p className="text-base text-gray-800">{selectedTrade.spread_type}</p>
+              </div>
+            )}
+
+            {selectedLegs.length > 0 && (
+              <div className="mb-2">
+                <span className="text-sm font-semibold text-gray-600">Legs:</span>
+                <div className="mt-1 space-y-1">
+                  {selectedLegs.map((leg, idx) => {
+                    const action = leg.action || (leg.quantity > 0 ? 'BUY' : 'SELL');
+                    const qty = leg.quantity;
+                    const strike = leg.strike_price?.toFixed(2) || '0.00';
+                    const price = leg.entry_price?.toFixed(2) || '0.00';
+                    const optionType = leg.option_type?.toUpperCase() || 'OPTION';
+                    return (
+                      <div key={idx} className="text-sm text-gray-800">
+                        <span className={action === 'BUY' ? 'text-blue-600 font-semibold' : 'text-orange-600 font-semibold'}>
+                          {action}
+                        </span> {qty}x {optionType} {strike} @ ${price}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {selectedTrade.entry_trigger && (
+              <div className="mb-2">
+                <span className="text-sm font-semibold text-gray-600">Entry Trigger:</span>
+                <p className="text-sm text-gray-800">{selectedTrade.entry_trigger}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Right Column */}
+          <div>
+            {selectedTrade.exit_reason && (
+              <div className="mb-2">
+                <span className="text-sm font-semibold text-gray-600">Exit Reason:</span>
+                <p className="text-sm text-gray-800">{selectedTrade.exit_reason}</p>
+              </div>
+            )}
+
+            {selectedTrade.pnl !== undefined && (
+              <div className="mb-2">
+                <span className="text-sm font-semibold text-gray-600">P&L:</span>
+                <p className={`text-lg font-bold ${selectedTrade.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {formatCurrency(selectedTrade.pnl)}
+                </p>
+              </div>
+            )}
+
+            {selectedTrade.entry_time && (
+              <div className="mb-2">
+                <span className="text-sm font-semibold text-gray-600">Entry Time:</span>
+                <p className="text-sm text-gray-800">
+                  {new Date(selectedTrade.entry_time).toLocaleString()}
+                </p>
+              </div>
+            )}
+
+            {selectedTrade.exit_time && (
+              <div className="mb-2">
+                <span className="text-sm font-semibold text-gray-600">Exit Time:</span>
+                <p className="text-sm text-gray-800">
+                  {new Date(selectedTrade.exit_time).toLocaleString()}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
   );
 }
