@@ -8,6 +8,7 @@ import { TokenManager } from './pages/TokenManager';
 import { LiveTradingMonitor } from './pages/LiveTradingMonitor';
 import { BacktestRunner } from './pages/BacktestRunner';
 import { ConfigEditor } from './pages/ConfigEditor';
+import { StrategiesManager } from './pages/StrategiesManager';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -81,6 +82,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <ConfigEditor />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/strategies"
+            element={
+              <ProtectedRoute>
+                <StrategiesManager />
               </ProtectedRoute>
             }
           />

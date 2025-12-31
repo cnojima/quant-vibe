@@ -209,12 +209,12 @@ services:
       SCHWAB_API_KEY: ${SCHWAB_API_KEY}
       SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}
       SCHWAB_CALLBACK_URL: ${SCHWAB_CALLBACK_URL}
-      # Redis connection (use service name as host)
-      REDIS_HOST: redis
+      # Redis connection (point to remote for local dev)
+      REDIS_HOST: 192.168.100.197
       REDIS_PORT: 6379
       REDIS_DB: 0
-      # TimescaleDB connection (use service name as host)
-      TIMESCALE_HOST: timescaledb
+      # TimescaleDB connection (point to remote for local dev)
+      TIMESCALE_HOST: 192.168.100.197
       TIMESCALE_PORT: 5432
       TIMESCALE_DB: options_data
       TIMESCALE_USER: quantvibe

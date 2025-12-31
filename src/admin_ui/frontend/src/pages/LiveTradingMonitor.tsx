@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLiveStatus, useLivePositions, useLiveOrders, useLiveEvents, useLiveStats } from '../api/queries';
-// import { useWebSocket } from '../hooks/useWebSocket'; // Disabled - optional feature
+// import { useWebSocket } from '../hooks/useWebSocket';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { formatDistanceToNow } from 'date-fns';
@@ -13,11 +13,21 @@ export function LiveTradingMonitor() {
   const { data: events } = useLiveEvents(50);
   const { data: stats } = useLiveStats();
 
-  // WebSocket for real-time updates (disabled for now - optional feature)
-  // const { isConnected } = useWebSocket('/ws/live', {
+  // WebSocket disabled - using REST API polling instead
+  // WebSocket has issues with React StrictMode + Docker networking
+  // See: https://github.com/facebook/react/issues/24502
+  // TODO: Re-enable in production build or when StrictMode is disabled
+  // const { isConnected } = useWebSocket('/ws/events', {
   //   onMessage: (data) => {
-  //     console.log('Live trading event:', data);
+  //     const topic = data?.topic || '';
+  //     if (!topic.includes('heartbeat')) {
+  //       console.log('[LiveMonitor] WS Event:', topic, data);
+  //     }
   //   },
+  //   onConnect: () => console.log('[LiveMonitor] WebSocket connected'),
+  //   onDisconnect: () => console.log('[LiveMonitor] WebSocket disconnected'),
+  //   reconnectInterval: 5000,
+  //   maxReconnectAttempts: 10,
   // });
   const isConnected = false;
 
@@ -30,7 +40,7 @@ export function LiveTradingMonitor() {
   }
 
   const getStatusBadge = () => {
-    if (!status?.is_running) {
+    if (!status?.running) {
       return <Badge variant="default">Stopped</Badge>;
     }
     if (status.paper_trading) {
@@ -74,7 +84,7 @@ export function LiveTradingMonitor() {
         <Card>
           <div className="text-sm text-gray-600 mb-1">Engine Status</div>
           <div className="text-2xl font-bold">
-            {status?.is_running ? (
+            {status?.running ? (
               <span className="text-green-600">Running</span>
             ) : (
               <span className="text-gray-600">Stopped</span>

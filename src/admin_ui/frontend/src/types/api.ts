@@ -27,13 +27,14 @@ export interface TokenStatus {
 }
 
 export interface LiveEngineStatus {
-  is_running: boolean;
-  paper_trading: boolean;
-  total_pnl: number;
-  total_bars_processed: number;
-  total_signals_generated: number;
-  active_positions_count: number;
-  uptime_seconds: number;
+  running: boolean;
+  state: string;
+  paper_trading: boolean | null;
+  total_bars_processed: number | null;
+  total_signals_generated: number | null;
+  uptime_seconds: number | null;
+  last_update: string;
+  metadata: any;
 }
 
 export interface OptionLeg {
@@ -210,4 +211,24 @@ export interface LoginRequest {
 export interface LoginResponse {
   access_token: string;
   token_type: string;
+}
+
+export interface StrategyInfo {
+  name: string;
+  enabled: boolean;
+  description: string;
+  params: Record<string, any>;
+}
+
+export interface StrategyListResponse {
+  strategies: StrategyInfo[];
+  count: number;
+}
+
+export interface StrategyToggleRequest {
+  enabled: boolean;
+}
+
+export interface StrategyUpdateRequest {
+  params: Record<string, any>;
 }

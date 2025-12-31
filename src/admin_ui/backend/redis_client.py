@@ -86,11 +86,12 @@ async def listen_to_redis() -> None:
     """
     pubsub = get_pubsub()
 
-    # Subscribe to all quant-vibe topics
+    # Subscribe to trading and system topics only (not streaming bars - too noisy)
     await subscribe_to_topics([
-        "streaming.*",  # streaming.options_bars, streaming.underlying_bars, etc.
+        # "streaming.*",  # DISABLED - too many messages (1800/sec)
         "trading.*",    # trading.signal, trading.order, trading.fill
         "system.*",     # system.heartbeat, system.error
+        "heartbeat.*",  # heartbeat.live_trading, heartbeat.streaming, etc.
     ])
 
     try:

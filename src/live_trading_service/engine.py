@@ -667,6 +667,18 @@ class LiveTradingEngine:
         self.logger.info(f"Data Stale: {stats.get('data_stale', False)}")
         self.logger.info("="*70)
 
+        # Save state to database for admin UI
+        self.state_store.save_engine_state(
+            self.state,
+            {
+                'paper_trading': self.paper_trading,
+                'total_bars_processed': self.total_bars_processed,
+                'total_signals_generated': 0,  # TODO: track signals
+                'uptime_seconds': uptime,
+                'data_source': feed_type.lower(),
+            }
+        )
+
     def stop(self):
         """Stop the trading engine gracefully."""
         self.logger.info("\n" + "="*70)

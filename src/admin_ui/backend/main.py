@@ -35,6 +35,7 @@ from admin_ui.backend.api import (
     live,
     services,
     status,
+    strategies,
     tokens,
     watcher,
 )
@@ -117,6 +118,7 @@ app.include_router(tokens.router, prefix=f"{settings.api_prefix}/tokens", tags=[
 app.include_router(live.router, prefix=f"{settings.api_prefix}/live", tags=["live"])
 app.include_router(backtests.router, prefix=f"{settings.api_prefix}/backtests", tags=["backtests"])
 app.include_router(config.router, prefix=f"{settings.api_prefix}/config", tags=["config"])
+app.include_router(strategies.router, prefix=f"{settings.api_prefix}/strategies", tags=["strategies"])
 app.include_router(watcher.router, prefix=f"{settings.api_prefix}/watcher", tags=["watcher"])
 
 
@@ -130,18 +132,47 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     await websocket.accept()
     register_websocket(websocket)
+    print(f"[WebSocket] Client connected from {websocket.client}")
+
+    try:
+        # Send welcome message immediately
+        await websocket.send_json({
+            "type": "connection",
+            "message": "Connected to live trading events",
+            "timestamp": asyncio.get_event_loop().time()
+        })
+        print("[WebSocket] Welcome message sent")
+    except Exception as e:
+        print(f"[WebSocket] Failed to send welcome message: {type(e).__name__}: {e}")
+        unregister_websocket(websocket)
+        return
 
     try:
         # Keep connection alive and handle incoming messages
         while True:
-            # Receive (and ignore) any messages from client (ping/pong)
-            data = await websocket.receive_text()
-            if data == "ping":
-                await websocket.send_json({"type": "pong"})
+            # Receive any messages from client (ping/pong, close, etc.)
+            message = await websocket.receive()
+
+            # Handle different message types
+            if message["type"] == "websocket.disconnect":
+                print("[WebSocket] Client initiated disconnect")
+                break
+            elif message["type"] == "websocket.receive":
+                # Text message from client
+                if "text" in message:
+                    data = message["text"]
+                    if data == "ping":
+                        await websocket.send_json({"type": "pong"})
+                        print("[WebSocket] Responded to ping")
     except WebSocketDisconnect:
-        pass
+        print("[WebSocket] Client disconnected (WebSocketDisconnect)")
+    except Exception as e:
+        print(f"[WebSocket] Error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         unregister_websocket(websocket)
+        print("[WebSocket] Connection closed and unregistered")
 
 
 # Exception handlers

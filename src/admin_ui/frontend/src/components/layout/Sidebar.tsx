@@ -6,6 +6,7 @@ import {
   ChartBarIcon,
   BeakerIcon,
   Cog6ToothIcon,
+  PuzzlePieceIcon,
 } from '@heroicons/react/24/outline';
 
 const navigation = [
@@ -13,6 +14,7 @@ const navigation = [
   { name: 'Services', href: '/services', icon: CpuChipIcon },
   { name: 'Token Manager', href: '/tokens', icon: KeyIcon },
   { name: 'Live Trading', href: '/live', icon: ChartBarIcon },
+  { name: 'Strategies', href: '/strategies', icon: PuzzlePieceIcon },
   { name: 'Backtest', href: '/backtest', icon: BeakerIcon },
   { name: 'Configuration', href: '/config', icon: Cog6ToothIcon },
 ];

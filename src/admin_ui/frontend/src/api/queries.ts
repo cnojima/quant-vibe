@@ -14,6 +14,10 @@ import type {
   BacktestResult,
   LoginRequest,
   LoginResponse,
+  StrategyInfo,
+  StrategyListResponse,
+  StrategyToggleRequest,
+  StrategyUpdateRequest,
 } from '../types/api';
 
 // Auth queries
@@ -302,6 +306,59 @@ export function useUpdateLiveConfig() {
       return response.data;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config-live'] });
+    },
+  });
+}
+// Live trading strategy management queries
+export function useLiveStrategies() {
+  return useQuery({
+    queryKey: ['live-strategies'],
+    queryFn: async () => {
+      const response = await apiClient.get<StrategyListResponse>('/strategies/list');
+      return response.data;
+    },
+    refetchInterval: 5000, // Refresh every 5 seconds
+  });
+}
+
+export function useLiveStrategy(strategyName: string) {
+  return useQuery({
+    queryKey: ['live-strategy', strategyName],
+    queryFn: async () => {
+      const response = await apiClient.get<StrategyInfo>(`/strategies/${strategyName}`);
+      return response.data;
+    },
+    enabled: !!strategyName,
+  });
+}
+
+export function useToggleLiveStrategy() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ strategyName, enabled }: { strategyName: string; enabled: boolean }) => {
+      const response = await apiClient.post(`/strategies/${strategyName}/toggle`, { enabled });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['live-strategies'] });
+      queryClient.invalidateQueries({ queryKey: ['config-live'] });
+    },
+  });
+}
+
+export function useUpdateLiveStrategyParams() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ strategyName, params }: { strategyName: string; params: Record<string, any> }) => {
+      const response = await apiClient.put(`/strategies/${strategyName}/params`, { params });
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['live-strategies'] });
+      queryClient.invalidateQueries({ queryKey: ['live-strategy', variables.strategyName] });
       queryClient.invalidateQueries({ queryKey: ['config-live'] });
     },
   });

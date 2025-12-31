@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 from quant_vibe.strategies.options_base import OptionsStrategy
 from quant_vibe.strategies.bullish_vertical_put import BullishVerticalPutStrategy
 from quant_vibe.strategies.bullish_vertical_call import BullishVerticalCallStrategy
+from quant_vibe.strategies.bearish_iv_scalp import BearishIVScalpStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ class StrategyLoader:
     STRATEGY_REGISTRY = {
         'bullish_vertical_put': BullishVerticalPutStrategy,
         'bullish_vertical_call': BullishVerticalCallStrategy,
+        'bearish_iv_scalp': BearishIVScalpStrategy,
     }
 
     @classmethod

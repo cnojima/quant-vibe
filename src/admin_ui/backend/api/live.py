@@ -35,7 +35,7 @@ async def get_live_status(current_user: User = Depends(get_current_user)):
         }
 
     return {
-        "running": engine_state.get("state") == "RUNNING",
+        "running": engine_state.get("state", "").lower() == "running",
         "state": engine_state.get("state"),
         "paper_trading": engine_state.get("paper_trading"),
         "total_bars_processed": engine_state.get("total_bars_processed"),
