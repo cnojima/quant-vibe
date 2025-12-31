@@ -103,6 +103,18 @@ export function BacktestRunner() {
     }));
   };
 
+  // Transform trades to match chart component's expected format
+  const getTransformedTrades = () => {
+    if (!backtestResults?.trades) return [];
+    return backtestResults.trades.map((trade: any) => ({
+      ...trade,
+      legs: trade.legs?.map((leg: any) => ({
+        ...leg,
+        option_type: leg.option_type || leg.contract_type,
+      })) || [],
+    }));
+  };
+
   const getPnLDistribution = () => {
     if (!backtestResults?.trades) return [];
 
@@ -496,7 +508,7 @@ export function BacktestRunner() {
                   data={getEquityCurveData()}
                   initialCapital={initialCapital}
                   underlyingData={backtestResults?.underlying_bars || []}
-                  trades={backtestResults?.trades || []}
+                  trades={getTransformedTrades()}
                 />
                 <div className="mt-4 text-sm text-gray-600 flex items-center gap-4">
                   <span className="flex items-center gap-2">
