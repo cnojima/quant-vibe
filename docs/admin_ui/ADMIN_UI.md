@@ -2,6 +2,61 @@
 
 Web-based administration interface for managing the Quant-Vibe trading system.
 
+## Quick Reference
+
+### 🚀 Getting Started
+
+**Production (Docker)**:
+```bash
+# Start all services including nginx frontend
+docker-compose up -d
+```
+
+Access at: **http://localhost** (nginx on port 80)
+
+**Development (Local)**:
+```bash
+# One-command startup (backend + frontend)
+./scripts/start_admin_ui_dev.sh
+```
+
+This starts:
+- **Backend** (FastAPI): http://localhost:8000
+- **Frontend** (React + Vite): http://localhost:5173
+
+Login with credentials from `.env`:
+- Username: `ADMIN_USERNAME`
+- Password: `ADMIN_PASSWORD`
+
+### 📦 Manual Setup
+
+```bash
+# Install backend dependencies
+pip install -e ".[admin_ui]"
+
+# Install frontend dependencies
+cd src/admin_ui/frontend
+npm install
+```
+
+### 🔧 Development Workflow
+
+**Backend only**:
+```bash
+python scripts/run_admin_ui.py --reload
+```
+
+**Frontend only**:
+```bash
+cd src/admin_ui/frontend && npm run dev
+```
+
+**Production build**:
+```bash
+cd src/admin_ui/frontend
+npm run build  # Output: dist/
+```
+
 ## Overview
 
 The Admin UI provides a centralized interface to:
@@ -55,8 +110,46 @@ The Admin UI provides a centralized interface to:
 - **Axios** - HTTP client
 - **Recharts** - Charts for backtest results
 - **Vite** - Build tool
+- **nginx** - Production web server (Docker only)
 
-**Note**: Frontend is scaffolded for future development. MVP focuses on API functionality.
+**Deployment Architecture**:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     Production (Docker)                  │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│  ┌─────────────────────┐                                │
+│  │  Browser (Port 80)  │                                │
+│  └──────────┬──────────┘                                │
+│             │                                            │
+│             v                                            │
+│  ┌──────────────────────────────────────────┐          │
+│  │  nginx (admin_ui_frontend container)     │          │
+│  │  - Serves static React build (dist/)     │          │
+│  │  - Proxies /api → admin_ui:8000          │          │
+│  │  - Proxies /ws → admin_ui:8000           │          │
+│  │  - Handles SPA routing (fallback)        │          │
+│  └──────────────────┬───────────────────────┘          │
+│                     │                                    │
+│                     v                                    │
+│  ┌──────────────────────────────────────────┐          │
+│  │  FastAPI (admin_ui container)            │          │
+│  │  - REST API endpoints                    │          │
+│  │  - WebSocket events                      │          │
+│  │  - Docker service control                │          │
+│  └──────────────────────────────────────────┘          │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Benefits**:
+- ✅ Single entry point on port 80
+- ✅ No CORS issues (same origin)
+- ✅ Production-optimized React build
+- ✅ Static asset caching and compression
+- ✅ WebSocket support
+- ✅ SPA routing handled by nginx
 
 ## Installation
 
@@ -104,7 +197,7 @@ TIMESCALE_PORT=5432
 
 ## Usage
 
-### Running the Server
+### Running the Backend Server
 
 #### Development Mode (Local)
 
@@ -119,27 +212,165 @@ python scripts/run_admin_ui.py --port 8080
 python scripts/run_admin_ui.py --log-level debug
 ```
 
+**Backend runs on**: http://localhost:8000
+- API docs: http://localhost:8000/docs
+- Health check: http://localhost:8000/health
+
 #### Production Mode (Docker)
 
+**Start all services** (backend + nginx frontend):
 ```bash
-# Start all services (including admin UI)
+# Build and start all services
 docker-compose up -d
 
-# Or start just admin UI (requires redis and timescaledb running)
+# Or build with fresh images
+docker-compose up -d --build
+```
+
+This starts:
+- **Backend** (admin_ui): http://localhost:8000
+- **Frontend** (admin_ui_frontend): http://localhost:80
+
+**Start individual services**:
+```bash
+# Start just backend (requires redis and timescaledb running)
 docker-compose up -d admin_ui
 
-# View logs
+# Start just frontend (requires backend running)
+docker-compose up -d admin_ui_frontend
+```
+
+**View logs**:
+```bash
+# Backend logs
 docker-compose logs -f admin_ui
 
-# Stop admin UI
+# Frontend (nginx) logs
+docker-compose logs -f admin_ui_frontend
+
+# Both
+docker-compose logs -f admin_ui admin_ui_frontend
+```
+
+**Rebuild after code changes**:
+```bash
+# Rebuild backend
+docker-compose up -d --build admin_ui
+
+# Rebuild frontend (after npm run build)
+docker-compose up -d --build admin_ui_frontend
+
+# Rebuild both
+docker-compose up -d --build admin_ui admin_ui_frontend
+```
+
+**Stop services**:
+```bash
+# Stop frontend
+docker-compose stop admin_ui_frontend
+
+# Stop backend
 docker-compose stop admin_ui
 
 # Stop all services
 docker-compose down
 ```
 
+### Running the Frontend (React)
+
+The frontend is a separate React application that runs alongside the backend.
+
+#### Development Mode
+
+```bash
+# Navigate to frontend directory
+cd src/admin_ui/frontend
+
+# Install dependencies (first time only)
+npm install
+
+# Start development server with hot reload
+npm run dev
+```
+
+**Frontend runs on**: http://localhost:5173
+- Automatically proxies API requests to http://localhost:8000
+- Hot module replacement (HMR) enabled
+- TypeScript type checking
+
+**Important**: Both backend and frontend must be running:
+1. **Terminal 1**: `python scripts/run_admin_ui.py --reload` (backend)
+2. **Terminal 2**: `cd src/admin_ui/frontend && npm run dev` (frontend)
+
+#### Production Build
+
+```bash
+cd src/admin_ui/frontend
+
+# Build optimized production bundle
+npm run build
+
+# Preview production build locally
+npm run preview
+
+# Output: dist/ directory (ready for deployment)
+```
+
+**Production Deployment**:
+- Serve `dist/` folder with nginx, Apache, or CDN
+- Configure reverse proxy to backend API
+- Set `VITE_API_URL` environment variable if backend is on different domain
+
+### Quick Start (Development)
+
+**Option 1: One-Command Startup (Easiest)**
+```bash
+# Start both backend and frontend with one script
+./scripts/start_admin_ui_dev.sh
+```
+
+This script:
+- Checks and installs dependencies if needed
+- Starts backend on http://localhost:8000
+- Starts frontend on http://localhost:5173
+- Runs both with hot reload enabled
+- Press Ctrl+C to stop both services
+
+**Option 2: Separate Terminals (Manual)**
+```bash
+# Terminal 1: Start backend
+python scripts/run_admin_ui.py --reload
+
+# Terminal 2: Start frontend
+cd src/admin_ui/frontend && npm run dev
+```
+
+**Option 3: Using tmux/screen**
+```bash
+# Create split terminal
+tmux new -s admin-ui
+
+# Left pane: backend
+python scripts/run_admin_ui.py --reload
+
+# Right pane: frontend (Ctrl+B, %)
+cd src/admin_ui/frontend && npm run dev
+```
+
 ### Accessing the UI
 
+**Production (Docker with nginx)**:
+- **Main UI**: http://localhost (nginx serving React build)
+- **API**: Proxied through nginx at http://localhost/api
+- **Docs**: http://localhost/docs
+- **Health**: http://localhost/health
+
+**Development (Vite dev server)**:
+- **Main UI**: http://localhost:5173 (React + HMR)
+- **Login**: http://localhost:5173/login
+- **Dashboard**: http://localhost:5173/dashboard
+
+**Backend (Direct Access)**:
 - **API Documentation**: http://localhost:8000/docs (Swagger UI)
 - **Alternative Docs**: http://localhost:8000/redoc (ReDoc)
 - **Health Check**: http://localhost:8000/health
@@ -328,7 +559,8 @@ The Docker manager can control these services:
 - `live_trading` - Live trading engine
 - `timescaledb` - Database
 - `redis` - Redis cache
-- `admin_ui` - Admin UI itself
+- `admin_ui` - Admin UI backend (FastAPI)
+- `admin_ui_frontend` - Admin UI frontend (nginx)
 
 ### Docker Socket Access
 
@@ -439,7 +671,39 @@ curl -H "Authorization: Bearer <token>" \
 
 ## Troubleshooting
 
-### Connection Errors
+### Frontend Issues
+
+**npm install fails**:
+- Check Node.js version: `node --version` (requires v18+)
+- Clear npm cache: `npm cache clean --force`
+- Delete `node_modules` and `package-lock.json`, retry
+
+**Frontend won't start (EADDRINUSE)**:
+- Port 5173 is already in use
+- Kill existing process: `lsof -ti:5173 | xargs kill -9`
+- Or use different port: `npm run dev -- --port 3000`
+
+**API requests fail (CORS errors)**:
+- Ensure backend is running on port 8000
+- Check Vite proxy configuration in `vite.config.ts`
+- Verify CORS settings in backend `main.py`
+
+**TypeScript errors**:
+- Run type checking: `npm run type-check`
+- Regenerate types: `npm run build`
+- Check `tsconfig.json` configuration
+
+**Hot reload not working**:
+- Check file watcher limits: `echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p`
+- Restart Vite dev server
+- Clear browser cache
+
+**Chart not displaying data**:
+- Open browser console (F12) and check for errors
+- Verify API response in Network tab
+- Check data format matches TypeScript interfaces
+
+### Backend Connection Errors
 
 **Database connection failed**:
 - Check TimescaleDB is running: `docker ps | grep timescale`
@@ -488,15 +752,26 @@ curl -H "Authorization: Bearer <token>" \
 - ✅ WebSocket real-time updates
 - ✅ Health checks and status monitoring
 
-### Phase 2 (Future)
-- ⬜ React frontend implementation
-- ⬜ Token management UI (OAuth flow)
-- ⬜ Live trading dashboard with charts
-- ⬜ Backtest results visualization
-- ⬜ Configuration editor UI
-- ⬜ Service logs viewer
+### Phase 2 (Completed)
+- ✅ React frontend implementation
+- ✅ Token management UI
+- ✅ Live trading dashboard with real-time updates
+- ✅ Backtest results visualization with charts
+  - ✅ Equity curve chart
+  - ✅ Dual-axis overlay (portfolio + underlying price)
+  - ✅ P&L distribution chart
+  - ✅ Drawdown chart
+  - ✅ Trade history table
+- ✅ Service management dashboard
+- ✅ Service uptime tracking
+- ✅ Configuration editor UI
 
 ### Phase 3 (Future)
+- ⬜ Service logs viewer (real-time)
+- ⬜ Advanced chart customization
+  - ⬜ Zoom/pan on equity curve
+  - ⬜ Trade markers on chart
+  - ⬜ Indicator overlays
 - ⬜ Multi-user support with RBAC
 - ⬜ Notification system (email/SMS)
 - ⬜ Strategy deployment pipeline

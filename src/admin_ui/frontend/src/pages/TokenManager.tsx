@@ -86,11 +86,11 @@ export function TokenManager() {
               </div>
             )}
 
-            {tokenStatus?.last_refreshed && (
+            {tokenStatus?.access_token_issued && (
               <div className="flex items-center justify-between">
-                <span className="text-gray-600">Last Refreshed:</span>
+                <span className="text-gray-600">Token Issued:</span>
                 <span className="font-medium">
-                  {formatDistanceToNow(new Date(tokenStatus.last_refreshed), { addSuffix: true })}
+                  {formatDistanceToNow(new Date(tokenStatus.access_token_issued), { addSuffix: true })}
                 </span>
               </div>
             )}
@@ -159,7 +159,7 @@ export function TokenManager() {
         </Card>
       </div>
 
-      {tokenStatus?.access_token_valid === false && (
+      {tokenStatus?.access_token_expired && (
         <Card className="mt-6 bg-red-50 border-red-200">
           <div className="flex items-start">
             <div className="flex-shrink-0">

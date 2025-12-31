@@ -116,11 +116,13 @@ export function EquityCurveChart({ data, underlyingData = [] }: EquityCurveChart
           label={{ value: 'SPX Price', angle: 90, position: 'insideRight', style: { fontSize: 12 } }}
         />
         <Tooltip
-          formatter={(value: number | null, name: string) => {
-            if (value === null) return ['N/A', name];
-            if (name === 'Portfolio Value') return [formatCurrency(value), name];
-            if (name === 'SPX Price') return [formatPrice(value), name];
-            return [value, name];
+          formatter={(value: any, name: string) => {
+            if (value === null || value === undefined) return ['N/A', name];
+            const numValue = typeof value === 'number' ? value : parseFloat(value);
+            if (isNaN(numValue)) return ['N/A', name];
+            if (name === 'Portfolio Value') return [formatCurrency(numValue), name];
+            if (name === 'SPX Price') return [formatPrice(numValue), name];
+            return [numValue, name];
           }}
           labelFormatter={formatDate}
         />
