@@ -86,7 +86,9 @@ class LiveMarketDataProvider:
 
         # Ensure timestamp is datetime
         if 'timestamp' in df.columns and not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            # Convert timestamps, handling mixed formats
+            # Use format='mixed' to suppress warnings about inconsistent formats
+            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, format='mixed')
 
         # Sort by timestamp
         df = df.sort_values('timestamp').reset_index(drop=True)
@@ -112,7 +114,7 @@ class LiveMarketDataProvider:
                 - contract_symbol: Option contract symbol (e.g., SPXW251226C06875000)
                 - underlying_ticker: Underlying ticker (SPX)
                 - strike_price: Strike price
-                - option_type: 'C' for call, 'P' for put
+                - contract_type: 'call' or 'put' (lowercase, matches DB schema)
                 - expiration_date: Expiration date
                 - open, high, low, close: OHLC prices
                 - volume: Trading volume
@@ -133,7 +135,7 @@ class LiveMarketDataProvider:
             # Return empty DataFrame with expected columns
             return pd.DataFrame(columns=[
                 'timestamp', 'contract_symbol', 'underlying_ticker',
-                'strike_price', 'option_type', 'expiration_date',
+                'strike_price', 'contract_type', 'expiration_date',
                 'open', 'high', 'low', 'close', 'volume', 'vwap',
                 'bid', 'ask', 'mark', 'bid_size', 'ask_size',
                 'delta', 'gamma', 'theta', 'vega', 'rho',
@@ -143,6 +145,17 @@ class LiveMarketDataProvider:
         # Filter by underlying ticker if needed
         if 'underlying_ticker' in all_bars.columns:
             all_bars = all_bars[all_bars['underlying_ticker'] == underlying_ticker].copy()
+
+        # Rename option_ticker to contract_symbol for consistency with backtest data
+        if not all_bars.empty and 'option_ticker' in all_bars.columns:
+            all_bars = all_bars.rename(columns={'option_ticker': 'contract_symbol'})
+
+        # Filter out underlying bars (keep only options bars)
+        # Options bars should have expiration_date, strike_price, and contract_type
+        if not all_bars.empty:
+            # Keep only rows that have option-specific fields
+            if 'strike_price' in all_bars.columns:
+                all_bars = all_bars[all_bars['strike_price'].notna()].copy()
 
         # Get most recent bar for each contract (for snapshot)
         if not all_bars.empty and 'contract_symbol' in all_bars.columns:
@@ -157,7 +170,9 @@ class LiveMarketDataProvider:
         # Ensure timestamp is datetime
         if not snapshot.empty and 'timestamp' in snapshot.columns:
             if not pd.api.types.is_datetime64_any_dtype(snapshot['timestamp']):
-                snapshot['timestamp'] = pd.to_datetime(snapshot['timestamp'])
+                # Convert timestamps, handling mixed formats
+                # Use format='mixed' to suppress warnings about inconsistent formats
+                snapshot['timestamp'] = pd.to_datetime(snapshot['timestamp'], utc=True, format='mixed')
 
         return snapshot.reset_index(drop=True)
 

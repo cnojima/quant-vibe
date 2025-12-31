@@ -1,5 +1,94 @@
 """Symbol normalization utilities for options tickers."""
 
+from datetime import datetime
+from typing import Optional
+
+
+def parse_expiration_from_ticker(ticker: str) -> Optional[datetime]:
+    """
+    Parse expiration date from option ticker symbol.
+
+    Format: {UNDERLYING}{YYMMDD}{C|P}{STRIKE8DIGITS}
+    Example: "SPXW251231C06875000" -> December 31, 2025
+
+    Args:
+        ticker: Normalized option ticker
+
+    Returns:
+        Expiration date or None if parsing fails
+    """
+    try:
+        # Remove prefix to find date portion
+        # For SPXW: skip 4 chars, for SPX: skip 3 chars
+        if ticker.startswith('SPXW'):
+            date_start = 4
+        elif ticker.startswith('SPX'):
+            date_start = 3
+        else:
+            # Generic: find first digit sequence of length 6
+            for i, char in enumerate(ticker):
+                if char.isdigit():
+                    date_str = ticker[i:i+6]
+                    if len(date_str) == 6 and date_str.isdigit():
+                        year = 2000 + int(date_str[0:2])
+                        month = int(date_str[2:4])
+                        day = int(date_str[4:6])
+                        return datetime(year, month, day).date()
+            return None
+
+        # Extract YYMMDD
+        date_str = ticker[date_start:date_start+6]
+        if len(date_str) != 6 or not date_str.isdigit():
+            return None
+
+        year = 2000 + int(date_str[0:2])
+        month = int(date_str[2:4])
+        day = int(date_str[4:6])
+
+        return datetime(year, month, day).date()
+    except (ValueError, IndexError):
+        return None
+
+
+def parse_contract_type_from_ticker(ticker: str) -> Optional[str]:
+    """
+    Parse contract type (call/put) from option ticker symbol.
+
+    Format: {UNDERLYING}{YYMMDD}{C|P}{STRIKE8DIGITS}
+    Example: "SPXW251231C06875000" -> "call"
+
+    Args:
+        ticker: Normalized option ticker
+
+    Returns:
+        'call' or 'put', or None if parsing fails
+    """
+    try:
+        # Find 'C' or 'P' after 6-digit date
+        # For SPXW: position 10 (4 + 6)
+        # For SPX: position 9 (3 + 6)
+        if ticker.startswith('SPXW'):
+            type_pos = 10
+        elif ticker.startswith('SPX'):
+            type_pos = 9
+        else:
+            # Generic: find C or P after date sequence
+            for i, char in enumerate(ticker):
+                if char in ('C', 'P') and i > 6:
+                    return 'call' if char == 'C' else 'put'
+            return None
+
+        if type_pos < len(ticker):
+            type_char = ticker[type_pos]
+            if type_char == 'C':
+                return 'call'
+            elif type_char == 'P':
+                return 'put'
+
+        return None
+    except (ValueError, IndexError):
+        return None
+
 
 def normalize_option_ticker(ticker: str) -> str:
     """

@@ -17,6 +17,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from quant_vibe.messaging import RedisMessageBroker, Topic
+from quant_vibe.utils import parse_expiration_from_ticker, parse_contract_type_from_ticker
 from .utils import setup_logging
 
 
@@ -172,7 +173,29 @@ class RedisDataFeed:
         """
         symbol = bar.get('option_ticker')
         if not symbol:
+            self.logger.warning(f"Option bar missing 'option_ticker': {list(bar.keys())[:10]}")
             return
+
+        # Debug: Log first bar to see what fields we're getting
+        if self.bars_received == 0:
+            self.logger.info(f"First option bar received: {list(bar.keys())}")
+            self.logger.info(f"  Has expiration_date: {'expiration_date' in bar}")
+            self.logger.info(f"  Has contract_type: {'contract_type' in bar}")
+            self.logger.info(f"  Has strike_price: {'strike_price' in bar}")
+
+        # Enrich bar with missing fields by parsing from symbol
+        # This handles cases where remote streaming service doesn't enrich data
+        if 'expiration_date' not in bar or bar.get('expiration_date') is None:
+            expiration = parse_expiration_from_ticker(symbol)
+            if expiration:
+                bar['expiration_date'] = expiration
+                self.logger.debug(f"Enriched expiration_date from symbol: {expiration}")
+
+        if 'contract_type' not in bar or bar.get('contract_type') is None:
+            contract_type = parse_contract_type_from_ticker(symbol)
+            if contract_type:
+                bar['contract_type'] = contract_type
+                self.logger.debug(f"Enriched contract_type from symbol: {contract_type}")
 
         # Add to deque
         self.option_bars[symbol].append(bar)
@@ -216,17 +239,39 @@ class RedisDataFeed:
             except Exception as e:
                 self.logger.error(f"Error in callback: {e}", exc_info=True)
 
-    def get_bars(self, symbol: str, num_bars: Optional[int] = None) -> pd.DataFrame:
+    def get_bars(self, symbol: Optional[str] = None, num_bars: Optional[int] = None) -> pd.DataFrame:
         """Get recent bars for a symbol.
 
         Args:
-            symbol: Symbol to get bars for
+            symbol: Symbol to get bars for (None = all symbols)
             num_bars: Number of bars to return (None = all)
 
         Returns:
             DataFrame of bars
         """
-        # Check option bars first
+        # If symbol is None, return all bars (options + underlying)
+        if symbol is None:
+            all_bars = []
+
+            # Collect all option bars
+            for sym, bars_deque in self.option_bars.items():
+                all_bars.extend(list(bars_deque))
+
+            # Collect all underlying bars
+            for sym, bars_deque in self.underlying_bars.items():
+                all_bars.extend(list(bars_deque))
+
+            if not all_bars:
+                return pd.DataFrame()
+
+            df = pd.DataFrame(all_bars)
+
+            if num_bars and len(df) > num_bars:
+                df = df.tail(num_bars)
+
+            return df
+
+        # Symbol specified - return bars for that symbol
         if symbol in self.option_bars:
             bars = list(self.option_bars[symbol])
         elif symbol in self.underlying_bars:

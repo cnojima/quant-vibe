@@ -174,6 +174,36 @@ class CoinTossStrategy(OptionsStrategy):
         target_date = pd.Timestamp(target_date).normalize().tz_localize(None)
         max_date = pd.Timestamp(max_date).normalize().tz_localize(None)
 
+        # Debug: Check what data we have
+        print(f"[CoinToss DEBUG] Current time: {current_time}")
+        print(f"[CoinToss DEBUG] Target date range: {target_date} to {max_date}")
+        print(f"[CoinToss DEBUG] Total options in data: {len(options_data)}")
+        if not options_data.empty:
+            print(f"[CoinToss DEBUG] Available columns: {options_data.columns.tolist()}")
+            if 'expiration_date' in options_data.columns:
+                unique_exp = options_data['expiration_date'].unique()
+                print(f"[CoinToss DEBUG] Unique expiration dates: {unique_exp}")
+            if 'contract_type' in options_data.columns:
+                print(f"[CoinToss DEBUG] Contract types: {options_data['contract_type'].unique()}")
+            else:
+                print(f"[CoinToss DEBUG] ⚠️  'contract_type' column MISSING!")
+                # Show first row to debug
+                print(f"[CoinToss DEBUG] Sample row: {options_data.iloc[0].to_dict() if len(options_data) > 0 else 'N/A'}")
+
+        # Early return if no data
+        if options_data.empty:
+            print(f"[CoinToss] No options data available")
+            return None
+
+        # Check for required columns
+        if 'contract_type' not in options_data.columns:
+            print(f"[CoinToss] ERROR: 'contract_type' column missing from options data")
+            return None
+
+        if 'expiration_date' not in options_data.columns:
+            print(f"[CoinToss] ERROR: 'expiration_date' column missing from options data")
+            return None
+
         # Filter options by type and DTE
         # Note: contract_type is lowercase enum ('call', 'put')
         # direction is already lowercase from analyze_market
@@ -184,6 +214,7 @@ class CoinTossStrategy(OptionsStrategy):
         ].copy()
 
         if options_filtered.empty:
+            print(f"[CoinToss] No {direction} options found in DTE range {self.min_dte}-{self.max_dte} days")
             return None
 
         # Find options with ask price near target_price
@@ -197,6 +228,7 @@ class CoinTossStrategy(OptionsStrategy):
         ].copy()
 
         if options_filtered.empty:
+            print(f"[CoinToss] No {direction} options found in price range ${price_min:.2f}-${price_max:.2f} (target: ${self.target_price:.2f} ± ${self.price_tolerance:.2f})")
             return None
 
         # Sort by how close to target price and pick the closest one

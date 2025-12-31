@@ -240,7 +240,7 @@ class RealtimeDataFeed:
                 'ask_size': latest_quote.get('ask_size'),
                 # Contract details
                 'strike_price': latest_quote.get('strike'),
-                'option_type': contract_type[0].upper(),  # 'C' or 'P'
+                'contract_type': contract_type,  # lowercase 'call' or 'put' (matches DB schema)
                 'expiration_date': exp_date,
                 # Greeks
                 'delta': latest_quote.get('delta'),
