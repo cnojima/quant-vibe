@@ -167,6 +167,11 @@ class LiveMarketDataProvider:
         else:
             snapshot = all_bars
 
+        # Calculate 'mark' price (midpoint of bid/ask) if not present
+        if not snapshot.empty and 'mark' not in snapshot.columns:
+            if 'bid' in snapshot.columns and 'ask' in snapshot.columns:
+                snapshot['mark'] = (snapshot['bid'] + snapshot['ask']) / 2.0
+
         # Ensure timestamp is datetime
         if not snapshot.empty and 'timestamp' in snapshot.columns:
             if not pd.api.types.is_datetime64_any_dtype(snapshot['timestamp']):
