@@ -320,24 +320,67 @@ python scripts/run_live_trading.py --config config/my_live_config.yaml
 ### Adding New Components
 
 **New Strategy**:
-1. Create file in `src/quant_vibe/strategies/` (e.g., `my_strategy.py`)
-2. Inherit from `OptionsStrategy` base class (for options) or `Strategy` (for stocks)
-3. Implement required methods (see existing strategies for examples)
-4. Add to `__init__.py` exports
-5. Register strategy in `src/backtest/engine.py`:
-   - Add entry to `strategy_map` dictionary in `_load_strategy()` method
-   - Format: `'strategy_name': 'quant_vibe.strategies.module_name.ClassName'`
-6. Add configuration to `config/backtest.yaml` and `config/live_trading.yaml`
-7. Add tests in `tests/unit/test_strategies.py`
 
-Example:
+⚠️ **IMPORTANT**: For complete step-by-step instructions with code examples, see **`docs/HOWTO_NEW_STRATEGY.md`**
+
+**Quick Summary** (8 core steps):
+1. **Create strategy class**: `src/quant_vibe/strategies/my_strategy.py` (inherit from `OptionsStrategy`)
+2. **Implement methods**: `analyze_market()`, `should_enter()`, `construct_spread()`, `should_exit()`
+3. **Export**: Add to `src/quant_vibe/strategies/__init__.py`
+4. **Register for backtesting**: Add to `src/backtest/engine.py` → `strategy_map`
+5. **Register for live trading**: Add to `src/quant_vibe/live/engine.py` → `strategy_classes`
+6. **Expose to Admin UI**: Add to `src/admin_ui/backend/api/strategies.py` → `STRATEGY_METADATA`
+7. **Configure**: Add to `config/backtest.yaml` and `config/live_trading.yaml`
+8. **Test**: Add unit tests in `tests/unit/test_strategies.py`
+
+**Key Files to Modify**:
+- `src/quant_vibe/strategies/my_strategy.py` - Strategy implementation
+- `src/quant_vibe/strategies/__init__.py` - Export strategy
+- `src/backtest/engine.py` - Register for backtesting
+- `src/quant_vibe/live/engine.py` - Register for live trading
+- `src/admin_ui/backend/api/strategies.py` - Add metadata for Admin UI
+- `config/backtest.yaml` - Backtest configuration
+- `config/live_trading.yaml` - Live trading configuration
+- `tests/unit/test_strategies.py` - Unit tests
+
+**Admin UI Integration**:
+After adding metadata to `strategies.py`, your strategy will automatically appear in the Admin UI (`http://localhost:5173/strategies`) with:
+- Enable/disable toggle
+- Parameter viewing (expandable)
+- Auto-sync with YAML config
+- Restart warnings
+
+**Example Registration**:
 ```python
-# In src/backtest/engine.py
+# src/backtest/engine.py
 strategy_map = {
     'bullish_vertical_put': 'quant_vibe.strategies.bullish_vertical_put.BullishVerticalPutStrategy',
     'my_strategy': 'quant_vibe.strategies.my_strategy.MyStrategy',  # Add this
 }
+
+# src/admin_ui/backend/api/strategies.py
+STRATEGY_METADATA = {
+    "my_strategy": {
+        "description": "Brief description for UI",
+        "default_params": {
+            "spread_width": 20.0,
+            "profit_target_min": 0.50,
+            "min_dte": 0,
+            "max_dte": 45,
+            # ... all constructor params
+        },
+    },
+}
 ```
+
+**Testing & Deployment Workflow**:
+1. Run backtest: `python scripts/run_backtest.py --strategy my_strategy`
+2. Analyze results, iterate on parameters
+3. Enable in Admin UI → Strategies page
+4. Paper trade for 1+ week (monitor via Admin UI → Live Trading Monitor)
+5. Enable live trading via Config Editor (set `paper_trading: false`)
+
+See **`docs/HOWTO_NEW_STRATEGY.md`** for complete walkthrough with code templates and troubleshooting.
 
 **New Indicator**:
 1. Add function to `src/quant_vibe/indicators/technical.py`
