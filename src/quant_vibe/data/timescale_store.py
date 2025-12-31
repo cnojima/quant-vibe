@@ -950,6 +950,422 @@ class TimescaleStore:
 
         return df[['open', 'high', 'low', 'close', 'volume']]
 
+    # ========================================================================
+    # BACKTEST RESULTS PERSISTENCE
+    # ========================================================================
+
+    def save_backtest_run(
+        self,
+        backtest_id: str,
+        strategy_name: str,
+        start_date: datetime,
+        end_date: datetime,
+        initial_capital: float,
+        parameters: Optional[Dict[str, Any]] = None,
+        max_positions: int = 1,
+        status: str = "pending",
+        created_by: Optional[str] = None,
+    ) -> None:
+        """
+        Save backtest run metadata to database.
+
+        Args:
+            backtest_id: Unique identifier for this backtest run
+            strategy_name: Name of the strategy
+            start_date: Backtest start date
+            end_date: Backtest end date
+            initial_capital: Starting capital
+            parameters: Strategy parameters (stored as JSON)
+            max_positions: Maximum concurrent positions
+            status: Execution status ('pending', 'running', 'completed', 'failed')
+            created_by: Username of who created this backtest
+
+        Example:
+            >>> store = TimescaleStore()
+            >>> store.save_backtest_run(
+            ...     backtest_id='bullish_vertical_put_20251230_143022',
+            ...     strategy_name='bullish_vertical_put',
+            ...     start_date=datetime(2025, 12, 1),
+            ...     end_date=datetime(2025, 12, 15),
+            ...     initial_capital=100000.0,
+            ...     parameters={'spread_width': 20, 'min_dte': 0, 'max_dte': 0}
+            ... )
+        """
+        import json
+
+        query = """
+        INSERT INTO backtest_runs (
+            backtest_id, strategy_name, start_date, end_date, initial_capital,
+            parameters, max_positions, status, created_by
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s
+        )
+        ON CONFLICT (backtest_id) DO UPDATE SET
+            status = EXCLUDED.status,
+            parameters = EXCLUDED.parameters
+        """
+
+        params = (
+            backtest_id,
+            strategy_name,
+            start_date,
+            end_date,
+            initial_capital,
+            json.dumps(parameters) if parameters else None,
+            max_positions,
+            status,
+            created_by,
+        )
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, params)
+            conn.commit()
+
+    def update_backtest_status(
+        self,
+        backtest_id: str,
+        status: str,
+        error_message: Optional[str] = None,
+    ) -> None:
+        """
+        Update backtest execution status.
+
+        Args:
+            backtest_id: Backtest identifier
+            status: New status ('running', 'completed', 'failed')
+            error_message: Error message if status is 'failed'
+        """
+        if status == "running":
+            query = """
+            UPDATE backtest_runs
+            SET status = %s, started_at = NOW()
+            WHERE backtest_id = %s
+            """
+            params = (status, backtest_id)
+        elif status in ("completed", "failed"):
+            query = """
+            UPDATE backtest_runs
+            SET status = %s, completed_at = NOW(), error_message = %s
+            WHERE backtest_id = %s
+            """
+            params = (status, error_message, backtest_id)
+        else:
+            query = """
+            UPDATE backtest_runs
+            SET status = %s
+            WHERE backtest_id = %s
+            """
+            params = (status, backtest_id)
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, params)
+            conn.commit()
+
+    def update_backtest_metrics(
+        self,
+        backtest_id: str,
+        metrics: Dict[str, Any],
+    ) -> None:
+        """
+        Update backtest summary metrics.
+
+        Args:
+            backtest_id: Backtest identifier
+            metrics: Dictionary of performance metrics
+
+        Example:
+            >>> metrics = {
+            ...     'final_capital': 105000.0,
+            ...     'total_return': 5000.0,
+            ...     'total_return_pct': 5.0,
+            ...     'num_trades': 10,
+            ...     'win_rate': 70.0,
+            ...     'sharpe_ratio': 1.5,
+            ... }
+            >>> store.update_backtest_metrics(backtest_id, metrics)
+        """
+        query = """
+        UPDATE backtest_runs
+        SET
+            final_capital = %(final_capital)s,
+            total_return = %(total_return)s,
+            total_return_pct = %(total_return_pct)s,
+            num_trades = %(num_trades)s,
+            num_winning_trades = %(num_winning_trades)s,
+            num_losing_trades = %(num_losing_trades)s,
+            win_rate = %(win_rate)s,
+            avg_win = %(avg_win)s,
+            avg_loss = %(avg_loss)s,
+            profit_factor = %(profit_factor)s,
+            max_drawdown = %(max_drawdown)s,
+            sharpe_ratio = %(sharpe_ratio)s
+        WHERE backtest_id = %(backtest_id)s
+        """
+
+        params = {**metrics, "backtest_id": backtest_id}
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, params)
+            conn.commit()
+
+    def save_backtest_trades(
+        self,
+        backtest_id: str,
+        trades_df: pd.DataFrame,
+    ) -> None:
+        """
+        Save trade records to database.
+
+        Args:
+            backtest_id: Backtest identifier
+            trades_df: DataFrame with trade records
+
+        Expected columns:
+            - position_id, spread_type, entry_time, exit_time, duration_minutes
+            - entry_cost, exit_value, pnl, pnl_percent
+            - entry_trigger, exit_reason, underlying_entry, underlying_exit
+            - max_profit, peak_value, legs (as dict or JSON string)
+        """
+        import json
+
+        if trades_df.empty:
+            return
+
+        query = """
+        INSERT INTO backtest_trades (
+            backtest_id, position_id, spread_type, entry_time, exit_time,
+            duration_minutes, entry_cost, exit_value, pnl, pnl_percent,
+            entry_trigger, exit_reason, underlying_entry, underlying_exit,
+            max_profit, peak_value, legs
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        )
+        """
+
+        def convert_to_serializable(obj):
+            """Convert pandas/numpy types to JSON-serializable types."""
+            if obj is None:
+                return None
+            if isinstance(obj, pd.Timestamp):
+                return obj.isoformat()
+            if hasattr(obj, 'item'):  # NumPy scalar
+                return obj.item()
+            if isinstance(obj, dict):
+                return {k: convert_to_serializable(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple)):
+                return [convert_to_serializable(item) for item in obj]
+            return obj
+
+        # Prepare records for batch insert
+        records = []
+        for _, row in trades_df.iterrows():
+            # Convert legs to JSON if it's a list of dicts
+            legs_json = row.get('legs', [])
+            if isinstance(legs_json, str):
+                legs_json = json.loads(legs_json)
+
+            # Convert all pandas/numpy types to serializable types
+            legs_json = convert_to_serializable(legs_json)
+
+            records.append((
+                backtest_id,
+                row.get('position_id'),
+                row.get('spread_type'),
+                row.get('entry_time'),
+                row.get('exit_time'),
+                row.get('duration_minutes'),
+                row.get('entry_cost'),
+                row.get('exit_value'),
+                row.get('pnl'),
+                row.get('pnl_percent'),
+                row.get('entry_trigger'),
+                row.get('exit_reason'),
+                row.get('underlying_entry'),
+                row.get('underlying_exit'),
+                row.get('max_profit'),
+                row.get('peak_value'),
+                json.dumps(legs_json),
+            ))
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                execute_batch(cursor, query, records, page_size=100)
+            conn.commit()
+
+    def save_backtest_equity_curve(
+        self,
+        backtest_id: str,
+        equity_df: pd.DataFrame,
+    ) -> None:
+        """
+        Save equity curve data to database.
+
+        Args:
+            backtest_id: Backtest identifier
+            equity_df: DataFrame with equity curve snapshots
+
+        Expected columns or index:
+            - timestamp (as index or column), cash, portfolio_value, active_position
+            - returns, cummax, drawdown (optional)
+        """
+        if equity_df.empty:
+            return
+
+        # Reset index to get timestamp as a column if it's the index
+        df = equity_df.copy()
+        if df.index.name == 'timestamp' or 'timestamp' not in df.columns:
+            df = df.reset_index()
+
+        query = """
+        INSERT INTO backtest_equity_curve (
+            backtest_id, timestamp, cash, portfolio_value, active_position,
+            returns, cummax, drawdown
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s
+        )
+        """
+
+        # Prepare records for batch insert
+        records = []
+        for _, row in df.iterrows():
+            records.append((
+                backtest_id,
+                row.get('timestamp'),
+                row.get('cash'),
+                row.get('portfolio_value'),
+                row.get('active_position', False),
+                row.get('returns'),
+                row.get('cummax'),
+                row.get('drawdown'),
+            ))
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                execute_batch(cursor, query, records, page_size=1000)
+            conn.commit()
+
+    def get_backtest_run(self, backtest_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get backtest run metadata.
+
+        Args:
+            backtest_id: Backtest identifier
+
+        Returns:
+            Dictionary with backtest metadata or None if not found
+        """
+        query = """
+        SELECT * FROM backtest_runs
+        WHERE backtest_id = %s
+        """
+
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(query, (backtest_id,))
+                result = cursor.fetchone()
+                return dict(result) if result else None
+
+    def get_backtest_trades(self, backtest_id: str) -> pd.DataFrame:
+        """
+        Get trade records for a backtest.
+
+        Args:
+            backtest_id: Backtest identifier
+
+        Returns:
+            DataFrame with trade records
+        """
+        query = """
+        SELECT
+            trade_id, position_id, spread_type, entry_time, exit_time,
+            duration_minutes, entry_cost, exit_value, pnl, pnl_percent,
+            entry_trigger, exit_reason, underlying_entry, underlying_exit,
+            max_profit, peak_value, legs
+        FROM backtest_trades
+        WHERE backtest_id = %s
+        ORDER BY entry_time ASC
+        """
+
+        df = pd.read_sql_query(
+            query,
+            self.engine,
+            params=(backtest_id,),
+            parse_dates=['entry_time', 'exit_time']
+        )
+
+        return df
+
+    def get_backtest_equity_curve(self, backtest_id: str) -> pd.DataFrame:
+        """
+        Get equity curve for a backtest.
+
+        Args:
+            backtest_id: Backtest identifier
+
+        Returns:
+            DataFrame with equity curve data
+        """
+        query = """
+        SELECT
+            timestamp, cash, portfolio_value, active_position,
+            returns, cummax, drawdown
+        FROM backtest_equity_curve
+        WHERE backtest_id = %s
+        ORDER BY timestamp ASC
+        """
+
+        df = pd.read_sql_query(
+            query,
+            self.engine,
+            params=(backtest_id,),
+            parse_dates=['timestamp']
+        )
+
+        return df
+
+    def get_backtest_history(
+        self,
+        strategy_name: Optional[str] = None,
+        limit: int = 50,
+        status: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get backtest execution history.
+
+        Args:
+            strategy_name: Filter by strategy name (optional)
+            limit: Maximum number of results
+            status: Filter by status (optional)
+
+        Returns:
+            List of backtest metadata dictionaries
+        """
+        query = """
+        SELECT * FROM backtest_runs
+        WHERE 1=1
+        """
+        params = []
+
+        if strategy_name:
+            query += " AND strategy_name = %s"
+            params.append(strategy_name)
+
+        if status:
+            query += " AND status = %s"
+            params.append(status)
+
+        query += " ORDER BY created_at DESC LIMIT %s"
+        params.append(limit)
+
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(query, params)
+                results = cursor.fetchall()
+                return [dict(row) for row in results]
+
     def close(self) -> None:
         """Close all connections in the pool and dispose of SQLAlchemy engine."""
         if self.pool:

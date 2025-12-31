@@ -174,6 +174,7 @@ export interface BacktestResult {
   trades: Trade[];
   status?: 'pending' | 'running' | 'completed' | 'failed';
   created_at?: string;
+  parameters?: Record<string, any>;
   metrics?: {
     total_return: number;
     sharpe_ratio: number | null;

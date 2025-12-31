@@ -288,3 +288,142 @@ def save_backtest_results(
             print(f"✅ Equity curve saved to: {equity_file}")
 
     return saved_files
+
+
+def save_backtest_to_db(
+    backtest_id: str,
+    strategy_name: str,
+    start_date: datetime,
+    end_date: datetime,
+    initial_capital: float,
+    results: Dict,
+    parameters: Dict | None = None,
+    max_positions: int = 1,
+    verbose: bool = True,
+    db_profile: str | None = None,
+) -> None:
+    """Save backtest results to PostgreSQL database.
+
+    This function persists the complete backtest results to TimescaleDB,
+    including metadata, trades, equity curve, and performance metrics.
+
+    Args:
+        backtest_id: Unique identifier for this backtest run
+        strategy_name: Name of the strategy
+        start_date: Backtest start date
+        end_date: Backtest end date
+        initial_capital: Starting capital
+        results: Results dictionary from backtest engine
+        parameters: Strategy parameters (optional)
+        max_positions: Maximum concurrent positions
+        verbose: Print save confirmations (default: True)
+        db_profile: Database profile to use - "local" or "remote" (default: auto from USE_REMOTE_TIMESCALE)
+
+    Example:
+        ```python
+        save_backtest_to_db(
+            backtest_id="bullish_vertical_put_20251230_143022",
+            strategy_name="bullish_vertical_put",
+            start_date=datetime(2025, 12, 1),
+            end_date=datetime(2025, 12, 15),
+            initial_capital=100000.0,
+            results=results,
+            parameters={'spread_width': 20, 'min_dte': 0, 'max_dte': 0}
+        )
+        ```
+    """
+    # Determine database profile from environment variable if not explicitly provided
+    if db_profile is None:
+        use_remote = os.getenv("USE_REMOTE_TIMESCALE", "false").lower() == "true"
+        db_profile = "remote" if use_remote else "local"
+
+    # Create TimescaleStore based on profile
+    if db_profile == "remote":
+        ts_store = TimescaleStore(
+            host=os.getenv("REMOTE_TIMESCALE_HOST"),
+            port=int(os.getenv("REMOTE_TIMESCALE_PORT", "5432")),
+            database=os.getenv("REMOTE_TIMESCALE_DB"),
+            user=os.getenv("REMOTE_TIMESCALE_USER"),
+            password=os.getenv("REMOTE_TIMESCALE_PASSWORD"),
+        )
+    else:  # local (default)
+        ts_store = TimescaleStore()  # Uses TIMESCALE_* env vars
+
+    try:
+        if verbose:
+            db_location = "remote" if db_profile == "remote" else "local"
+            print(f"\n💾 Saving backtest results to PostgreSQL ({db_location})...")
+
+        # 1. Save backtest run metadata
+        ts_store.save_backtest_run(
+            backtest_id=backtest_id,
+            strategy_name=strategy_name,
+            start_date=start_date,
+            end_date=end_date,
+            initial_capital=initial_capital,
+            parameters=parameters,
+            max_positions=max_positions,
+            status="completed",
+        )
+
+        if verbose:
+            print(f"   ✅ Backtest metadata saved (ID: {backtest_id})")
+
+        # 2. Save performance metrics
+        # Convert NumPy types to Python native types for PostgreSQL compatibility
+        def to_python_type(value):
+            """Convert NumPy types to Python native types."""
+            if value is None:
+                return None
+            # Check if it's a NumPy type
+            if hasattr(value, 'item'):
+                return value.item()  # Convert numpy scalar to Python type
+            return float(value) if isinstance(value, (int, float)) else value
+
+        metrics = {
+            "final_capital": to_python_type(results.get("final_capital")),
+            "total_return": to_python_type(results.get("final_capital", initial_capital)) - initial_capital,
+            "total_return_pct": to_python_type(results.get("total_return_pct")),
+            "num_trades": to_python_type(results.get("num_trades")),
+            "num_winning_trades": to_python_type(results.get("num_winning_trades")),
+            "num_losing_trades": to_python_type(results.get("num_losing_trades")),
+            "win_rate": to_python_type(results.get("win_rate")),
+            "avg_win": to_python_type(results.get("avg_win")),
+            "avg_loss": to_python_type(results.get("avg_loss")),
+            "profit_factor": to_python_type(results.get("profit_factor")),
+            "max_drawdown": to_python_type(results.get("max_drawdown")),
+            "sharpe_ratio": to_python_type(results.get("sharpe_ratio")),
+        }
+
+        ts_store.update_backtest_metrics(backtest_id, metrics)
+
+        if verbose:
+            print(f"   ✅ Performance metrics saved")
+
+        # 3. Save trades
+        if not results["trades"].empty:
+            ts_store.save_backtest_trades(backtest_id, results["trades"])
+            if verbose:
+                print(f"   ✅ {len(results['trades'])} trades saved")
+
+        # 4. Save equity curve
+        if not results["equity_curve"].empty:
+            ts_store.save_backtest_equity_curve(backtest_id, results["equity_curve"])
+            if verbose:
+                print(
+                    f"   ✅ {len(results['equity_curve'])} equity curve points saved"
+                )
+
+        if verbose:
+            print(f"\n✅ Backtest results saved to database successfully!")
+
+    except Exception as e:
+        if verbose:
+            print(f"❌ Error saving to database: {e}")
+            import traceback
+
+            traceback.print_exc()
+        raise
+
+    finally:
+        ts_store.close()

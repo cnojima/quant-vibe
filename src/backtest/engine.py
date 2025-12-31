@@ -15,6 +15,7 @@ from quant_vibe.utils import (
     get_date_range,
     load_options_backtest_data,
     save_backtest_results,
+    save_backtest_to_db,
     setup_backtest_output,
 )
 from quant_vibe.config.logging_config import setup_normalized_logging
@@ -226,6 +227,7 @@ class BacktestOrchestrator:
                 self.logger.info("SAVING RESULTS")
                 self.logger.info("=" * 70)
 
+                # Save to CSV files
                 saved_files = save_backtest_results(
                     results=results,
                     strategy_name=strategy_name,
@@ -237,6 +239,25 @@ class BacktestOrchestrator:
                 self.logger.info("Results saved to:")
                 for file_type, file_path in saved_files.items():
                     self.logger.info(f"  {file_type}: {file_path}")
+
+                # Also save to PostgreSQL database
+                backtest_id = f"{strategy_name}_{timestamp}"
+                try:
+                    save_backtest_to_db(
+                        backtest_id=backtest_id,
+                        strategy_name=strategy_name,
+                        start_date=start_date,
+                        end_date=end_date,
+                        initial_capital=self.config.get_initial_capital(),
+                        results=results,
+                        parameters=strategy_params,
+                        max_positions=1,
+                        verbose=True,
+                        db_profile=self.config.get_db_profile(),
+                    )
+                except Exception as e:
+                    self.logger.error(f"Failed to save to database: {e}")
+                    self.logger.info("Results still available in CSV files")
 
             self.logger.info("=" * 70)
             self.logger.info(f"BACKTEST COMPLETE: {strategy_name.upper()}")

@@ -6,6 +6,8 @@ Provides endpoints to run backtests and view results.
 
 import asyncio
 import csv
+import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -15,6 +17,7 @@ from pydantic import BaseModel
 
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
+from quant_vibe.data.timescale_store import TimescaleStore
 
 router = APIRouter()
 
@@ -51,6 +54,22 @@ def _save_backtests(backtests: dict[str, dict[str, Any]]):
 
 # Load existing state on module init
 _running_backtests: dict[str, dict[str, Any]] = _load_backtests()
+
+
+def _get_timescale_store() -> TimescaleStore:
+    """Get TimescaleDB connection based on environment configuration."""
+    use_remote = os.getenv("USE_REMOTE_TIMESCALE", "false").lower() == "true"
+
+    if use_remote:
+        return TimescaleStore(
+            host=os.getenv("REMOTE_TIMESCALE_HOST"),
+            port=int(os.getenv("REMOTE_TIMESCALE_PORT", "5432")),
+            database=os.getenv("REMOTE_TIMESCALE_DB"),
+            user=os.getenv("REMOTE_TIMESCALE_USER"),
+            password=os.getenv("REMOTE_TIMESCALE_PASSWORD"),
+        )
+    else:
+        return TimescaleStore()  # Uses TIMESCALE_* env vars
 
 
 class BacktestRequest(BaseModel):
@@ -248,6 +267,8 @@ async def get_backtest_status(
     """
     Get the status of a running or completed backtest.
 
+    Checks both database and in-memory state.
+
     Args:
         backtest_id: Backtest ID
         current_user: Authenticated user
@@ -255,10 +276,32 @@ async def get_backtest_status(
     Returns:
         Backtest status
     """
-    if backtest_id not in _running_backtests:
-        raise HTTPException(status_code=404, detail="Backtest not found")
+    # First check in-memory state (for running backtests)
+    if backtest_id in _running_backtests:
+        return _running_backtests[backtest_id]
 
-    return _running_backtests[backtest_id]
+    # Then check database (for completed backtests)
+    try:
+        ts_store = _get_timescale_store()
+        try:
+            backtest_run = ts_store.get_backtest_run(backtest_id)
+            if backtest_run:
+                # Convert to format expected by frontend
+                return {
+                    "backtest_id": backtest_run['backtest_id'],
+                    "status": backtest_run['status'],
+                    "started_at": backtest_run.get('started_at').isoformat() if backtest_run.get('started_at') else None,
+                    "completed_at": backtest_run.get('completed_at').isoformat() if backtest_run.get('completed_at') else None,
+                    "error": backtest_run.get('error_message'),
+                    "result_files": None,  # Database-backed backtests don't have file paths
+                }
+        finally:
+            ts_store.close()
+    except Exception as e:
+        print(f"Error checking database for backtest status: {e}")
+
+    # Not found in either location
+    raise HTTPException(status_code=404, detail="Backtest not found")
 
 
 @router.get("/{backtest_id}/results")
@@ -269,6 +312,8 @@ async def get_backtest_results(
     """
     Get the results of a completed backtest.
 
+    Fetches from PostgreSQL database first, falls back to CSV files if not found.
+
     Args:
         backtest_id: Backtest ID
         current_user: Authenticated user
@@ -276,8 +321,106 @@ async def get_backtest_results(
     Returns:
         Backtest results (trades and equity data)
     """
+    # Try fetching from PostgreSQL database first
+    try:
+        ts_store = _get_timescale_store()
+        try:
+            # Get backtest metadata
+            backtest_run = ts_store.get_backtest_run(backtest_id)
+            print(f"Database lookup for {backtest_id}: {'Found' if backtest_run else 'Not found'}")
+
+            if backtest_run:
+                # Get trades and equity curve from database
+                trades_df = ts_store.get_backtest_trades(backtest_id)
+                equity_df = ts_store.get_backtest_equity_curve(backtest_id)
+
+                # Convert DataFrames to list of dicts for JSON serialization
+                trades_data = trades_df.to_dict('records') if not trades_df.empty else []
+                equity_data = equity_df.to_dict('records') if not equity_df.empty else []
+
+                # Convert timestamps to ISO strings for JSON serialization
+                import math
+
+                for trade in trades_data:
+                    # Parse legs JSON
+                    if 'legs' in trade and isinstance(trade['legs'], str):
+                        trade['legs'] = json.loads(trade['legs'])
+                    # Convert timestamp fields
+                    for field in ['entry_time', 'exit_time']:
+                        if field in trade and trade[field] is not None:
+                            if hasattr(trade[field], 'isoformat'):
+                                trade[field] = trade[field].isoformat()
+                    # Convert NaN/Inf to None for JSON serialization
+                    for key, value in list(trade.items()):
+                        if isinstance(value, float):
+                            if math.isnan(value) or math.isinf(value):
+                                trade[key] = None
+
+                for point in equity_data:
+                    # Convert timestamp to ISO string
+                    if 'timestamp' in point and point['timestamp'] is not None:
+                        if hasattr(point['timestamp'], 'isoformat'):
+                            point['timestamp'] = point['timestamp'].isoformat()
+                    # Convert NaN/Inf to None for JSON serialization
+                    for key, value in list(point.items()):
+                        if isinstance(value, float):
+                            if math.isnan(value) or math.isinf(value):
+                                point[key] = None
+
+                # Build metrics from database (handle None values)
+                def safe_float(value, default=0.0):
+                    """Safely convert to float, handling None."""
+                    return float(value) if value is not None else default
+
+                def safe_int(value, default=0):
+                    """Safely convert to int, handling None."""
+                    return int(value) if value is not None else default
+
+                # Database stores percentages as 0-100, frontend expects 0-1 for some fields
+                metrics = {
+                    "total_return": safe_float(backtest_run.get('total_return_pct')),
+                    "max_drawdown": safe_float(backtest_run.get('max_drawdown')),
+                    "win_rate": safe_float(backtest_run.get('win_rate')) / 100.0,  # Convert 100.0 → 1.0
+                    "sharpe_ratio": safe_float(backtest_run.get('sharpe_ratio')),
+                    "total_trades": safe_int(backtest_run.get('num_trades')),
+                    "num_winning_trades": safe_int(backtest_run.get('num_winning_trades')),
+                    "num_losing_trades": safe_int(backtest_run.get('num_losing_trades')),
+                    "avg_win": safe_float(backtest_run.get('avg_win')),
+                    "avg_loss": safe_float(backtest_run.get('avg_loss')),
+                    "profit_factor": safe_float(backtest_run.get('profit_factor')),
+                }
+
+                # Get strategy parameters
+                parameters = backtest_run.get('parameters', {})
+                if isinstance(parameters, str):
+                    import json
+                    parameters = json.loads(parameters)
+
+                return {
+                    "backtest_id": backtest_id,
+                    "trades": trades_data,
+                    "equity_curve": equity_data,
+                    "metrics": metrics,
+                    "parameters": parameters or {},
+                    "strategy_name": backtest_run.get('strategy_name'),
+                    "start_date": backtest_run.get('start_date').isoformat() if backtest_run.get('start_date') else None,
+                    "end_date": backtest_run.get('end_date').isoformat() if backtest_run.get('end_date') else None,
+                    "initial_capital": safe_float(backtest_run.get('initial_capital'), default=100000.0),
+                    "source": "database",
+                }
+        finally:
+            ts_store.close()
+    except Exception as e:
+        print(f"Failed to fetch from database: {e}, falling back to CSV files")
+        import traceback
+        traceback.print_exc()
+
+    # Fallback to CSV files (legacy behavior) - only if backtest exists in memory
     if backtest_id not in _running_backtests:
-        raise HTTPException(status_code=404, detail="Backtest not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Backtest '{backtest_id}' not found in database or in-memory state"
+        )
 
     backtest = _running_backtests[backtest_id]
 
@@ -303,32 +446,98 @@ async def get_backtest_results(
         "trades": trades_data,
         "equity_curve": equity_data,  # Frontend expects this name
         "metrics": metrics,
+        "source": "csv",
     }
 
 
 @router.get("/history")
 async def get_backtest_history(
     limit: int = 50,
+    strategy_name: Optional[str] = None,
     current_user: User = Depends(get_current_user),
 ):
     """
-    Get history of recent backtests.
+    Get history of recent backtests from PostgreSQL database.
 
     Args:
         limit: Maximum number of backtests to return
+        strategy_name: Filter by strategy name (optional)
         current_user: Authenticated user
 
     Returns:
         List of past backtests
     """
-    # Return in-memory backtest history
-    history = list(_running_backtests.values())
-    history.sort(key=lambda x: x.get("started_at", datetime.min), reverse=True)
+    try:
+        ts_store = _get_timescale_store()
+        try:
+            # Fetch backtest history from database
+            history = ts_store.get_backtest_history(
+                strategy_name=strategy_name,
+                limit=limit,
+            )
 
-    return {
-        "backtests": history[:limit],
-        "total": len(history),
-    }
+            # Convert datetime objects to ISO strings for JSON serialization
+            for backtest in history:
+                for key in ['created_at', 'started_at', 'completed_at', 'start_date', 'end_date']:
+                    if key in backtest:
+                        value = backtest[key]
+                        if value is not None:
+                            # Handle both datetime and date objects
+                            if hasattr(value, 'isoformat'):
+                                backtest[key] = value.isoformat()
+                            else:
+                                backtest[key] = str(value)
+                        # Leave None as None for proper JSON null serialization
+
+                # Parse parameters JSON if it's a string
+                if 'parameters' in backtest and isinstance(backtest['parameters'], str):
+                    try:
+                        backtest['parameters'] = json.loads(backtest['parameters'])
+                    except:
+                        backtest['parameters'] = {}
+
+                # Convert numeric types to native Python types for JSON
+                for key in ['total_return_pct', 'win_rate', 'sharpe_ratio', 'max_drawdown',
+                           'num_trades', 'final_capital', 'initial_capital']:
+                    if key in backtest and backtest[key] is not None:
+                        if hasattr(backtest[key], 'item'):
+                            backtest[key] = backtest[key].item()
+                        elif isinstance(backtest[key], (int, float)):
+                            backtest[key] = float(backtest[key]) if '.' in str(backtest[key]) or isinstance(backtest[key], float) else int(backtest[key])
+
+            return {
+                "backtests": history,
+                "total": len(history),
+                "source": "database",
+            }
+        finally:
+            ts_store.close()
+    except Exception as e:
+        print(f"Failed to fetch history from database: {e}, using in-memory state")
+
+        # Fallback to in-memory state
+        history = list(_running_backtests.values())
+
+        # Safe sorting - handle both datetime and string types
+        def get_sort_key(x):
+            """Get sortable key from started_at, handling both datetime and string."""
+            started = x.get("started_at")
+            if started is None:
+                return datetime.min
+            if isinstance(started, str):
+                try:
+                    return datetime.fromisoformat(started.replace('Z', '+00:00'))
+                except:
+                    return datetime.min
+            return started
+
+        history.sort(key=get_sort_key, reverse=True)
+
+        return {
+            "backtests": history[:limit],
+            "total": len(history),
+            "source": "memory",
+        }
 
 
 @router.get("/strategies")

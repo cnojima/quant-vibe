@@ -404,6 +404,49 @@ export function BacktestRunner() {
                 </Card>
               </div>
 
+              {/* Backtest Configuration */}
+              {backtestResults.parameters && Object.keys(backtestResults.parameters).length > 0 && (
+                <Card className="mb-6">
+                  <h3 className="text-lg font-semibold mb-4">Backtest Configuration</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <div className="text-sm text-gray-600 mb-1">Strategy</div>
+                      <div className="font-semibold">{backtestResults.strategy_name || 'N/A'}</div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-600 mb-1">Start Date</div>
+                      <div className="font-semibold">
+                        {backtestResults.start_date
+                          ? new Date(backtestResults.start_date).toLocaleDateString()
+                          : 'N/A'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-600 mb-1">End Date</div>
+                      <div className="font-semibold">
+                        {backtestResults.end_date
+                          ? new Date(backtestResults.end_date).toLocaleDateString()
+                          : 'N/A'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-600 mb-1">Initial Capital</div>
+                      <div className="font-semibold">{formatCurrency(backtestResults.initial_capital || 0)}</div>
+                    </div>
+                    {Object.entries(backtestResults.parameters).map(([key, value]) => (
+                      <div key={key}>
+                        <div className="text-sm text-gray-600 mb-1">
+                          {key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                        </div>
+                        <div className="font-semibold">
+                          {typeof value === 'number' ? value.toFixed(2) : String(value)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
               {/* Charts */}
               <Card className="mb-6">
                 <h3 className="text-lg font-semibold mb-4">Equity Curve</h3>
