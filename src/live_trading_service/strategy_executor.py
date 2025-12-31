@@ -236,28 +236,35 @@ class StrategyExecutor:
             )
             return
 
+        # Convert options_data DataFrame to dict format for order manager
+        # Format: {symbol: {bid, ask, ...}}
+        options_dict = {}
+        for _, row in options_data.iterrows():
+            symbol = row.get('contract_symbol')
+            if symbol:
+                options_dict[symbol] = row.to_dict()
+
         # Submit order
-        order_result = self.order_manager.submit_spread_order(
+        success, message, order = self.order_manager.submit_position_entry(
             position=position,
+            options_data=options_dict,
             strategy_name=strategy_name,
         )
 
-        if order_result is None:
-            logger.error(f"[{strategy_name}] Order submission failed")
+        if not success:
+            logger.error(f"[{strategy_name}] Order submission failed: {message}")
             self.state_store.log_event(
                 event_type="order_failed",
-                message=f"Order submission failed",
+                message=f"Order submission failed: {message}",
                 severity="error",
                 strategy_name=strategy_name,
             )
             return
 
-        # Track position with fill price
-        fill_price = order_result['filled_price']
+        # Track position
         self.position_manager.add_position(
             position=position,
             strategy_name=strategy_name,
-            fill_price=fill_price
         )
 
         # Update strategy state
