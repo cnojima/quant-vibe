@@ -233,6 +233,21 @@ export function useBacktestHistory(limit: number = 50) {
   });
 }
 
+export function useDeleteBacktest() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (backtestId: string) => {
+      const response = await apiClient.delete(`/backtests/${backtestId}`);
+      return response.data;
+    },
+    onSuccess: () => {
+      // Invalidate backtest history to refresh the list
+      queryClient.invalidateQueries({ queryKey: ['backtest-history'] });
+    },
+  });
+}
+
 // Configuration queries
 export function useConfigList() {
   return useQuery({

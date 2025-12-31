@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useStrategies, useRunBacktest, useBacktestStatus, useBacktestResults, useBacktestHistory } from '../api/queries';
+import { useStrategies, useRunBacktest, useBacktestStatus, useBacktestResults, useBacktestHistory, useDeleteBacktest } from '../api/queries';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
@@ -23,6 +23,7 @@ export function BacktestRunner() {
   const { data: backtestStatus } = useBacktestStatus(currentBacktestId);
   const { data: backtestResults } = useBacktestResults(currentBacktestId, backtestStatus?.status);
   const { data: history } = useBacktestHistory(50);
+  const deleteBacktest = useDeleteBacktest();
 
   const handleRunBacktest = async () => {
     if (!selectedStrategy || !startDate || !endDate) {
@@ -50,6 +51,19 @@ export function BacktestRunner() {
       setSelectedTab('results');
     } catch (error) {
       console.error('Failed to run backtest:', error);
+    }
+  };
+
+  const handleDeleteBacktest = async (backtestId: string) => {
+    if (!confirm('Are you sure you want to delete this backtest? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await deleteBacktest.mutateAsync(backtestId);
+    } catch (error) {
+      console.error('Failed to delete backtest:', error);
+      alert('Failed to delete backtest. Please try again.');
     }
   };
 
@@ -454,7 +468,22 @@ export function BacktestRunner() {
                   data={getEquityCurveData()}
                   initialCapital={initialCapital}
                   underlyingData={backtestResults?.underlying_bars || []}
+                  trades={backtestResults?.trades || []}
                 />
+                <div className="mt-4 text-sm text-gray-600 flex items-center gap-4">
+                  <span className="flex items-center gap-2">
+                    <span className="inline-block w-3 h-3 rounded-full bg-[#10b981] border-2 border-white"></span>
+                    Position Entry
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="inline-block w-3 h-3 rounded-full bg-[#22c55e] border-2 border-white"></span>
+                    Profitable Exit
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="inline-block w-3 h-3 rounded-full bg-[#ef4444] border-2 border-white"></span>
+                    Loss Exit
+                  </span>
+                </div>
               </Card>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -591,7 +620,7 @@ export function BacktestRunner() {
                   </div>
                 )}
 
-                <div className="mt-4">
+                <div className="mt-4 flex gap-2">
                   <Button
                     variant="secondary"
                     size="sm"
@@ -601,6 +630,15 @@ export function BacktestRunner() {
                     }}
                   >
                     View Results
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleDeleteBacktest(backtest.backtest_id)}
+                    disabled={deleteBacktest.isPending}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                  >
+                    {deleteBacktest.isPending ? 'Deleting...' : 'Delete'}
                   </Button>
                 </div>
               </Card>

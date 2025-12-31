@@ -39,10 +39,16 @@ watcher:
       heartbeat_topic: heartbeat.live_trading
       critical: true
 
-    # Admin UI (non-critical)
+    # Admin UI Backend (non-critical)
     - name: admin_ui
       type: http
       health_endpoint: http://admin_ui:8000/health
+      critical: false
+
+    # Admin UI Frontend (nginx) (non-critical)
+    - name: admin_ui_frontend
+      type: http
+      health_endpoint: http://admin_ui_frontend/health
       critical: false
 
     # Dynamic DNS updater (non-critical)

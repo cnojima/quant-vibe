@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
@@ -352,8 +353,63 @@ async def get_backtest_results(
                         print(f"  Retrieved {len(underlying_df)} underlying bars")
 
                         if not underlying_df.empty:
+                            # Downsample for multi-day backtests to reduce data size
+                            duration_days = (end_date - start_date).days
+                            num_bars = len(underlying_df)
+
+                            # Determine downsampling strategy based on duration
+                            # Target: ~500-1000 data points for chart rendering
+                            max_points = 1000
+
+                            # Ensure index is DatetimeIndex for resampling
+                            if not isinstance(underlying_df.index, pd.DatetimeIndex):
+                                print(f"  WARNING: Index is not DatetimeIndex, it's {type(underlying_df.index)}")
+                                underlying_df.index = pd.to_datetime(underlying_df.index)
+
+                            # Use time-based resampling (handles gaps/holidays correctly)
+                            try:
+                                if duration_days > 7:
+                                    # > 1 week: use 15-minute bars
+                                    underlying_df = underlying_df.resample('15min').agg({
+                                        'open': 'first',
+                                        'high': 'max',
+                                        'low': 'min',
+                                        'close': 'last',
+                                        'volume': 'sum'
+                                    }).dropna()
+                                    print(f"  Resampled to 15-min bars: {len(underlying_df)} bars (from {num_bars})")
+                                elif duration_days > 2:
+                                    # 3-7 days: use 5-minute bars
+                                    underlying_df = underlying_df.resample('5min').agg({
+                                        'open': 'first',
+                                        'high': 'max',
+                                        'low': 'min',
+                                        'close': 'last',
+                                        'volume': 'sum'
+                                    }).dropna()
+                                    print(f"  Resampled to 5-min bars: {len(underlying_df)} bars (from {num_bars})")
+                                else:
+                                    # <= 2 days: use all 1-minute bars
+                                    print(f"  Using 1-min bars: {len(underlying_df)} bars")
+                            except Exception as resample_error:
+                                print(f"  ERROR during resampling: {resample_error}")
+                                print(f"  Index type: {type(underlying_df.index)}")
+                                print(f"  Index sample: {underlying_df.index[:5] if len(underlying_df) > 0 else 'empty'}")
+                                # Fall back to simple step sampling
+                                if duration_days > 2:
+                                    step = 5 if duration_days <= 7 else 15
+                                    underlying_df = underlying_df.iloc[::step]
+                                    print(f"  Fallback: sampled every {step} bars: {len(underlying_df)} bars")
+
+                            # If still too many points, downsample further using step sampling
+                            if len(underlying_df) > max_points:
+                                step = len(underlying_df) // max_points
+                                underlying_df = underlying_df.iloc[::step]
+                                print(f"  Further downsampled to {len(underlying_df)} bars (step={step})")
+
                             # Reset index to include timestamp as a column
                             underlying_df = underlying_df.reset_index()
+                            print(f"  Final bar count: {len(underlying_df)}")
                             print(f"  Sample bar (with timestamp): {underlying_df.iloc[0].to_dict()}")
                             underlying_data = underlying_df.to_dict('records')
                         else:
@@ -587,6 +643,54 @@ async def get_backtest_history(
             "total": len(history),
             "source": "memory",
         }
+
+
+@router.delete("/{backtest_id}")
+async def delete_backtest(
+    backtest_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Delete a backtest and all associated data.
+
+    Args:
+        backtest_id: Backtest ID to delete
+        current_user: Authenticated user
+
+    Returns:
+        Success message
+    """
+    # Try deleting from database first
+    try:
+        ts_store = _get_timescale_store()
+        try:
+            deleted = ts_store.delete_backtest(backtest_id)
+            if deleted:
+                return {
+                    "success": True,
+                    "message": f"Backtest {backtest_id} deleted successfully",
+                    "source": "database",
+                }
+        finally:
+            ts_store.close()
+    except Exception as e:
+        print(f"Failed to delete from database: {e}")
+
+    # Also remove from in-memory state if present
+    if backtest_id in _running_backtests:
+        del _running_backtests[backtest_id]
+        _save_backtests(_running_backtests)
+        return {
+            "success": True,
+            "message": f"Backtest {backtest_id} deleted from memory",
+            "source": "memory",
+        }
+
+    # Not found in either location
+    raise HTTPException(
+        status_code=404,
+        detail=f"Backtest {backtest_id} not found"
+    )
 
 
 @router.get("/strategies")

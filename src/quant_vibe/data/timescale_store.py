@@ -1366,6 +1366,41 @@ class TimescaleStore:
                 results = cursor.fetchall()
                 return [dict(row) for row in results]
 
+    def delete_backtest(self, backtest_id: str) -> bool:
+        """
+        Delete a backtest and all associated data (trades, equity curve).
+
+        Args:
+            backtest_id: Unique backtest identifier
+
+        Returns:
+            True if deletion was successful, False if backtest not found
+        """
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                # Delete trades first (foreign key constraint)
+                cursor.execute(
+                    "DELETE FROM backtest_trades WHERE backtest_id = %s",
+                    (backtest_id,)
+                )
+
+                # Delete equity curve
+                cursor.execute(
+                    "DELETE FROM backtest_equity_curve WHERE backtest_id = %s",
+                    (backtest_id,)
+                )
+
+                # Delete backtest run
+                cursor.execute(
+                    "DELETE FROM backtest_runs WHERE backtest_id = %s",
+                    (backtest_id,)
+                )
+
+                deleted_count = cursor.rowcount
+                conn.commit()
+
+                return deleted_count > 0
+
     def close(self) -> None:
         """Close all connections in the pool and dispose of SQLAlchemy engine."""
         if self.pool:

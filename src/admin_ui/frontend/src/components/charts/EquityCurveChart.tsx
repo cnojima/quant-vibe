@@ -1,4 +1,4 @@
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceDot } from 'recharts';
 
 interface EquityCurveData {
   timestamp: string;
@@ -14,13 +14,20 @@ interface UnderlyingBar {
   volume: number;
 }
 
+interface TradeData {
+  entry_time: string;
+  exit_time: string;
+  pnl?: number;
+}
+
 interface EquityCurveChartProps {
   data: EquityCurveData[];
   initialCapital?: number;
   underlyingData?: UnderlyingBar[];
+  trades?: TradeData[];
 }
 
-export function EquityCurveChart({ data, underlyingData = [] }: EquityCurveChartProps) {
+export function EquityCurveChart({ data, underlyingData = [], trades = [] }: EquityCurveChartProps) {
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -42,25 +49,89 @@ export function EquityCurveChart({ data, underlyingData = [] }: EquityCurveChart
     }).format(value);
   };
 
-  // Create a timestamp lookup map for faster matching
-  const underlyingMap = new Map<string, number>();
-  underlyingData.forEach(bar => {
-    // Normalize timestamp to ISO string without milliseconds
-    const normalizedTimestamp = new Date(bar.timestamp).toISOString();
-    underlyingMap.set(normalizedTimestamp, bar.close);
-  });
+  // Sort and prepare underlying data with timestamps
+  const underlyingSorted = underlyingData
+    .map(bar => ({
+      time: new Date(bar.timestamp).getTime(),
+      close: bar.close,
+    }))
+    .sort((a, b) => a.time - b.time);
 
-  // Merge equity curve and underlying data by timestamp
+  // Merge equity curve and underlying data using efficient nearest-neighbor matching
+  // This handles different granularities (1-min equity vs 5-min underlying)
+  let underlyingIndex = 0;
   const mergedData = data.map(equityPoint => {
-    // Normalize timestamp to ISO string without milliseconds
-    const normalizedTimestamp = new Date(equityPoint.timestamp).toISOString();
-    const underlyingPrice = underlyingMap.get(normalizedTimestamp) || null;
+    const equityTime = new Date(equityPoint.timestamp).getTime();
+
+    // If no underlying data, return null price
+    if (underlyingSorted.length === 0) {
+      return {
+        timestamp: equityPoint.timestamp,
+        portfolioValue: equityPoint.value,
+        underlyingPrice: null,
+      };
+    }
+
+    // Advance index to the last bar at or before equity time
+    while (
+      underlyingIndex < underlyingSorted.length - 1 &&
+      underlyingSorted[underlyingIndex + 1].time <= equityTime
+    ) {
+      underlyingIndex++;
+    }
+
+    // Get the underlying price if within 10 minutes
+    const currentBar = underlyingSorted[underlyingIndex];
+    const timeDiff = equityTime - currentBar.time;
+    const underlyingPrice = timeDiff >= 0 && timeDiff <= 10 * 60 * 1000
+      ? currentBar.close
+      : null;
 
     return {
       timestamp: equityPoint.timestamp,
       portfolioValue: equityPoint.value,
-      underlyingPrice: underlyingPrice,
+      underlyingPrice,
     };
+  });
+
+  // Process trade entry/exit points to match with equity curve data
+  const tradeMarkers = trades.flatMap(trade => {
+    const markers = [];
+
+    // Entry marker
+    if (trade.entry_time) {
+      const entryTime = new Date(trade.entry_time).getTime();
+      const entryPoint = mergedData.find(d =>
+        Math.abs(new Date(d.timestamp).getTime() - entryTime) < 60000 // Within 1 minute
+      );
+
+      if (entryPoint) {
+        markers.push({
+          timestamp: entryPoint.timestamp,
+          portfolioValue: entryPoint.portfolioValue,
+          type: 'entry' as const,
+        });
+      }
+    }
+
+    // Exit marker
+    if (trade.exit_time) {
+      const exitTime = new Date(trade.exit_time).getTime();
+      const exitPoint = mergedData.find(d =>
+        Math.abs(new Date(d.timestamp).getTime() - exitTime) < 60000 // Within 1 minute
+      );
+
+      if (exitPoint) {
+        markers.push({
+          timestamp: exitPoint.timestamp,
+          portfolioValue: exitPoint.portfolioValue,
+          type: 'exit' as const,
+          pnl: trade.pnl,
+        });
+      }
+    }
+
+    return markers;
   });
 
   // Debug: Check if we have underlying data
@@ -71,6 +142,7 @@ export function EquityCurveChart({ data, underlyingData = [] }: EquityCurveChart
   console.log('EquityCurveChart - Underlying data points:', underlyingData.length);
   console.log('EquityCurveChart - Equity data points:', data.length);
   console.log('EquityCurveChart - Matched data points:', matchedCount);
+  console.log('EquityCurveChart - Trade markers:', tradeMarkers.length);
 
   if (underlyingData.length > 0) {
     console.log('EquityCurveChart - Sample underlying bar:', underlyingData[0]);
@@ -145,10 +217,42 @@ export function EquityCurveChart({ data, underlyingData = [] }: EquityCurveChart
             strokeWidth={2}
             dot={false}
             name="SPX Price"
-            strokeDasharray="5 5"
-            connectNulls={false}
+            connectNulls={true}
           />
         )}
+        {/* Trade Entry Points - Green Circles */}
+        {tradeMarkers
+          .filter(marker => marker.type === 'entry')
+          .map((marker, index) => (
+            <ReferenceDot
+              key={`entry-${index}`}
+              yAxisId="left"
+              x={marker.timestamp}
+              y={marker.portfolioValue}
+              r={6}
+              fill="#10b981"
+              stroke="#ffffff"
+              strokeWidth={2}
+            />
+          ))}
+        {/* Trade Exit Points - Colored by P&L */}
+        {tradeMarkers
+          .filter(marker => marker.type === 'exit')
+          .map((marker, index) => {
+            const isProfit = (marker.pnl ?? 0) >= 0;
+            return (
+              <ReferenceDot
+                key={`exit-${index}`}
+                yAxisId="left"
+                x={marker.timestamp}
+                y={marker.portfolioValue}
+                r={6}
+                fill={isProfit ? '#22c55e' : '#ef4444'}
+                stroke="#ffffff"
+                strokeWidth={2}
+              />
+            );
+          })}
       </LineChart>
     </ResponsiveContainer>
   );

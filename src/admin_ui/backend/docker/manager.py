@@ -155,6 +155,7 @@ class DockerManager:
             "timescaledb",
             "redis",
             "admin_ui",
+            "admin_ui_frontend",
             "watcher",
             "token-service",
             "dyndns",
