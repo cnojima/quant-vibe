@@ -47,6 +47,7 @@ export interface OptionLeg {
   current_price: number | null;
   strike_price: number;
   contract_type: 'call' | 'put';
+  option_type?: string;
   expiration_date: string;
 }
 

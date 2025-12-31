@@ -16,8 +16,6 @@ import type {
   LoginResponse,
   StrategyInfo,
   StrategyListResponse,
-  StrategyToggleRequest,
-  StrategyUpdateRequest,
 } from '../types/api';
 
 // Auth queries

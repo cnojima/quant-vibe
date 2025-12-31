@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { WebSocketMessage } from '../types/api';
 
 interface UseWebSocketOptions {
   onMessage?: (data: any) => void;
@@ -31,7 +30,6 @@ export function useWebSocket<T = any>(
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const reconnectCountRef = useRef(0);
   const isUnmountingRef = useRef(false);
-  const isMountedRef = useRef(false);
 
   const connect = useCallback(() => {
     // Prevent duplicate connections
@@ -154,7 +152,7 @@ export function useWebSocket<T = any>(
       // Only close WebSocket when component is truly unmounting
       // In React StrictMode (development), cleanup runs twice but we want to keep the connection
       // Set a small timeout to check if component is remounting (StrictMode) or truly unmounting
-      const cleanupTimeout = setTimeout(() => {
+      setTimeout(() => {
         if (ws.current) {
           console.log('[WebSocket] Cleanup: closing connection (true unmount)');
           isUnmountingRef.current = true;
@@ -162,11 +160,6 @@ export function useWebSocket<T = any>(
           ws.current = null;
         }
       }, 100);
-
-      // If component remounts quickly (StrictMode), this will be cleared
-      return () => {
-        clearTimeout(cleanupTimeout);
-      };
     };
   }, [connect]);
 
