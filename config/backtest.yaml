@@ -60,7 +60,7 @@ strategies:
 
         # Option selection
         min_dte: 0                    # Minimum days to expiration
-        max_dte: 45                   # Maximum days to expiration
+        max_dte: 2                    # Maximum days to expiration (0-2 DTE)
         num_spreads: 10               # Number of spreads per trade
 
         # Liquidity filters

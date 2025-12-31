@@ -449,8 +449,12 @@ export function BacktestRunner() {
 
               {/* Charts */}
               <Card className="mb-6">
-                <h3 className="text-lg font-semibold mb-4">Equity Curve</h3>
-                <EquityCurveChart data={getEquityCurveData()} initialCapital={initialCapital} />
+                <h3 className="text-lg font-semibold mb-4">Equity Curve & Underlying Price</h3>
+                <EquityCurveChart
+                  data={getEquityCurveData()}
+                  initialCapital={initialCapital}
+                  underlyingData={backtestResults?.underlying_bars || []}
+                />
               </Card>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">

@@ -92,6 +92,7 @@ class DockerManager:
                 "name": service_name,
                 "status": ServiceStatus.NOT_FOUND.value,
                 "message": "Container not found",
+                "uptime_seconds": 0,
             }
 
         try:
@@ -108,6 +109,19 @@ class DockerManager:
             else:
                 service_status = ServiceStatus.ERROR
 
+            # Calculate uptime for running containers
+            uptime_seconds = 0
+            started_at_str = container.attrs.get("State", {}).get("StartedAt")
+            if status == "running" and started_at_str:
+                try:
+                    # Parse Docker timestamp (ISO 8601 format)
+                    # Remove nanoseconds and parse
+                    started_at_str = started_at_str.split(".")[0] + "Z"
+                    started_at = datetime.fromisoformat(started_at_str.replace("Z", "+00:00"))
+                    uptime_seconds = int((datetime.now(started_at.tzinfo) - started_at).total_seconds())
+                except (ValueError, AttributeError):
+                    uptime_seconds = 0
+
             return {
                 "name": service_name,
                 "status": service_status.value,  # Use .value to get string
@@ -115,7 +129,8 @@ class DockerManager:
                 "container_id": container.short_id,
                 "image": container.image.tags[0] if container.image.tags else "unknown",
                 "created": container.attrs.get("Created"),
-                "started_at": container.attrs.get("State", {}).get("StartedAt"),
+                "started_at": started_at_str,
+                "uptime_seconds": uptime_seconds,
                 "ports": container.attrs.get("NetworkSettings", {}).get("Ports", {}),
             }
         except Exception as e:
@@ -123,6 +138,7 @@ class DockerManager:
                 "name": service_name,
                 "status": ServiceStatus.ERROR.value,
                 "message": str(e),
+                "uptime_seconds": 0,
             }
 
     def list_services(self) -> list[dict[str, Any]]:
@@ -139,6 +155,9 @@ class DockerManager:
             "timescaledb",
             "redis",
             "admin_ui",
+            "watcher",
+            "token-service",
+            "dyndns",
         ]
 
         return [self.get_service_status(service) for service in services]

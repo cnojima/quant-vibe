@@ -156,6 +156,18 @@ export interface Trade {
   legs: OptionLeg[];
 }
 
+export interface UnderlyingBar {
+  timestamp: string;
+  ticker: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  vwap?: number;
+  transactions?: number;
+}
+
 export interface BacktestResult {
   backtest_id: string;
   strategy_name: string;
@@ -171,6 +183,7 @@ export interface BacktestResult {
   sharpe_ratio: number | null;
   max_drawdown: number | null;
   equity_curve: EquityPoint[];
+  underlying_bars?: UnderlyingBar[];
   trades: Trade[];
   status?: 'pending' | 'running' | 'completed' | 'failed';
   created_at?: string;

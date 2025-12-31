@@ -334,6 +334,38 @@ async def get_backtest_results(
                 trades_df = ts_store.get_backtest_trades(backtest_id)
                 equity_df = ts_store.get_backtest_equity_curve(backtest_id)
 
+                # Get underlying price bars for the backtest date range
+                underlying_data = []
+                try:
+                    start_date = backtest_run.get('start_date')
+                    end_date = backtest_run.get('end_date')
+                    print(f"Fetching underlying bars for backtest {backtest_id}")
+                    print(f"  Start date: {start_date}, End date: {end_date}")
+
+                    if start_date and end_date:
+                        # Fetch underlying bars from database
+                        underlying_df = ts_store.get_underlying_bars(
+                            ticker='SPX',
+                            start_time=start_date,
+                            end_time=end_date
+                        )
+                        print(f"  Retrieved {len(underlying_df)} underlying bars")
+
+                        if not underlying_df.empty:
+                            # Reset index to include timestamp as a column
+                            underlying_df = underlying_df.reset_index()
+                            print(f"  Sample bar (with timestamp): {underlying_df.iloc[0].to_dict()}")
+                            underlying_data = underlying_df.to_dict('records')
+                        else:
+                            underlying_data = []
+                    else:
+                        print(f"  No start/end date found in backtest_run")
+                except Exception as e:
+                    print(f"ERROR: Could not fetch underlying bars: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    underlying_data = []
+
                 # Convert DataFrames to list of dicts for JSON serialization
                 trades_data = trades_df.to_dict('records') if not trades_df.empty else []
                 equity_data = equity_df.to_dict('records') if not equity_df.empty else []
@@ -367,6 +399,17 @@ async def get_backtest_results(
                             if math.isnan(value) or math.isinf(value):
                                 point[key] = None
 
+                for bar in underlying_data:
+                    # Convert timestamp to ISO string
+                    if 'timestamp' in bar and bar['timestamp'] is not None:
+                        if hasattr(bar['timestamp'], 'isoformat'):
+                            bar['timestamp'] = bar['timestamp'].isoformat()
+                    # Convert NaN/Inf to None for JSON serialization
+                    for key, value in list(bar.items()):
+                        if isinstance(value, float):
+                            if math.isnan(value) or math.isinf(value):
+                                bar[key] = None
+
                 # Build metrics from database (handle None values)
                 def safe_float(value, default=0.0):
                     """Safely convert to float, handling None."""
@@ -396,10 +439,16 @@ async def get_backtest_results(
                     import json
                     parameters = json.loads(parameters)
 
+                print(f"Returning backtest results:")
+                print(f"  Trades: {len(trades_data)}")
+                print(f"  Equity curve points: {len(equity_data)}")
+                print(f"  Underlying bars: {len(underlying_data)}")
+
                 return {
                     "backtest_id": backtest_id,
                     "trades": trades_data,
                     "equity_curve": equity_data,
+                    "underlying_bars": underlying_data,
                     "metrics": metrics,
                     "parameters": parameters or {},
                     "strategy_name": backtest_run.get('strategy_name'),
