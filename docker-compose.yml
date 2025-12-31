@@ -204,7 +204,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-secret-key}
       # CORS origins (include nginx frontend)
-      CORS_ORIGINS: http://localhost:3000,http://localhost:8000,http://localhost:80,http://localhost
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:8000,http://localhost:80,http://localhost}
       # Schwab API credentials (for token refresh)
       SCHWAB_API_KEY: ${SCHWAB_API_KEY}
       SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}

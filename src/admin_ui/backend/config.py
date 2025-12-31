@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional, Union
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +19,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",  # Ignore extra fields from environment
     )
 
     # Application
@@ -38,7 +39,11 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 24  # 24 hours
 
     # CORS (can be comma-separated string or list)
-    cors_origins: Union[str, list[str]] = "http://localhost:3000,http://localhost:8000"
+    # Explicitly map to CORS_ORIGINS environment variable
+    cors_origins: Union[str, list[str]] = Field(
+        default="http://localhost:3000,http://localhost:8000",
+        validation_alias="CORS_ORIGINS",
+    )
 
     @model_validator(mode="before")
     @classmethod

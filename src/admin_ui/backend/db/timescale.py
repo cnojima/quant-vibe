@@ -7,6 +7,7 @@ Provides async connection pool and query methods for:
 - Events and logs
 """
 
+import json
 from datetime import datetime
 from typing import Any, Optional
 
@@ -68,11 +69,11 @@ async def fetch_engine_state() -> Optional[dict[str, Any]]:
         SELECT
             timestamp,
             state,
-            paper_trading,
-            total_bars_processed,
-            total_signals_generated,
-            uptime_seconds,
-            metadata
+            metadata,
+            (metadata->>'paper_trading')::boolean as paper_trading,
+            (metadata->>'total_bars_processed')::integer as total_bars_processed,
+            (metadata->>'total_signals_generated')::integer as total_signals_generated,
+            (metadata->>'uptime_seconds')::numeric as uptime_seconds
         FROM live_engine_state
         ORDER BY timestamp DESC
         LIMIT 1
@@ -81,7 +82,13 @@ async def fetch_engine_state() -> Optional[dict[str, Any]]:
     async with pool.acquire() as conn:
         row = await conn.fetchrow(query)
         if row:
-            return dict(row)
+            result = dict(row)
+            # Handle None values gracefully
+            result['paper_trading'] = result.get('paper_trading', True)
+            result['total_bars_processed'] = result.get('total_bars_processed', 0)
+            result['total_signals_generated'] = result.get('total_signals_generated', 0)
+            result['uptime_seconds'] = result.get('uptime_seconds', 0.0)
+            return result
         return None
 
 
@@ -104,7 +111,7 @@ async def fetch_active_positions(limit: int = 100) -> list[dict[str, Any]]:
             entry_time,
             entry_cost,
             current_value,
-            unrealized_pnl,
+            (COALESCE(current_value, 0) - entry_cost) as unrealized_pnl,
             legs,
             metadata
         FROM live_positions
@@ -115,7 +122,16 @@ async def fetch_active_positions(limit: int = 100) -> list[dict[str, Any]]:
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(query, limit)
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            pos = dict(row)
+            # Parse JSONB fields if they're strings
+            if isinstance(pos.get('legs'), str):
+                pos['legs'] = json.loads(pos['legs'])
+            if isinstance(pos.get('metadata'), str):
+                pos['metadata'] = json.loads(pos['metadata'])
+            result.append(pos)
+        return result
 
 
 async def fetch_closed_positions(limit: int = 100) -> list[dict[str, Any]]:
@@ -138,7 +154,7 @@ async def fetch_closed_positions(limit: int = 100) -> list[dict[str, Any]]:
             entry_cost,
             exit_time,
             exit_value,
-            realized_pnl,
+            (COALESCE(exit_value, 0) - entry_cost) as realized_pnl,
             exit_reason,
             legs,
             metadata
@@ -150,7 +166,16 @@ async def fetch_closed_positions(limit: int = 100) -> list[dict[str, Any]]:
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(query, limit)
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            pos = dict(row)
+            # Parse JSONB fields if they're strings
+            if isinstance(pos.get('legs'), str):
+                pos['legs'] = json.loads(pos['legs'])
+            if isinstance(pos.get('metadata'), str):
+                pos['metadata'] = json.loads(pos['metadata'])
+            result.append(pos)
+        return result
 
 
 async def fetch_open_orders(limit: int = 100) -> list[dict[str, Any]]:
@@ -174,7 +199,7 @@ async def fetch_open_orders(limit: int = 100) -> list[dict[str, Any]]:
             submitted_time,
             symbol,
             quantity,
-            limit_price,
+            expected_price as limit_price,
             metadata
         FROM live_orders
         WHERE status IN ('pending', 'submitted', 'accepted')
@@ -184,7 +209,14 @@ async def fetch_open_orders(limit: int = 100) -> list[dict[str, Any]]:
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(query, limit)
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            order = dict(row)
+            # Parse JSONB metadata field if it's a string
+            if isinstance(order.get('metadata'), str):
+                order['metadata'] = json.loads(order['metadata'])
+            result.append(order)
+        return result
 
 
 async def fetch_recent_events(
@@ -228,7 +260,7 @@ async def fetch_recent_events(
             event_type,
             severity,
             message,
-            metadata
+            details as metadata
         FROM live_events
         {where_sql}
         ORDER BY timestamp DESC
@@ -239,7 +271,14 @@ async def fetch_recent_events(
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(query, *params)
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            event = dict(row)
+            # Parse JSONB metadata field if it's a string (aliased as metadata from details)
+            if isinstance(event.get('metadata'), str):
+                event['metadata'] = json.loads(event['metadata'])
+            result.append(event)
+        return result
 
 
 async def fetch_trading_stats(
@@ -276,6 +315,12 @@ async def fetch_trading_stats(
     where_sql = " AND ".join(where_clauses)
 
     query = f"""
+        WITH pnl_calc AS (
+            SELECT
+                (COALESCE(exit_value, 0) - entry_cost) as realized_pnl
+            FROM live_positions
+            WHERE {where_sql}
+        )
         SELECT
             COUNT(*) as total_trades,
             SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
@@ -286,8 +331,7 @@ async def fetch_trading_stats(
             MIN(realized_pnl) as max_loss,
             AVG(CASE WHEN realized_pnl > 0 THEN realized_pnl END) as avg_win,
             AVG(CASE WHEN realized_pnl <= 0 THEN realized_pnl END) as avg_loss
-        FROM live_positions
-        WHERE {where_sql}
+        FROM pnl_calc
     """
 
     async with pool.acquire() as conn:
