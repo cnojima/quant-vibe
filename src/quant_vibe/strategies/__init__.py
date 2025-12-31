@@ -14,6 +14,7 @@ from .multi_rsi import MultiRSIStrategy
 from .rsi_macd_confirmation import RSIMACDConfirmationStrategy
 from .bearish_iv_scalp import BearishIVScalpStrategy
 from .coin_toss import CoinTossStrategy
+from .coin_toss_limit import CoinTossLimitStrategy
 
 __all__ = [
     "Strategy",
@@ -31,4 +32,5 @@ __all__ = [
     "RSIMACDConfirmationStrategy",
     "BearishIVScalpStrategy",
     "CoinTossStrategy",
+    "CoinTossLimitStrategy",
 ]

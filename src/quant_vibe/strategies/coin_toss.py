@@ -120,7 +120,7 @@ class CoinTossStrategy(OptionsStrategy):
         underlying_data: pd.DataFrame,
         options_data: pd.DataFrame,
         current_time: datetime,
-        analysis: Dict[str, Any],
+        market_analysis: Dict[str, Any],
     ) -> bool:
         """
         Check if we should enter a position.
@@ -133,7 +133,7 @@ class CoinTossStrategy(OptionsStrategy):
             return False
 
         # Don't enter if no signal
-        if not analysis.get("signal", False):
+        if not market_analysis.get("signal", False):
             return False
 
         return True
@@ -143,7 +143,7 @@ class CoinTossStrategy(OptionsStrategy):
         underlying_data: pd.DataFrame,
         options_data: pd.DataFrame,
         current_time: datetime,
-        analysis: Dict[str, Any],
+        market_analysis: Dict[str, Any],
         full_options_data: Optional[pd.DataFrame] = None,
     ) -> Optional[OptionsPosition]:
         """
@@ -153,13 +153,13 @@ class CoinTossStrategy(OptionsStrategy):
             underlying_data: OHLCV data for underlying
             options_data: Filtered options data for current time
             current_time: Current timestamp
-            analysis: Market analysis from analyze_market()
+            market_analysis: Market analysis from analyze_market()
             full_options_data: Complete options dataset (optional, for advanced filtering)
 
         Returns:
             OptionsPosition with one leg, or None if no suitable option found
         """
-        direction = analysis.get("direction")
+        direction = market_analysis.get("direction")
         if direction not in ["call", "put"]:
             return None
 
@@ -299,6 +299,19 @@ class CoinTossStrategy(OptionsStrategy):
 
         # Check profit target (from position.profit_target)
         if pnl_pct >= position.profit_target:
+            # Override position value to use bid price (what we'd actually get when selling)
+            # This prevents P&L distortion from wide bid/ask spreads
+            leg = position.legs[0]
+            leg_data = options_data[options_data['contract_symbol'] == leg.contract_symbol]
+            if not leg_data.empty:
+                bid_price = leg_data.iloc[0]['bid']
+                if not pd.isna(bid_price) and bid_price > 0:
+                    position.current_value = bid_price * leg.quantity * 100
+                    position.legs[0].current_price = bid_price
+                    # Recalculate P&L with actual bid price
+                    pnl = position.current_value - position.entry_cost
+                    pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
+
             return True, f"Profit target ({position.profit_target*100:.0f}%) reached - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 
         # Check stop loss if configured (from position.stop_loss)
@@ -306,6 +319,17 @@ class CoinTossStrategy(OptionsStrategy):
         # pnl_pct is negative when losing (e.g., -0.30 for -30% loss)
         if position.stop_loss is not None:
             if pnl_pct <= -abs(position.stop_loss):
+                # Use bid price for exit value
+                leg = position.legs[0]
+                leg_data = options_data[options_data['contract_symbol'] == leg.contract_symbol]
+                if not leg_data.empty:
+                    bid_price = leg_data.iloc[0]['bid']
+                    if not pd.isna(bid_price) and bid_price > 0:
+                        position.current_value = bid_price * leg.quantity * 100
+                        position.legs[0].current_price = bid_price
+                        pnl = position.current_value - position.entry_cost
+                        pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
+
                 return True, f"Stop loss ({abs(position.stop_loss)*100:.0f}%) hit - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 
         # Exit at end of day (4 PM ET) or if it's expiration day
@@ -317,10 +341,30 @@ class CoinTossStrategy(OptionsStrategy):
         leg = position.legs[0]
 
         if current_time_et.time() >= exit_time:
+            # Use bid price for exit value
+            leg_data = options_data[options_data['contract_symbol'] == leg.contract_symbol]
+            if not leg_data.empty:
+                bid_price = leg_data.iloc[0]['bid']
+                if not pd.isna(bid_price) and bid_price > 0:
+                    position.current_value = bid_price * leg.quantity * 100
+                    position.legs[0].current_price = bid_price
+                    pnl = position.current_value - position.entry_cost
+                    pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
+
             return True, f"End of day exit - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 
         # Force exit if past expiration date (should not happen in normal flow)
         if current_time.date() > leg.expiration_date.date():
+            # Use bid price for exit value
+            leg_data = options_data[options_data['contract_symbol'] == leg.contract_symbol]
+            if not leg_data.empty:
+                bid_price = leg_data.iloc[0]['bid']
+                if not pd.isna(bid_price) and bid_price > 0:
+                    position.current_value = bid_price * leg.quantity * 100
+                    position.legs[0].current_price = bid_price
+                    pnl = position.current_value - position.entry_cost
+                    pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
+
             return True, f"Past expiration - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 
         return False, None

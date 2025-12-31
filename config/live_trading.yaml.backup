@@ -11,26 +11,26 @@ strategies:
     enabled: true
     params:
       max_trades_daily: 1
-      spread_width: 10.0
+      spread_width: 10
       observation_period: 30
-      pullback_amount: 50.0
+      pullback_amount: 50
       profit_target_min: 0.5
-      profit_target_max: 1.0
+      profit_target_max: 1
       trailing_stop_pct: 0.05
       min_dte: 0
       max_dte: 45
       num_spreads: 10
       min_volume: 50
-      min_bid_ask_spread_pct: 10.0
+      min_bid_ask_spread_pct: 10
   - name: bullish_vertical_call
     enabled: true
     params:
       max_trades_daily: 1
-      spread_width: 20.0
+      spread_width: 20
       observation_period: 30
-      pullback_amount: 50.0
+      pullback_amount: 50
       profit_target_min: 0.5
-      profit_target_max: 1.0
+      profit_target_max: 1
       trailing_stop_pct: 0.05
       min_dte: 7
       max_dte: 45
@@ -38,7 +38,7 @@ strategies:
   - name: bearish_iv_scalp
     enabled: true
     params:
-      spread_width: 10.0
+      spread_width: 10
       observation_period: 15
       iv_threshold: 0.15
       iv_spike_pct: 0.1
@@ -50,22 +50,22 @@ strategies:
       max_dte: 0
       num_spreads: 5
       min_volume: 20
-      min_bid_ask_spread_pct: 15.0
+      min_bid_ask_spread_pct: 15
       max_trades_daily: 2
       momentum_lookback: 5
       iv_lookback: 30
   - name: coin_toss
-    enabled: false  # WARNING: Experimental/naive strategy - not recommended for live trading
+    enabled: true
     params:
-      target_price: 2.0
-      buy_limit: 1.0
-      sell_target: 2.0
-      price_tolerance: 0.50
-      max_trades_per_day: 5
+      target_price: 2
+      buy_limit: 1
+      sell_target: 2
+      price_tolerance: 0.5
+      max_trades_daily: 5
       quantity: 10
       min_dte: 0
       max_dte: 45
-      profit_target_pct: 1.0
+      profit_target_pct: 1
       stop_loss_pct: null
 data_feed:
   window_size: 100

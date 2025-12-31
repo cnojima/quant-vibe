@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useStrategies, useRunBacktest, useBacktestStatus, useBacktestResults, useBacktestHistory, useDeleteBacktest } from '../api/queries';
+import { useStrategies, useRunBacktest, useBacktestStatus, useBacktestResults, useBacktestHistory, useDeleteBacktest, useDeleteAllBacktests } from '../api/queries';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
@@ -27,6 +27,7 @@ export function BacktestRunner() {
   const { data: backtestResults } = useBacktestResults(currentBacktestId, backtestStatus?.status);
   const { data: history } = useBacktestHistory(50);
   const deleteBacktest = useDeleteBacktest();
+  const deleteAllBacktests = useDeleteAllBacktests();
 
   // Invalidate history when backtest completes
   useEffect(() => {
@@ -76,6 +77,26 @@ export function BacktestRunner() {
     } catch (error) {
       console.error('Failed to delete backtest:', error);
       alert('Failed to delete backtest. Please try again.');
+    }
+  };
+
+  const handleDeleteAllBacktests = async () => {
+    const count = history?.length || 0;
+    if (!confirm(`⚠️ WARNING: This will permanently delete ALL ${count} backtests from the database and filesystem.\n\nThis action CANNOT be undone!\n\nAre you absolutely sure?`)) {
+      return;
+    }
+
+    // Double confirmation
+    if (!confirm('This is your final warning. Delete ALL backtests?')) {
+      return;
+    }
+
+    try {
+      const result = await deleteAllBacktests.mutateAsync();
+      alert(`Successfully deleted ${result.deleted_count} backtests and ${result.deleted_files_count} report files.`);
+    } catch (error) {
+      console.error('Failed to delete all backtests:', error);
+      alert('Failed to delete all backtests. Please try again.');
     }
   };
 
@@ -352,6 +373,29 @@ export function BacktestRunner() {
                 variant="secondary"
                 className="w-full"
                 onClick={() => {
+                  const today = new Date();
+                  let dateToUse = new Date(today);
+
+                  // If today is a weekend, use last Friday
+                  if (today.getDay() === 0) {
+                    // Sunday - use Friday
+                    dateToUse.setDate(today.getDate() - 2);
+                  } else if (today.getDay() === 6) {
+                    // Saturday - use Friday
+                    dateToUse.setDate(today.getDate() - 1);
+                  }
+
+                  const dateStr = dateToUse.toISOString().split('T')[0];
+                  setStartDate(dateStr);
+                  setEndDate(dateStr);
+                }}
+              >
+                Today
+              </Button>
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={() => {
                   const yesterday = new Date();
                   yesterday.setDate(yesterday.getDate() - 1);
                   // If yesterday was a weekend, go back to Friday
@@ -364,6 +408,58 @@ export function BacktestRunner() {
                 }}
               >
                 Yesterday
+              </Button>
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={() => {
+                  const today = new Date();
+                  const dayOfWeek = today.getDay();
+                  // Calculate days since Monday (1 = Monday, 0 = Sunday)
+                  const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+                  const startOfWeek = new Date(today);
+                  startOfWeek.setDate(today.getDate() - daysSinceMonday);
+
+                  // If today is Saturday or Sunday, use last Friday as end
+                  const endOfWeek = new Date(today);
+                  if (dayOfWeek === 0) {
+                    // Sunday - use Friday
+                    endOfWeek.setDate(today.getDate() - 2);
+                  } else if (dayOfWeek === 6) {
+                    // Saturday - use Friday
+                    endOfWeek.setDate(today.getDate() - 1);
+                  }
+
+                  setStartDate(startOfWeek.toISOString().split('T')[0]);
+                  setEndDate(endOfWeek.toISOString().split('T')[0]);
+                }}
+              >
+                This Week
+              </Button>
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={() => {
+                  const today = new Date();
+                  const dayOfWeek = today.getDay();
+
+                  // Calculate days to go back to get to last Monday
+                  let daysToLastMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+                  daysToLastMonday += 7; // Go back one more week
+
+                  const lastMonday = new Date(today);
+                  lastMonday.setDate(today.getDate() - daysToLastMonday);
+
+                  // Last Friday is 4 days after last Monday
+                  const lastFriday = new Date(lastMonday);
+                  lastFriday.setDate(lastMonday.getDate() + 4);
+
+                  setStartDate(lastMonday.toISOString().split('T')[0]);
+                  setEndDate(lastFriday.toISOString().split('T')[0]);
+                }}
+              >
+                Last Week
               </Button>
               <Button
                 variant="secondary"
@@ -628,6 +724,21 @@ export function BacktestRunner() {
       {/* History Tab */}
       {selectedTab === 'history' && (
         <div className="space-y-4">
+          {/* Delete All Button */}
+          {history && history.length > 0 && (
+            <div className="flex justify-end mb-4">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleDeleteAllBacktests}
+                disabled={deleteAllBacktests.isPending}
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-300"
+              >
+                {deleteAllBacktests.isPending ? 'Deleting All...' : `🗑️ Delete All (${history.length})`}
+              </Button>
+            </div>
+          )}
+
           {history && history.length > 0 ? (
             history.map((backtest) => (
               <Card key={backtest.backtest_id}>

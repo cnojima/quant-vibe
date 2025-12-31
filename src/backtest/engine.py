@@ -103,6 +103,7 @@ class BacktestOrchestrator:
             'bullish_vertical_call': 'quant_vibe.strategies.bullish_vertical_call.BullishVerticalCallStrategy',
             'bearish_iv_scalp': 'quant_vibe.strategies.bearish_iv_scalp.BearishIVScalpStrategy',
             'coin_toss': 'quant_vibe.strategies.coin_toss.CoinTossStrategy',
+            'coin_toss_limit': 'quant_vibe.strategies.coin_toss_limit.CoinTossLimitStrategy',
         }
 
         if strategy_name not in strategy_map:

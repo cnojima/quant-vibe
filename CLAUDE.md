@@ -1011,3 +1011,5 @@ await collector.start_streaming()  # Websocket
 - `docs/SPXW_FIX.md`: Options data collection troubleshooting
 - `QUICKREF_SPXW.md`: Quick reference for SPXW data
 - Always use `source venv/bin/activate` before executing a python command
+- auth for local UI development - admin:changeme
+- Schwab API uses `$SPX` as the underlying symbol for SPXW contracts

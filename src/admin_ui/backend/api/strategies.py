@@ -106,6 +106,23 @@ STRATEGY_METADATA = {
             "stop_loss_pct": None,
         },
     },
+    "coin_toss_limit": {
+        "description": "Refined coin toss with limit orders: buy at $1, sell at $2 for 100% profit (educational/experimental only)",
+        "default_params": {
+            "target_contract_price": 2.0,
+            "limit_buy_price": 1.0,
+            "profit_target_price": 2.0,
+            "otm_percent_min": 0.10,
+            "otm_percent_max": 0.15,
+            "price_tolerance": 1.0,
+            "max_trades_daily": 5,
+            "quantity": 10,
+            "min_dte": 0,
+            "max_dte": 45,
+            "stop_loss_pct": 0.50,
+            "order_expiry_minutes": 60,
+        },
+    },
 }
 
 

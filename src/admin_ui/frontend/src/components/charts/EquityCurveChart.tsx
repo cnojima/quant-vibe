@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceDot } from 'recharts';
 
 interface EquityCurveData {
@@ -271,8 +271,137 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
     }
   }
 
+  // Navigation functions
+  const navigateToPrevTrade = useCallback(() => {
+    if (trades.length === 0) return;
+
+    if (selectedTradeIndex === null) {
+      setSelectedTradeIndex(trades.length - 1);
+    } else if (selectedTradeIndex > 0) {
+      setSelectedTradeIndex(selectedTradeIndex - 1);
+    }
+  }, [selectedTradeIndex, trades.length]);
+
+  const navigateToNextTrade = useCallback(() => {
+    if (trades.length === 0) return;
+
+    if (selectedTradeIndex === null) {
+      setSelectedTradeIndex(0);
+    } else if (selectedTradeIndex < trades.length - 1) {
+      setSelectedTradeIndex(selectedTradeIndex + 1);
+    }
+  }, [selectedTradeIndex, trades.length]);
+
+  const navigateToFirstTrade = useCallback(() => {
+    if (trades.length > 0) {
+      setSelectedTradeIndex(0);
+    }
+  }, [trades.length]);
+
+  const navigateToLastTrade = useCallback(() => {
+    if (trades.length > 0) {
+      setSelectedTradeIndex(trades.length - 1);
+    }
+  }, [trades.length]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only handle if chart is visible and has trades
+      if (trades.length === 0) return;
+
+      switch (event.key) {
+        case 'ArrowLeft':
+          event.preventDefault();
+          navigateToPrevTrade();
+          break;
+        case 'ArrowRight':
+          event.preventDefault();
+          navigateToNextTrade();
+          break;
+        case 'Home':
+          event.preventDefault();
+          navigateToFirstTrade();
+          break;
+        case 'End':
+          event.preventDefault();
+          navigateToLastTrade();
+          break;
+        case 'Escape':
+          event.preventDefault();
+          setSelectedTradeIndex(null);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [navigateToPrevTrade, navigateToNextTrade, navigateToFirstTrade, navigateToLastTrade, trades.length]);
+
   return (
     <div>
+      {/* Navigation Controls */}
+      {trades.length > 0 && (
+        <div className="mb-4 flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg p-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={navigateToFirstTrade}
+              disabled={selectedTradeIndex === 0}
+              className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="First Trade (Home)"
+            >
+              ⏮ First
+            </button>
+            <button
+              onClick={navigateToPrevTrade}
+              disabled={selectedTradeIndex === 0}
+              className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Previous Trade (←)"
+            >
+              ◀ Prev
+            </button>
+            <span className="px-3 py-1.5 text-sm font-medium text-gray-700">
+              {selectedTradeIndex !== null ? `Trade ${selectedTradeIndex + 1} of ${trades.length}` : `${trades.length} Trades`}
+            </span>
+            <button
+              onClick={navigateToNextTrade}
+              disabled={selectedTradeIndex === trades.length - 1}
+              className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Next Trade (→)"
+            >
+              Next ▶
+            </button>
+            <button
+              onClick={navigateToLastTrade}
+              disabled={selectedTradeIndex === trades.length - 1}
+              className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Last Trade (End)"
+            >
+              Last ⏭
+            </button>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="text-xs text-gray-600">
+              <kbd className="px-2 py-1 bg-white border border-gray-300 rounded text-xs">←</kbd>
+              <kbd className="ml-1 px-2 py-1 bg-white border border-gray-300 rounded text-xs">→</kbd>
+              <span className="ml-1">Navigate</span>
+              <span className="mx-2">•</span>
+              <kbd className="px-2 py-1 bg-white border border-gray-300 rounded text-xs">Esc</kbd>
+              <span className="ml-1">Clear</span>
+            </div>
+            {selectedTradeIndex !== null && (
+              <button
+                onClick={() => setSelectedTradeIndex(null)}
+                className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-colors"
+                title="Clear Selection (Esc)"
+              >
+                ✕ Clear
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <ResponsiveContainer width="100%" height={400}>
       <LineChart data={mergedData} margin={{ top: 5, right: 60, left: 20, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" />
@@ -324,35 +453,39 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
         {/* Trade Entry Points - Blue Circles */}
         {tradeMarkers
           .filter(marker => marker.type === 'entry')
-          .map((marker, index) => (
-            <ReferenceDot
-              key={`entry-${index}`}
-              yAxisId="left"
-              x={marker.timestamp}
-              y={marker.portfolioValue}
-              r={10}
-              fill="#3b82f6"
-              stroke="#ffffff"
-              strokeWidth={2}
-              onClick={() => setSelectedTradeIndex(marker.tradeIndex)}
-              style={{ cursor: 'pointer' }}
-            />
-          ))}
+          .map((marker, index) => {
+            const isSelected = marker.tradeIndex === selectedTradeIndex;
+            return (
+              <ReferenceDot
+                key={`entry-${index}`}
+                yAxisId="left"
+                x={marker.timestamp}
+                y={marker.portfolioValue}
+                r={isSelected ? 12 : 10}
+                fill="#3b82f6"
+                stroke={isSelected ? "#fbbf24" : "#ffffff"}
+                strokeWidth={isSelected ? 4 : 2}
+                onClick={() => setSelectedTradeIndex(marker.tradeIndex)}
+                style={{ cursor: 'pointer' }}
+              />
+            );
+          })}
         {/* Trade Exit Points - Colored by P&L */}
         {tradeMarkers
           .filter(marker => marker.type === 'exit')
           .map((marker, index) => {
             const isProfit = (marker.pnl ?? 0) >= 0;
+            const isSelected = marker.tradeIndex === selectedTradeIndex;
             return (
               <ReferenceDot
                 key={`exit-${index}`}
                 yAxisId="left"
                 x={marker.timestamp}
                 y={marker.portfolioValue}
-                r={10}
+                r={isSelected ? 12 : 10}
                 fill={isProfit ? '#22c55e' : '#ef4444'}
-                stroke="#ffffff"
-                strokeWidth={2}
+                stroke={isSelected ? "#fbbf24" : "#ffffff"}
+                strokeWidth={isSelected ? 4 : 2}
                 onClick={() => setSelectedTradeIndex(marker.tradeIndex)}
                 style={{ cursor: 'pointer' }}
               />

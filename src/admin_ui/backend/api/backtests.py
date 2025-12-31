@@ -749,6 +749,83 @@ async def delete_backtest(
     )
 
 
+@router.delete("/all/confirm")
+async def delete_all_backtests(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Delete ALL backtests from database and filesystem.
+
+    WARNING: This is a destructive operation that cannot be undone!
+
+    Args:
+        current_user: Authenticated user
+
+    Returns:
+        Summary of deleted items
+    """
+    deleted_count = 0
+    deleted_files = []
+    errors = []
+
+    # Delete from database
+    try:
+        ts_store = _get_timescale_store()
+        try:
+            # Get all backtest IDs first
+            history = ts_store.get_backtest_history(limit=10000)
+            backtest_ids = [b['backtest_id'] for b in history]
+
+            # Delete each backtest from database
+            for backtest_id in backtest_ids:
+                try:
+                    ts_store.delete_backtest(backtest_id)
+                    deleted_count += 1
+                except Exception as e:
+                    errors.append(f"Failed to delete {backtest_id} from database: {e}")
+        finally:
+            ts_store.close()
+    except Exception as e:
+        errors.append(f"Database error: {e}")
+
+    # Delete report files from filesystem
+    settings = get_settings()
+    reports_dir = settings.project_root / "reports" / "backtests"
+
+    if reports_dir.exists():
+        try:
+            import shutil
+            # Get list of files before deletion for reporting
+            for file_path in reports_dir.glob("*"):
+                if file_path.is_file():
+                    deleted_files.append(str(file_path.name))
+
+            # Remove all files in the directory
+            for file_path in reports_dir.glob("*"):
+                try:
+                    if file_path.is_file():
+                        file_path.unlink()
+                    elif file_path.is_dir():
+                        shutil.rmtree(file_path)
+                except Exception as e:
+                    errors.append(f"Failed to delete file {file_path}: {e}")
+
+        except Exception as e:
+            errors.append(f"Filesystem error: {e}")
+
+    # Clear in-memory state
+    _running_backtests.clear()
+    _save_backtests(_running_backtests)
+
+    return {
+        "success": True,
+        "message": f"Deleted {deleted_count} backtests from database and {len(deleted_files)} files from filesystem",
+        "deleted_count": deleted_count,
+        "deleted_files_count": len(deleted_files),
+        "errors": errors if errors else None,
+    }
+
+
 @router.get("/strategies")
 async def list_strategies(current_user: User = Depends(get_current_user)):
     """
