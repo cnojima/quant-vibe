@@ -40,6 +40,25 @@ strategies:
       min_dte: 0
       max_dte: 2
       num_spreads: 10
+  - name: bearish_iv_scalp
+    enabled: true
+    params:
+      max_trades_daily: 2
+      spread_width: 10
+      observation_period: 15
+      iv_threshold: 0.15  # 15% minimum IV
+      iv_spike_pct: 0.10  # 10% IV increase required
+      profit_target_min: 0.30  # 30% profit target
+      profit_target_max: 0.50  # 50% profit target
+      trailing_stop_pct: 0.03  # Tight 3% trailing stop
+      stop_loss_pct: 0.75  # 75% stop loss
+      min_dte: 0  # 0DTE only
+      max_dte: 0  # 0DTE only
+      num_spreads: 5  # Smaller size for scalping
+      min_volume: 20
+      min_bid_ask_spread_pct: 15
+      momentum_lookback: 5
+      iv_lookback: 30
 data_source:
   underlying_ticker: SPX
   db_profile: auto

@@ -770,6 +770,11 @@ async def list_strategies(current_user: User = Depends(get_current_user)):
             "display_name": "Bullish Vertical Call",
             "description": "0 DTE bullish vertical call spread strategy",
         },
+        {
+            "name": "bearish_iv_scalp",
+            "display_name": "Bearish IV Scalp",
+            "description": "0 DTE bearish IV scalping with vertical call spreads - profit from IV contraction during bearish moves",
+        },
     ]
 
     return {

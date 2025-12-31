@@ -101,6 +101,7 @@ class BacktestOrchestrator:
         strategy_map = {
             'bullish_vertical_put': 'quant_vibe.strategies.bullish_vertical_put.BullishVerticalPutStrategy',
             'bullish_vertical_call': 'quant_vibe.strategies.bullish_vertical_call.BullishVerticalCallStrategy',
+            'bearish_iv_scalp': 'quant_vibe.strategies.bearish_iv_scalp.BearishIVScalpStrategy',
         }
 
         if strategy_name not in strategy_map:
