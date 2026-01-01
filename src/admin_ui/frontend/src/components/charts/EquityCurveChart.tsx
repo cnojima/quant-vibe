@@ -462,7 +462,7 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
                 key={`entry-${index}`}
                 yAxisId="right"
                 x={marker.timestamp}
-                y={marker.underlyingPrice}
+                y={marker.underlyingPrice ?? undefined}
                 r={isSelected ? 12 : 10}
                 fill="#3b82f6"
                 stroke={isSelected ? "#fbbf24" : "#ffffff"}
@@ -483,7 +483,7 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
                 key={`exit-${index}`}
                 yAxisId="right"
                 x={marker.timestamp}
-                y={marker.underlyingPrice}
+                y={marker.underlyingPrice ?? undefined}
                 r={isSelected ? 12 : 10}
                 fill={isProfit ? '#22c55e' : '#ef4444'}
                 stroke={isSelected ? "#fbbf24" : "#ffffff"}

@@ -446,9 +446,9 @@ export function useOptimizationStatus(optimizationId: string | null) {
       return response.data;
     },
     enabled: !!optimizationId,
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
       // Poll every 2 seconds if running, otherwise don't poll
-      return data?.status === 'running' || data?.status === 'pending' ? 2000 : false;
+      return query.state.data?.status === 'running' || query.state.data?.status === 'pending' ? 2000 : false;
     },
   });
 }

@@ -14,8 +14,6 @@ import { Button } from '../components/common/Button';
 import { InfoIcon } from '../components/common/InfoIcon';
 import { formatDistanceToNow } from 'date-fns';
 import {
-  getTodayEST,
-  getYesterdayEST,
   getLastNMonthsEST,
   getLastNYearsEST,
 } from '../utils/dateUtils';
@@ -82,14 +80,6 @@ export function StrategyOptimizer() {
       console.error('Failed to delete optimization:', error);
       alert('Failed to delete optimization. Please try again.');
     }
-  };
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-    }).format(value);
   };
 
   const formatPercent = (value: number | undefined | null) => {
