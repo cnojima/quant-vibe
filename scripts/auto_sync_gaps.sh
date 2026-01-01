@@ -47,40 +47,117 @@ echo ""
 
 # Step 1: Analyze gaps and generate sync commands
 echo -e "${YELLOW}Step 1: Analyzing data gaps...${NC}"
-SYNC_SCRIPT="/tmp/sync_gaps_$(date +%s).sh"
-python scripts/analyze_data_gaps.py "${ANALYZE_ARGS[@]}" --generate-sync-commands --output "$SYNC_SCRIPT"
+TIMESTAMP=$(date +%s)
+SYNC_SCRIPT_BASE="/tmp/sync_gaps_${TIMESTAMP}"
+python scripts/analyze_data_gaps.py "${ANALYZE_ARGS[@]}" --generate-sync-commands --output "${SYNC_SCRIPT_BASE}.sh"
 
-# Check if sync script was created and has commands
-if [ ! -f "$SYNC_SCRIPT" ] || [ ! -s "$SYNC_SCRIPT" ]; then
-    echo -e "${GREEN}✅ No gaps found! Local database is up to date.${NC}"
-    exit 0
+# Check for generated sync scripts (both options and underlying)
+OPTIONS_SYNC="${SYNC_SCRIPT_BASE}_options.sh"
+UNDERLYING_SYNC="${SYNC_SCRIPT_BASE}_underlying.sh"
+COMBINED_SYNC="${SYNC_SCRIPT_BASE}.sh"
+
+# Determine which sync scripts exist
+HAS_OPTIONS=false
+HAS_UNDERLYING=false
+TOTAL_COMMANDS=0
+
+if [ -f "$OPTIONS_SYNC" ] && [ -s "$OPTIONS_SYNC" ]; then
+    HAS_OPTIONS=true
+    OPTIONS_COUNT=$(grep -c "^python scripts/sync_moirae.py" "$OPTIONS_SYNC" || true)
+    TOTAL_COMMANDS=$((TOTAL_COMMANDS + OPTIONS_COUNT))
 fi
 
-# Count number of sync commands (excluding comments and shebang)
-NUM_COMMANDS=$(grep -c "^python scripts/sync_moirae.py" "$SYNC_SCRIPT" || true)
+if [ -f "$UNDERLYING_SYNC" ] && [ -s "$UNDERLYING_SYNC" ]; then
+    HAS_UNDERLYING=true
+    UNDERLYING_COUNT=$(grep -c "^python scripts/sync_underlying.py" "$UNDERLYING_SYNC" || true)
+    TOTAL_COMMANDS=$((TOTAL_COMMANDS + UNDERLYING_COUNT))
+fi
 
-if [ "$NUM_COMMANDS" -eq 0 ]; then
+# Fallback to combined script if separate scripts don't exist
+if [ "$HAS_OPTIONS" = false ] && [ "$HAS_UNDERLYING" = false ] && [ -f "$COMBINED_SYNC" ] && [ -s "$COMBINED_SYNC" ]; then
+    COMBINED_COUNT=$(grep -c "^python scripts/sync" "$COMBINED_SYNC" || true)
+    TOTAL_COMMANDS=$COMBINED_COUNT
+fi
+
+# Check if any gaps found
+if [ $TOTAL_COMMANDS -eq 0 ]; then
     echo -e "${GREEN}✅ No gaps found! Local database is up to date.${NC}"
-    rm "$SYNC_SCRIPT"
+    # Clean up any generated files
+    rm -f "$OPTIONS_SYNC" "$UNDERLYING_SYNC" "$COMBINED_SYNC"
     exit 0
 fi
 
 echo ""
-echo -e "${YELLOW}Step 2: Found $NUM_COMMANDS sync operations${NC}"
+echo -e "${YELLOW}Step 2: Found $TOTAL_COMMANDS sync operations${NC}"
 echo ""
 
 # Show generated commands
 echo "Generated sync commands:"
 echo "----------------------------------------"
-grep "^python scripts/sync_moirae.py" "$SYNC_SCRIPT" || true
+if [ "$HAS_OPTIONS" = true ]; then
+    echo "# OPTIONS_BARS:"
+    grep "^python scripts/sync_moirae.py" "$OPTIONS_SYNC" || true
+fi
+if [ "$HAS_UNDERLYING" = true ]; then
+    echo "# UNDERLYING_BARS:"
+    grep "^python scripts/sync_underlying.py" "$UNDERLYING_SYNC" || true
+fi
+if [ "$HAS_OPTIONS" = false ] && [ "$HAS_UNDERLYING" = false ]; then
+    grep "^python scripts/sync" "$COMBINED_SYNC" || true
+fi
 echo "----------------------------------------"
 echo ""
 
 # Step 3: Execute or prompt
+execute_sync_scripts() {
+    local failed=false
+
+    # Execute options sync if exists
+    if [ "$HAS_OPTIONS" = true ]; then
+        echo -e "${YELLOW}Syncing options_bars...${NC}"
+        chmod +x "$OPTIONS_SYNC"
+        "$OPTIONS_SYNC"
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}❌ Options sync failed${NC}"
+            failed=true
+        else
+            echo -e "${GREEN}✅ Options sync completed${NC}"
+        fi
+        echo ""
+    fi
+
+    # Execute underlying sync if exists
+    if [ "$HAS_UNDERLYING" = true ]; then
+        echo -e "${YELLOW}Syncing underlying_bars...${NC}"
+        chmod +x "$UNDERLYING_SYNC"
+        "$UNDERLYING_SYNC"
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}❌ Underlying sync failed${NC}"
+            failed=true
+        else
+            echo -e "${GREEN}✅ Underlying sync completed${NC}"
+        fi
+        echo ""
+    fi
+
+    # Execute combined script if no separate scripts
+    if [ "$HAS_OPTIONS" = false ] && [ "$HAS_UNDERLYING" = false ] && [ -f "$COMBINED_SYNC" ]; then
+        chmod +x "$COMBINED_SYNC"
+        "$COMBINED_SYNC"
+        if [ $? -ne 0 ]; then
+            failed=true
+        fi
+    fi
+
+    if [ "$failed" = true ]; then
+        return 1
+    fi
+    return 0
+}
+
 if [ "$AUTO_MODE" = true ]; then
     echo -e "${YELLOW}Step 3: Executing sync commands (auto mode)...${NC}"
-    chmod +x "$SYNC_SCRIPT"
-    "$SYNC_SCRIPT"
+    execute_sync_scripts
     EXIT_CODE=$?
 
     if [ $EXIT_CODE -eq 0 ]; then
@@ -88,7 +165,7 @@ if [ "$AUTO_MODE" = true ]; then
         echo -e "${GREEN}✅ All sync operations completed successfully!${NC}"
     else
         echo ""
-        echo -e "${RED}❌ Sync failed with exit code $EXIT_CODE${NC}"
+        echo -e "${RED}❌ Some sync operations failed${NC}"
         exit $EXIT_CODE
     fi
 else
@@ -98,8 +175,7 @@ else
     echo ""
 
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        chmod +x "$SYNC_SCRIPT"
-        "$SYNC_SCRIPT"
+        execute_sync_scripts
         EXIT_CODE=$?
 
         if [ $EXIT_CODE -eq 0 ]; then
@@ -107,19 +183,20 @@ else
             echo -e "${GREEN}✅ All sync operations completed successfully!${NC}"
         else
             echo ""
-            echo -e "${RED}❌ Sync failed with exit code $EXIT_CODE${NC}"
+            echo -e "${RED}❌ Some sync operations failed${NC}"
             exit $EXIT_CODE
         fi
     else
         echo ""
-        echo "Sync cancelled. Commands saved to: $SYNC_SCRIPT"
-        echo "You can run them manually with: $SYNC_SCRIPT"
+        echo "Sync cancelled. Commands saved to:"
+        [ "$HAS_OPTIONS" = true ] && echo "  Options: $OPTIONS_SYNC"
+        [ "$HAS_UNDERLYING" = true ] && echo "  Underlying: $UNDERLYING_SYNC"
         exit 0
     fi
 fi
 
 # Cleanup
-rm "$SYNC_SCRIPT"
+rm -f "$OPTIONS_SYNC" "$UNDERLYING_SYNC" "$COMBINED_SYNC"
 
 echo ""
 echo "========================================================================"

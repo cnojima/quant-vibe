@@ -5,7 +5,7 @@ Loads and validates backtest configuration from YAML files.
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import yaml
 
 
@@ -72,6 +72,53 @@ class BacktestConfig:
         output_dir = self.config['engine'].get('output_dir', 'reports/backtests')
         return Path(output_dir)
 
+    def _resolve_date_preset(self, preset: str) -> tuple[datetime, datetime]:
+        """
+        Resolve a date preset to actual dates in EST.
+
+        Args:
+            preset: Date preset ('today', 'this_week', 'this_month', etc.)
+
+        Returns:
+            Tuple of (start_date, end_date)
+        """
+        from zoneinfo import ZoneInfo
+        est = ZoneInfo('America/New_York')
+        now_est = datetime.now(est)
+
+        if preset == 'today':
+            # Today's date in EST
+            start_date = datetime(now_est.year, now_est.month, now_est.day)
+            end_date = start_date
+        elif preset == 'this_week':
+            # Monday to Friday of current week
+            days_since_monday = now_est.weekday()
+            monday = now_est - timedelta(days=days_since_monday)
+            start_date = datetime(monday.year, monday.month, monday.day)
+            # If today is Monday-Thursday, end is today; if Friday+, end is Friday
+            if now_est.weekday() <= 4:  # Mon-Fri
+                end_date = datetime(now_est.year, now_est.month, now_est.day)
+            else:
+                friday = monday + timedelta(days=4)
+                end_date = datetime(friday.year, friday.month, friday.day)
+        elif preset == 'this_month':
+            # First day to today of current month
+            start_date = datetime(now_est.year, now_est.month, 1)
+            end_date = datetime(now_est.year, now_est.month, now_est.day)
+        elif preset == 'this_quarter':
+            # First day of quarter to today
+            quarter_month = ((now_est.month - 1) // 3) * 3 + 1
+            start_date = datetime(now_est.year, quarter_month, 1)
+            end_date = datetime(now_est.year, now_est.month, now_est.day)
+        elif preset == 'this_year':
+            # Jan 1 to today of current year
+            start_date = datetime(now_est.year, 1, 1)
+            end_date = datetime(now_est.year, now_est.month, now_est.day)
+        else:
+            raise ValueError(f"Unknown date preset: {preset}")
+
+        return start_date, end_date
+
     def get_date_range(self) -> tuple[datetime, datetime]:
         """
         Get date range for backtest.
@@ -107,10 +154,8 @@ class BacktestConfig:
             else:
                 end_date = datetime(end_val.year, end_val.month, end_val.day)
         else:
-            # Preset will be handled by get_date_range() utility
-            # Return None to signal that preset should be used interactively
-            start_date = None
-            end_date = None
+            # Resolve preset to actual dates
+            start_date, end_date = self._resolve_date_preset(preset)
 
         return start_date, end_date
 

@@ -27,6 +27,7 @@ strategies:
       num_spreads: 10
       min_volume: 30
       min_bid_ask_spread_pct: 15
+      stop_loss_pct: 0.5
   - name: bullish_vertical_call
     enabled: true
     params:

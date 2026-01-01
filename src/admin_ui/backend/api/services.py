@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from admin_ui.backend.auth import User, get_current_user
-from admin_ui.backend.docker.manager import get_docker_manager
+from admin_ui.backend.docker_manager.manager import get_docker_manager
 
 router = APIRouter()
 

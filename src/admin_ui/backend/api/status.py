@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.db.timescale import test_connection as test_db_connection
-from admin_ui.backend.docker.manager import get_docker_manager
+from admin_ui.backend.docker_manager.manager import get_docker_manager
 from admin_ui.backend.redis_client import test_connection as test_redis_connection
 
 router = APIRouter()

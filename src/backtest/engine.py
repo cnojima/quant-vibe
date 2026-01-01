@@ -120,8 +120,23 @@ class BacktestOrchestrator:
         module = __import__(module_name, fromlist=[class_name])
         strategy_class = getattr(module, class_name)
 
-        # Instantiate strategy with parameters
-        strategy = strategy_class(**params)
+        # Validate and normalize parameters using Pydantic models
+        from quant_vibe.strategies.params import validate_and_normalize_params
+        try:
+            validated_params = validate_and_normalize_params(strategy_name, params)
+        except ValueError as e:
+            self.logger.warning(f"Parameter validation failed for {strategy_name}: {e}")
+            self.logger.warning("Falling back to raw parameters (filtering by signature)")
+            # Fallback: filter params by constructor signature
+            import inspect
+            sig = inspect.signature(strategy_class.__init__)
+            validated_params = {
+                k: v for k, v in params.items()
+                if k in sig.parameters
+            }
+
+        # Instantiate strategy with validated parameters
+        strategy = strategy_class(**validated_params)
 
         return strategy
 

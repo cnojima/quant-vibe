@@ -9,102 +9,85 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+# Import strategy parameter models for validation
+from quant_vibe.strategies.params import (
+    BullishVerticalPutParams,
+    BullishVerticalCallParams,
+    BearishIVScalpParams,
+    CoinTossParams,
+    CoinTossLimitParams,
+)
+
 
 # ==================== Common Strategy Schema ====================
 
+# Note: We use Dict[str, Any] for params to allow flexibility
+# Actual validation happens in the strategy parameter models
+# from quant_vibe.strategies.params
+
+from typing import Union
+
+# Union type for all strategy parameter models
+StrategyParamsType = Union[
+    BullishVerticalPutParams,
+    BullishVerticalCallParams,
+    BearishIVScalpParams,
+    CoinTossParams,
+    CoinTossLimitParams,
+    Dict[str, Any],  # Fallback for unknown strategies
+]
+
 
 class StrategyParams(BaseModel):
-    """Base strategy parameters. Actual strategies may have different params."""
+    """
+    Strategy parameters - validated by strategy-specific models.
 
-    # Common parameters across strategies
-    max_trades_daily: Optional[int] = Field(
-        None, ge=1, le=100, description="Maximum trades per day"
-    )
-    spread_width: Optional[float] = Field(
-        None, ge=0, le=100, description="Spread width in points"
-    )
-    observation_period: Optional[int] = Field(
-        None, ge=1, le=1440, description="Observation period in minutes"
-    )
-    pullback_amount: Optional[float] = Field(
-        None, ge=0, le=500, description="Pullback amount in points"
-    )
-    profit_target_min: Optional[float] = Field(
-        None, ge=0, le=10, description="Minimum profit target"
-    )
-    profit_target_max: Optional[float] = Field(
-        None, ge=0, le=10, description="Maximum profit target"
-    )
-    trailing_stop_pct: Optional[float] = Field(
-        None, ge=0, le=1, description="Trailing stop percentage"
-    )
-    stop_loss_pct: Optional[float] = Field(
-        None, ge=0, le=1, description="Stop loss percentage"
-    )
-    min_dte: Optional[int] = Field(
-        None, ge=0, le=365, description="Minimum days to expiration"
-    )
-    max_dte: Optional[int] = Field(
-        None, ge=0, le=365, description="Maximum days to expiration"
-    )
-    num_spreads: Optional[int] = Field(
-        None, ge=1, le=100, description="Number of spreads to consider"
-    )
-    min_volume: Optional[int] = Field(
-        None, ge=0, le=10000, description="Minimum volume required"
-    )
-    min_bid_ask_spread_pct: Optional[float] = Field(
-        None, ge=0, le=100, description="Maximum bid-ask spread percentage"
-    )
+    This includes all possible parameters across all strategies.
+    Actual validation is done by the strategy param models in
+    quant_vibe.strategies.params based on the strategy name.
+    """
 
-    # IV Scalp specific
-    iv_threshold: Optional[float] = Field(
-        None, ge=0, le=1, description="IV threshold for entry"
-    )
-    iv_spike_pct: Optional[float] = Field(
-        None, ge=0, le=1, description="IV spike percentage"
-    )
-    momentum_lookback: Optional[int] = Field(
-        None, ge=1, le=100, description="Momentum lookback period"
-    )
-    iv_lookback: Optional[int] = Field(
-        None, ge=1, le=1000, description="IV lookback period"
-    )
+    # Common parameters (from BaseStrategyParams)
+    min_dte: Optional[int] = Field(None, ge=0, le=365, description="Minimum days to expiration")
+    max_dte: Optional[int] = Field(None, ge=0, le=365, description="Maximum days to expiration")
+    max_trades_daily: Optional[int] = Field(None, ge=0, le=999, description="Maximum trades per day (0=no trades, 999=unlimited)")
 
-    # Coin Toss specific
-    target_price: Optional[float] = Field(
-        None, ge=0, description="Target contract price"
-    )
-    buy_limit: Optional[float] = Field(None, ge=0, description="Buy limit price")
-    sell_target: Optional[float] = Field(None, ge=0, description="Sell target price")
-    price_tolerance: Optional[float] = Field(
-        None, ge=0, description="Price tolerance"
-    )
+    # Vertical spread strategies (bullish_vertical_put, bullish_vertical_call)
+    spread_width: Optional[float] = Field(None, ge=1.0, le=200.0, description="Width of the vertical spread in points")
+    observation_period: Optional[int] = Field(None, ge=1, le=1440, description="Minutes to observe market at open")
+    pullback_amount: Optional[float] = Field(None, ge=0.0, le=500.0, description="Dollar amount for pullback signal")
+    profit_target_min: Optional[float] = Field(None, ge=0.0, le=10.0, description="Minimum profit target (0.5 = 50%)")
+    profit_target_max: Optional[float] = Field(None, ge=0.0, le=10.0, description="Maximum profit target (1.0 = 100%)")
+    trailing_stop_pct: Optional[float] = Field(None, ge=0.0, le=1.0, description="Trailing stop percentage (0.05 = 5%)")
+    num_spreads: Optional[int] = Field(None, ge=1, le=100, description="Number of spreads to open per signal")
+    min_volume: Optional[int] = Field(None, ge=0, le=100000, description="Minimum volume per contract for liquidity")
+    min_bid_ask_spread_pct: Optional[float] = Field(None, ge=0.0, le=100.0, description="Maximum bid/ask spread percentage")
+
+    # Bearish IV Scalp strategy
+    iv_threshold: Optional[float] = Field(None, ge=0.0, le=1.0, description="IV threshold for entry")
+    iv_spike_pct: Optional[float] = Field(None, ge=0.0, le=1.0, description="IV spike percentage")
+    stop_loss_pct: Optional[float] = Field(None, ge=0.0, le=1.0, description="Stop loss percentage")
+    momentum_lookback: Optional[int] = Field(None, ge=1, le=100, description="Momentum lookback period in minutes")
+    iv_lookback: Optional[int] = Field(None, ge=1, le=1000, description="IV lookback period in minutes")
+
+    # Coin Toss strategy
+    target_price: Optional[float] = Field(None, ge=0.0, description="Target contract price")
+    buy_limit: Optional[float] = Field(None, ge=0.0, description="Buy limit price")
+    sell_target: Optional[float] = Field(None, ge=0.0, description="Sell target price")
+    price_tolerance: Optional[float] = Field(None, ge=0.0, description="Price tolerance")
     quantity: Optional[int] = Field(None, ge=1, le=1000, description="Contract quantity")
-    profit_target_pct: Optional[float] = Field(
-        None, ge=0, le=10, description="Profit target percentage"
-    )
+    profit_target_pct: Optional[float] = Field(None, ge=0.0, le=10.0, description="Profit target percentage")
 
-    # Coin Toss Limit specific
-    target_contract_price: Optional[float] = Field(
-        None, ge=0, description="Target contract price"
-    )
-    limit_buy_price: Optional[float] = Field(None, ge=0, description="Limit buy price")
-    profit_target_price: Optional[float] = Field(
-        None, ge=0, description="Profit target price"
-    )
-    otm_percent_min: Optional[float] = Field(
-        None, ge=0, le=1, description="Minimum OTM percentage"
-    )
-    otm_percent_max: Optional[float] = Field(
-        None, ge=0, le=1, description="Maximum OTM percentage"
-    )
-    order_expiry_minutes: Optional[int] = Field(
-        None, ge=1, le=1440, description="Order expiry in minutes"
-    )
+    # Coin Toss Limit strategy
+    target_contract_price: Optional[float] = Field(None, ge=0.0, description="Target contract price")
+    limit_buy_price: Optional[float] = Field(None, ge=0.0, description="Limit buy price")
+    profit_target_price: Optional[float] = Field(None, ge=0.0, description="Profit target price")
+    otm_percent_min: Optional[float] = Field(None, ge=0.0, le=1.0, description="Minimum OTM percentage")
+    otm_percent_max: Optional[float] = Field(None, ge=0.0, le=1.0, description="Maximum OTM percentage")
+    order_expiry_minutes: Optional[int] = Field(None, ge=1, le=1440, description="Order expiry in minutes")
 
     class Config:
-        extra = "allow"  # Allow additional fields not defined here
+        extra = "allow"  # Allow any additional fields for future strategies
 
 
 class StrategyConfig(BaseModel):

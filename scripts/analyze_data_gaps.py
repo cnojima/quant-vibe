@@ -7,6 +7,10 @@ This script identifies:
 3. Missing contracts (contracts present in remote but not in local)
 4. Time gaps within days (missing minute bars during trading hours)
 
+Analyzes both:
+- options_bars table (options contracts)
+- underlying_bars table (underlying ticker price data)
+
 Usage:
     # Quick overview
     python scripts/analyze_data_gaps.py --quick
@@ -16,6 +20,9 @@ Usage:
 
     # Analyze specific ticker
     python scripts/analyze_data_gaps.py --ticker SPX --detailed
+
+    # Analyze only underlying bars
+    python scripts/analyze_data_gaps.py --underlying-only
 
     # Generate sync commands for gaps
     python scripts/analyze_data_gaps.py --generate-sync-commands
@@ -111,6 +118,39 @@ def get_daily_stats(conn, start_date=None, end_date=None, underlying='SPX'):
         return cur.fetchall()
 
 
+def get_underlying_daily_stats(conn, start_date=None, end_date=None, ticker='SPX'):
+    """Get daily statistics for underlying_bars table."""
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        where_clause = "WHERE ticker = %s"
+        params = [ticker]
+
+        if start_date:
+            where_clause += " AND timestamp >= %s"
+            params.append(start_date)
+        if end_date:
+            where_clause += " AND timestamp < %s"
+            params.append(end_date)
+
+        query = f"""
+            SELECT
+                DATE(timestamp) as trading_date,
+                COUNT(*) as bar_count,
+                MIN(timestamp) as first_bar,
+                MAX(timestamp) as last_bar,
+                COUNT(DISTINCT DATE_TRUNC('minute', timestamp)) as unique_minutes,
+                MIN(close) as min_price,
+                MAX(close) as max_price,
+                AVG(volume) as avg_volume
+            FROM underlying_bars
+            {where_clause}
+            GROUP BY DATE(timestamp)
+            ORDER BY trading_date DESC
+        """
+
+        cur.execute(query, params)
+        return cur.fetchall()
+
+
 def compare_daily_coverage(remote_stats, local_stats):
     """Compare daily coverage between remote and local."""
     remote_by_date = {row['trading_date']: row for row in remote_stats}
@@ -159,6 +199,43 @@ def compare_daily_coverage(remote_stats, local_stats):
     return gaps
 
 
+def compare_underlying_daily_coverage(remote_stats, local_stats):
+    """Compare daily coverage for underlying_bars between remote and local."""
+    remote_by_date = {row['trading_date']: row for row in remote_stats}
+    local_by_date = {row['trading_date']: row for row in local_stats}
+
+    all_dates = sorted(set(remote_by_date.keys()) | set(local_by_date.keys()), reverse=True)
+
+    gaps = {
+        'missing_days': [],      # Days with no local data
+        'partial_days': [],      # Days with less than 80% coverage
+    }
+
+    for date in all_dates:
+        remote = remote_by_date.get(date)
+        local = local_by_date.get(date)
+
+        if remote and not local:
+            gaps['missing_days'].append({
+                'date': date,
+                'remote_bars': remote['bar_count'],
+                'remote_minutes': remote['unique_minutes']
+            })
+        elif remote and local:
+            coverage_pct = (local['bar_count'] / remote['bar_count']) * 100 if remote['bar_count'] > 0 else 0
+
+            if coverage_pct < 80:
+                gaps['partial_days'].append({
+                    'date': date,
+                    'coverage_pct': coverage_pct,
+                    'remote_bars': remote['bar_count'],
+                    'local_bars': local['bar_count'],
+                    'missing_bars': remote['bar_count'] - local['bar_count']
+                })
+
+    return gaps
+
+
 def get_missing_contracts(remote_conn, local_conn, date, underlying='SPX'):
     """Get list of contracts present in remote but missing in local for a specific date."""
     with remote_conn.cursor() as remote_cur:
@@ -182,10 +259,10 @@ def get_missing_contracts(remote_conn, local_conn, date, underlying='SPX'):
     return remote_contracts - local_contracts
 
 
-def print_gap_summary(gaps, verbose=False):
+def print_gap_summary(gaps, verbose=False, table_name="options_bars"):
     """Print a summary of identified gaps."""
     print("\n" + "="*70)
-    print("GAP ANALYSIS SUMMARY")
+    print(f"GAP ANALYSIS SUMMARY - {table_name.upper()}")
     print("="*70)
 
     # Missing days
@@ -193,7 +270,10 @@ def print_gap_summary(gaps, verbose=False):
         print(f"\n❌ MISSING DAYS: {len(gaps['missing_days'])} days with no local data")
         if verbose:
             for gap in gaps['missing_days'][:10]:  # Show first 10
-                print(f"   {gap['date']}: {gap['remote_bars']:,} bars, {gap['remote_contracts']:,} contracts")
+                if 'remote_contracts' in gap:
+                    print(f"   {gap['date']}: {gap['remote_bars']:,} bars, {gap['remote_contracts']:,} contracts")
+                else:
+                    print(f"   {gap['date']}: {gap['remote_bars']:,} bars")
             if len(gaps['missing_days']) > 10:
                 print(f"   ... and {len(gaps['missing_days']) - 10} more")
         else:
@@ -213,23 +293,32 @@ def print_gap_summary(gaps, verbose=False):
     else:
         print("\n✅ No partial days (<80% coverage)")
 
-    # Sparse contracts
-    if gaps['sparse_contracts']:
+    # Sparse contracts (only for options_bars)
+    if 'sparse_contracts' in gaps and gaps['sparse_contracts']:
         print(f"\n⚠️  SPARSE CONTRACTS: {len(gaps['sparse_contracts'])} days with <80% contracts")
         if verbose:
             for gap in gaps['sparse_contracts'][:10]:
                 print(f"   {gap['date']}: {gap['contract_pct']:.1f}% ({gap['local_contracts']:,}/{gap['remote_contracts']:,} contracts)")
             if len(gaps['sparse_contracts']) > 10:
                 print(f"   ... and {len(gaps['sparse_contracts']) - 10} more")
-    else:
+    elif 'sparse_contracts' in gaps:
         print("\n✅ No sparse contract days")
 
     print("\n" + "="*70)
 
 
-def generate_sync_commands(gaps, output_file=None):
-    """Generate shell commands to sync identified gaps."""
+def generate_sync_commands(gaps, output_file=None, table_type='options'):
+    """Generate shell commands to sync identified gaps.
+
+    Args:
+        gaps: Dictionary of gap information
+        output_file: Path to output file (optional)
+        table_type: 'options' or 'underlying' - determines which sync script to use
+    """
     commands = []
+
+    # Determine which sync script to use
+    sync_script = "scripts/sync_moirae.py" if table_type == 'options' else "scripts/sync_underlying.py"
 
     # Sync missing days
     if gaps['missing_days']:
@@ -255,7 +344,7 @@ def generate_sync_commands(gaps, output_file=None):
             start = min(group)
             end = max(group) + timedelta(days=1)  # Include end day
             commands.append(
-                f"python scripts/sync_moirae.py --since {start.strftime('%Y-%m-%d')} "
+                f"python {sync_script} --since {start.strftime('%Y-%m-%d')} "
                 f"--until {end.strftime('%Y-%m-%d')}  # {len(group)} days"
             )
 
@@ -265,14 +354,14 @@ def generate_sync_commands(gaps, output_file=None):
             date = gap['date']
             end_date = date + timedelta(days=1)
             commands.append(
-                f"python scripts/sync_moirae.py --since {date.strftime('%Y-%m-%d')} "
+                f"python {sync_script} --since {date.strftime('%Y-%m-%d')} "
                 f"--until {end_date.strftime('%Y-%m-%d')}  # {gap['coverage_pct']:.1f}% coverage"
             )
 
     if output_file:
         with open(output_file, 'w') as f:
             f.write("#!/bin/bash\n")
-            f.write("# Auto-generated sync commands\n")
+            f.write(f"# Auto-generated sync commands for {table_type}_bars\n")
             f.write(f"# Generated: {datetime.now()}\n\n")
             for cmd in commands:
                 f.write(cmd + "\n")
@@ -280,7 +369,7 @@ def generate_sync_commands(gaps, output_file=None):
         print(f"   Run: chmod +x {output_file} && ./{output_file}")
     else:
         print("\n" + "="*70)
-        print("SUGGESTED SYNC COMMANDS")
+        print(f"SUGGESTED SYNC COMMANDS ({table_type.upper()}_BARS)")
         print("="*70)
         for cmd in commands:
             print(cmd)
@@ -296,6 +385,8 @@ def main():
     parser.add_argument('--detailed', action='store_true', help='Show detailed gap information')
     parser.add_argument('--generate-sync-commands', action='store_true', help='Generate sync commands')
     parser.add_argument('--output', type=str, help='Output file for sync commands')
+    parser.add_argument('--underlying-only', action='store_true', help='Analyze only underlying_bars table')
+    parser.add_argument('--options-only', action='store_true', help='Analyze only options_bars table')
 
     args = parser.parse_args()
 
@@ -334,25 +425,69 @@ def main():
         sys.exit(1)
 
     try:
-        # Get daily statistics
-        print("Analyzing remote data...")
-        remote_stats = get_daily_stats(remote_conn, start_date, end_date, args.ticker)
-        print(f"✅ Found {len(remote_stats)} days in remote\n")
+        # Determine which tables to analyze
+        analyze_options = not args.underlying_only
+        analyze_underlying = not args.options_only
 
-        print("Analyzing local data...")
-        local_stats = get_daily_stats(local_conn, start_date, end_date, args.ticker)
-        print(f"✅ Found {len(local_stats)} days in local\n")
+        # Analyze options_bars table
+        if analyze_options:
+            print("="*70)
+            print("ANALYZING OPTIONS_BARS TABLE")
+            print("="*70)
 
-        # Compare coverage
-        print("Comparing coverage...")
-        gaps = compare_daily_coverage(remote_stats, local_stats)
+            print("\nAnalyzing remote options data...")
+            remote_stats = get_daily_stats(remote_conn, start_date, end_date, args.ticker)
+            print(f"✅ Found {len(remote_stats)} days in remote\n")
 
-        # Print summary
-        print_gap_summary(gaps, verbose=args.detailed)
+            print("Analyzing local options data...")
+            local_stats = get_daily_stats(local_conn, start_date, end_date, args.ticker)
+            print(f"✅ Found {len(local_stats)} days in local\n")
+
+            # Compare coverage
+            print("Comparing options coverage...")
+            options_gaps = compare_daily_coverage(remote_stats, local_stats)
+
+            # Print summary
+            print_gap_summary(options_gaps, verbose=args.detailed, table_name="options_bars")
+
+        # Analyze underlying_bars table
+        if analyze_underlying:
+            print("\n" + "="*70)
+            print("ANALYZING UNDERLYING_BARS TABLE")
+            print("="*70)
+
+            print("\nAnalyzing remote underlying data...")
+            remote_underlying_stats = get_underlying_daily_stats(remote_conn, start_date, end_date, args.ticker)
+            print(f"✅ Found {len(remote_underlying_stats)} days in remote\n")
+
+            print("Analyzing local underlying data...")
+            local_underlying_stats = get_underlying_daily_stats(local_conn, start_date, end_date, args.ticker)
+            print(f"✅ Found {len(local_underlying_stats)} days in local\n")
+
+            # Compare coverage
+            print("Comparing underlying coverage...")
+            underlying_gaps = compare_underlying_daily_coverage(remote_underlying_stats, local_underlying_stats)
+
+            # Print summary
+            print_gap_summary(underlying_gaps, verbose=args.detailed, table_name="underlying_bars")
 
         # Generate sync commands if requested
         if args.generate_sync_commands or args.output:
-            generate_sync_commands(gaps, args.output)
+            # Generate options sync commands
+            if analyze_options:
+                options_output = args.output if args.output and not analyze_underlying else None
+                if not options_output and args.output:
+                    # Both tables - use separate files
+                    options_output = args.output.replace('.sh', '_options.sh')
+                generate_sync_commands(options_gaps, options_output, table_type='options')
+
+            # Generate underlying sync commands
+            if analyze_underlying:
+                underlying_output = args.output if args.output and not analyze_options else None
+                if not underlying_output and args.output:
+                    # Both tables - use separate files
+                    underlying_output = args.output.replace('.sh', '_underlying.sh')
+                generate_sync_commands(underlying_gaps, underlying_output, table_type='underlying')
 
     finally:
         remote_conn.close()

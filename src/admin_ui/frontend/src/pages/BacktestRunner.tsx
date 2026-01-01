@@ -8,6 +8,14 @@ import { EquityCurveChart } from '../components/charts/EquityCurveChart';
 import { PnLDistributionChart } from '../components/charts/PnLDistributionChart';
 import { DrawdownChart } from '../components/charts/DrawdownChart';
 import { formatDistanceToNow } from 'date-fns';
+import {
+  getTodayEST,
+  getYesterdayEST,
+  getThisWeekEST,
+  getLastWeekEST,
+  getLastNMonthsEST,
+  getLastNYearsEST,
+} from '../utils/dateUtils';
 
 export function BacktestRunner() {
   const [selectedStrategy, setSelectedStrategy] = useState<string>('');
@@ -373,19 +381,7 @@ export function BacktestRunner() {
                 variant="secondary"
                 className="w-full"
                 onClick={() => {
-                  const today = new Date();
-                  let dateToUse = new Date(today);
-
-                  // If today is a weekend, use last Friday
-                  if (today.getDay() === 0) {
-                    // Sunday - use Friday
-                    dateToUse.setDate(today.getDate() - 2);
-                  } else if (today.getDay() === 6) {
-                    // Saturday - use Friday
-                    dateToUse.setDate(today.getDate() - 1);
-                  }
-
-                  const dateStr = dateToUse.toISOString().split('T')[0];
+                  const dateStr = getTodayEST();
                   setStartDate(dateStr);
                   setEndDate(dateStr);
                 }}
@@ -396,13 +392,7 @@ export function BacktestRunner() {
                 variant="secondary"
                 className="w-full"
                 onClick={() => {
-                  const yesterday = new Date();
-                  yesterday.setDate(yesterday.getDate() - 1);
-                  // If yesterday was a weekend, go back to Friday
-                  while (yesterday.getDay() === 0 || yesterday.getDay() === 6) {
-                    yesterday.setDate(yesterday.getDate() - 1);
-                  }
-                  const dateStr = yesterday.toISOString().split('T')[0];
+                  const dateStr = getYesterdayEST();
                   setStartDate(dateStr);
                   setEndDate(dateStr);
                 }}
@@ -413,26 +403,9 @@ export function BacktestRunner() {
                 variant="secondary"
                 className="w-full"
                 onClick={() => {
-                  const today = new Date();
-                  const dayOfWeek = today.getDay();
-                  // Calculate days since Monday (1 = Monday, 0 = Sunday)
-                  const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-
-                  const startOfWeek = new Date(today);
-                  startOfWeek.setDate(today.getDate() - daysSinceMonday);
-
-                  // If today is Saturday or Sunday, use last Friday as end
-                  const endOfWeek = new Date(today);
-                  if (dayOfWeek === 0) {
-                    // Sunday - use Friday
-                    endOfWeek.setDate(today.getDate() - 2);
-                  } else if (dayOfWeek === 6) {
-                    // Saturday - use Friday
-                    endOfWeek.setDate(today.getDate() - 1);
-                  }
-
-                  setStartDate(startOfWeek.toISOString().split('T')[0]);
-                  setEndDate(endOfWeek.toISOString().split('T')[0]);
+                  const { start, end } = getThisWeekEST();
+                  setStartDate(start);
+                  setEndDate(end);
                 }}
               >
                 This Week
@@ -441,22 +414,9 @@ export function BacktestRunner() {
                 variant="secondary"
                 className="w-full"
                 onClick={() => {
-                  const today = new Date();
-                  const dayOfWeek = today.getDay();
-
-                  // Calculate days to go back to get to last Monday
-                  let daysToLastMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-                  daysToLastMonday += 7; // Go back one more week
-
-                  const lastMonday = new Date(today);
-                  lastMonday.setDate(today.getDate() - daysToLastMonday);
-
-                  // Last Friday is 4 days after last Monday
-                  const lastFriday = new Date(lastMonday);
-                  lastFriday.setDate(lastMonday.getDate() + 4);
-
-                  setStartDate(lastMonday.toISOString().split('T')[0]);
-                  setEndDate(lastFriday.toISOString().split('T')[0]);
+                  const { start, end } = getLastWeekEST();
+                  setStartDate(start);
+                  setEndDate(end);
                 }}
               >
                 Last Week
@@ -465,11 +425,9 @@ export function BacktestRunner() {
                 variant="secondary"
                 className="w-full"
                 onClick={() => {
-                  const end = new Date();
-                  const start = new Date();
-                  start.setMonth(start.getMonth() - 1);
-                  setStartDate(start.toISOString().split('T')[0]);
-                  setEndDate(end.toISOString().split('T')[0]);
+                  const { start, end } = getLastNMonthsEST(1);
+                  setStartDate(start);
+                  setEndDate(end);
                 }}
               >
                 Last Month
@@ -478,11 +436,9 @@ export function BacktestRunner() {
                 variant="secondary"
                 className="w-full"
                 onClick={() => {
-                  const end = new Date();
-                  const start = new Date();
-                  start.setMonth(start.getMonth() - 3);
-                  setStartDate(start.toISOString().split('T')[0]);
-                  setEndDate(end.toISOString().split('T')[0]);
+                  const { start, end } = getLastNMonthsEST(3);
+                  setStartDate(start);
+                  setEndDate(end);
                 }}
               >
                 Last 3 Months
@@ -491,11 +447,9 @@ export function BacktestRunner() {
                 variant="secondary"
                 className="w-full"
                 onClick={() => {
-                  const end = new Date();
-                  const start = new Date();
-                  start.setFullYear(start.getFullYear() - 1);
-                  setStartDate(start.toISOString().split('T')[0]);
-                  setEndDate(end.toISOString().split('T')[0]);
+                  const { start, end } = getLastNYearsEST(1);
+                  setStartDate(start);
+                  setEndDate(end);
                 }}
               >
                 Last Year
