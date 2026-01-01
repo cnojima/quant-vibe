@@ -358,10 +358,13 @@ class StreamDataBackfiller:
             return min(limit, total_null) if limit else total_null
 
         print("\nExecuting bulk UPDATE...")
+        print("(Setting TimescaleDB decompression limit for large updates)")
         start_time = datetime.now()
 
         with self.ts_store.get_connection() as conn:
             with conn.cursor() as cur:
+                # Increase decompression limit for this transaction
+                cur.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0;")
                 cur.execute(update_query)
                 updated = cur.rowcount
                 conn.commit()
@@ -447,11 +450,13 @@ class StreamDataBackfiller:
             return count
 
         # Update in batches to avoid memory issues
-        batch_size = 500
+        # Use smaller batches for TimescaleDB compressed hypertables
+        batch_size = 50  # Smaller batch to avoid decompression limits
         total_updated = 0
         start_time = datetime.now()
 
         print(f"\nMarking expired contracts in batches of {batch_size}...")
+        print("(Setting TimescaleDB decompression limit for large updates)")
 
         for i in range(0, len(expired_tickers), batch_size):
             batch = expired_tickers[i:i + batch_size]
@@ -474,6 +479,8 @@ class StreamDataBackfiller:
 
             with self.ts_store.get_connection() as conn:
                 with conn.cursor() as cur:
+                    # Increase decompression limit for this transaction
+                    cur.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0;")
                     cur.execute(update_query, params)
                     total_updated += cur.rowcount
                     conn.commit()
