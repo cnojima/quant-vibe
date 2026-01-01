@@ -4,12 +4,14 @@ import { NumberInput } from './NumberInput';
 import { Toggle } from './Toggle';
 import { Select, SelectOption } from './Select';
 import { CollapsibleSection } from './CollapsibleSection';
+import { ArrayEditor } from './ArrayEditor';
 
 interface JSONSchema {
   type?: string;
   properties?: Record<string, JSONSchema>;
   items?: JSONSchema;
   enum?: string[];
+  anyOf?: JSONSchema[];
   title?: string;
   description?: string;
   default?: any;
@@ -51,9 +53,27 @@ export function SchemaForm({
     const fieldError = errors[fieldPath];
     const isRequired = schema.required?.includes(fieldName) || false;
 
+    // Handle anyOf (common for optional/nullable fields in Pydantic)
+    // Extract the non-null type from anyOf
+    let actualSchema = fieldSchema;
+    if (fieldSchema.anyOf && Array.isArray(fieldSchema.anyOf)) {
+      // Find the first non-null type
+      const nonNullSchema = fieldSchema.anyOf.find(
+        (s: any) => s.type !== 'null'
+      );
+      if (nonNullSchema) {
+        actualSchema = {
+          ...nonNullSchema,
+          title: fieldSchema.title,
+          description: fieldSchema.description,
+          default: fieldSchema.default,
+        };
+      }
+    }
+
     // Handle enum fields (render as select)
-    if (fieldSchema.enum) {
-      const options: SelectOption[] = fieldSchema.enum.map((val) => ({
+    if (actualSchema.enum) {
+      const options: SelectOption[] = actualSchema.enum.map((val) => ({
         value: String(val),
         label: String(val),
       }));
@@ -62,29 +82,29 @@ export function SchemaForm({
         <Select
           key={fieldName}
           id={fieldPath}
-          label={fieldSchema.title || fieldName}
-          value={String(fieldValue ?? fieldSchema.default ?? options[0]?.value ?? '')}
+          label={actualSchema.title || fieldName}
+          value={String(fieldValue ?? actualSchema.default ?? options[0]?.value ?? '')}
           options={options}
           onChange={(val) => handleFieldChange(fieldName, val)}
           error={fieldError}
-          description={fieldSchema.description}
+          description={actualSchema.description}
           required={isRequired}
         />
       );
     }
 
     // Handle different types
-    switch (fieldSchema.type) {
+    switch (actualSchema.type) {
       case 'string':
         return (
           <TextInput
             key={fieldName}
             id={fieldPath}
-            label={fieldSchema.title || fieldName}
-            value={fieldValue ?? fieldSchema.default ?? ''}
+            label={actualSchema.title || fieldName}
+            value={fieldValue ?? actualSchema.default ?? ''}
             onChange={(val) => handleFieldChange(fieldName, val)}
             error={fieldError}
-            description={fieldSchema.description}
+            description={actualSchema.description}
             required={isRequired}
           />
         );
@@ -95,15 +115,15 @@ export function SchemaForm({
           <NumberInput
             key={fieldName}
             id={fieldPath}
-            label={fieldSchema.title || fieldName}
-            value={fieldValue ?? fieldSchema.default ?? null}
+            label={actualSchema.title || fieldName}
+            value={fieldValue ?? actualSchema.default ?? null}
             onChange={(val) => handleFieldChange(fieldName, val)}
             error={fieldError}
-            description={fieldSchema.description}
+            description={actualSchema.description}
             required={isRequired}
-            min={fieldSchema.minimum}
-            max={fieldSchema.maximum}
-            step={fieldSchema.type === 'integer' ? 1 : undefined}
+            min={actualSchema.minimum}
+            max={actualSchema.maximum}
+            step={actualSchema.type === 'integer' ? 1 : undefined}
           />
         );
 
@@ -112,25 +132,25 @@ export function SchemaForm({
           <Toggle
             key={fieldName}
             id={fieldPath}
-            label={fieldSchema.title || fieldName}
-            value={fieldValue ?? fieldSchema.default ?? false}
+            label={actualSchema.title || fieldName}
+            value={fieldValue ?? actualSchema.default ?? false}
             onChange={(val) => handleFieldChange(fieldName, val)}
             error={fieldError}
-            description={fieldSchema.description}
+            description={actualSchema.description}
           />
         );
 
       case 'object':
-        if (fieldSchema.properties) {
+        if (actualSchema.properties) {
           return (
             <CollapsibleSection
               key={fieldName}
-              title={fieldSchema.title || fieldName}
-              description={fieldSchema.description}
+              title={actualSchema.title || fieldName}
+              description={actualSchema.description}
               defaultOpen={false}
             >
               <SchemaForm
-                schema={fieldSchema}
+                schema={actualSchema}
                 data={fieldValue || {}}
                 onChange={(val) => handleFieldChange(fieldName, val)}
                 errors={errors}
@@ -142,14 +162,35 @@ export function SchemaForm({
         break;
 
       case 'array':
-        // For now, skip array rendering (can be enhanced later)
+        if (actualSchema.items) {
+          return (
+            <ArrayEditor
+              key={fieldName}
+              id={fieldPath}
+              label={actualSchema.title || fieldName}
+              items={fieldValue || []}
+              itemSchema={actualSchema.items}
+              onChange={(val) => handleFieldChange(fieldName, val)}
+              description={actualSchema.description}
+              renderItem={(item, index, onChange) => (
+                <SchemaForm
+                  schema={actualSchema.items!}
+                  data={item}
+                  onChange={onChange}
+                  errors={errors}
+                  path={`${fieldPath}[${index}]`}
+                />
+              )}
+            />
+          );
+        }
         return (
           <div key={fieldName} className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {fieldSchema.title || fieldName}
+              {actualSchema.title || fieldName}
             </label>
             <p className="text-sm text-gray-500">
-              {fieldSchema.description || 'Array field (use YAML mode to edit)'}
+              {actualSchema.description || 'Array field (use YAML mode to edit)'}
             </p>
           </div>
         );
