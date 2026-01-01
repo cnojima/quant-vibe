@@ -20,7 +20,6 @@ from pathlib import Path
 import schwabdev
 from dotenv import load_dotenv
 
-from live_trading_service.data_feed import RealtimeDataFeed
 from live_trading_service.redis_data_feed import RedisDataFeed
 from live_trading_service.state_store import StateStore
 from live_trading_service.order_manager import OrderManager
@@ -81,12 +80,10 @@ class LiveTradingEngine:
         # State
         self.state = TradingState.STOPPED
         self.paper_trading = self.config['engine'].get('paper_trading', True)
-        self.use_redis_feed = self.config['engine'].get('use_redis_feed', True)
         self.use_token_service = self.config['engine'].get('use_token_service', True)
         self.token_service_url = os.getenv("TOKEN_SERVICE_URL")
 
         # Initialize components
-        self.data_feed: Optional[RealtimeDataFeed] = None
         self.redis_feed: Optional[RedisDataFeed] = None
         self.market_data: Optional[LiveMarketDataProvider] = None
         self.state_store: Optional[StateStore] = None
@@ -146,7 +143,6 @@ class LiveTradingEngine:
                 'max_capital_per_trade': 10000,
                 'daily_loss_limit_pct': 0.05,  # 5%
                 'data_stale_timeout_seconds': 300,  # 5 minutes
-                'use_redis_feed': True,  # Use Redis feed instead of direct streaming
             },
             'strategies': {
                 'enabled': []  # Will be populated later
@@ -207,31 +203,22 @@ class LiveTradingEngine:
         self.state_store = StateStore()
         self.logger.info("    ✓ State store ready")
 
-        # Initialize data feed (Redis or Direct)
-        if self.use_redis_feed:
-            self.logger.info("  - Initializing Redis data feed...")
-            redis_config = self.config.get('redis', {})
-            self.redis_feed = RedisDataFeed(
-                window_size=self.config['data_feed']['window_size'],
-                callbacks=[self._on_new_bars],
-                redis_host=redis_config.get('host'),
-                redis_port=redis_config.get('port'),
-                redis_db=redis_config.get('db'),
-            )
-            self.logger.info("    ✓ Redis data feed ready")
-            self.logger.info("    ℹ️  Using StreamingService for market data")
-        else:
-            self.logger.info("  - Initializing direct data feed...")
-            self.data_feed = RealtimeDataFeed(
-                window_size=self.config['data_feed']['window_size'],
-                aggregate_interval_seconds=self.config['data_feed']['aggregate_interval_seconds'],
-                callbacks=[self._on_new_bars]
-            )
-            self.logger.info("    ✓ Direct data feed ready")
+        # Initialize data feed (Redis)
+        self.logger.info("  - Initializing Redis data feed...")
+        redis_config = self.config.get('redis', {})
+        self.redis_feed = RedisDataFeed(
+            window_size=self.config['data_feed']['window_size'],
+            callbacks=[self._on_new_bars],
+            redis_host=redis_config.get('host'),
+            redis_port=redis_config.get('port'),
+            redis_db=redis_config.get('db'),
+        )
+        self.logger.info("    ✓ Redis data feed ready")
+        self.logger.info("    ℹ️  Using StreamingService for market data")
 
         # Initialize market data provider (wraps data feed)
         self.logger.info("  - Initializing market data provider...")
-        feed = self.redis_feed if self.use_redis_feed else self.data_feed
+        feed = self.redis_feed
         self.market_data = LiveMarketDataProvider(feed)
         self.logger.info("    ✓ Market data provider ready")
 
@@ -265,15 +252,10 @@ class LiveTradingEngine:
             tokens_db=tokens_db,
         )
 
-        # Only create streamer if NOT using Redis feed
-        if not self.use_redis_feed:
-            self.streamer = schwabdev.Stream(self.schwab_client)
-            self.logger.info("    ✓ Schwab client and streamer ready")
+        if self.token_service_client:
+            self.logger.info("    ✓ Schwab client ready (order execution only, tokens via token service)")
         else:
-            if self.token_service_client:
-                self.logger.info("    ✓ Schwab client ready (order execution only, tokens via token service)")
-            else:
-                self.logger.info("    ✓ Schwab client ready (order execution only, tokens via local database)")
+            self.logger.info("    ✓ Schwab client ready (order execution only, tokens via local database)")
 
         # Initialize OrderManager
         self.logger.info("  - Initializing OrderManager...")
@@ -365,40 +347,14 @@ class LiveTradingEngine:
             severity='info'
         )
 
-        if self.use_redis_feed:
-            # Use Redis feed - no need to subscribe to contracts
-            self.logger.info("Starting Redis data feed...")
-            self.redis_feed.start()
-            self.logger.info("✅ Redis feed connected - receiving data from StreamingService")
+        # Use Redis feed - no need to subscribe to contracts
+        self.logger.info("Starting Redis data feed...")
+        self.redis_feed.start()
+        self.logger.info("✅ Redis feed connected - receiving data from StreamingService")
 
-            self.state = TradingState.RUNNING
-            self.state_store.save_engine_state(self.state, {'data_source': 'redis'})
+        self.state = TradingState.RUNNING
+        self.state_store.save_engine_state(self.state, {'data_source': 'redis'})
 
-        else:
-            # Use direct streaming - subscribe to contracts
-            contracts = self._get_contracts_to_stream()
-
-            if not contracts:
-                self.logger.error("No contracts to stream! Exiting.")
-                return
-
-            # Start schwabdev stream
-            self.logger.info("Starting schwabdev stream...")
-            import zoneinfo
-            self.streamer.start_auto(
-                self.data_feed.handle_message,
-                start_time=dt_time(9, 29, 0),
-                stop_time=dt_time(16, 0, 0),
-                on_days=(0, 1, 2, 3, 4),
-                now_timezone=zoneinfo.ZoneInfo("America/New_York"),
-                daemon=True
-            )
-
-            # Subscribe to contracts (batched)
-            self._subscribe_to_contracts(contracts)
-
-            self.state = TradingState.RUNNING
-            self.state_store.save_engine_state(self.state, {'contracts': len(contracts)})
 
         self.logger.info("✅ Engine is RUNNING")
         self.logger.info("="*70)
@@ -412,75 +368,7 @@ class LiveTradingEngine:
         # Main loop
         self._run_main_loop()
 
-    def _get_contracts_to_stream(self) -> List[str]:
-        """Get list of option contracts to stream."""
-        self.logger.info("Fetching SPXW contracts...")
 
-        max_dte = self.config['data_feed']['max_dte']
-        min_dte = self.config['data_feed']['min_dte']
-        strike_range_pct = self.config['data_feed']['strike_range_pct']
-
-        # Get SPX price
-        try:
-            response = self.schwab_client.quote("$SPX")
-            spx_data = response.json()
-
-            if "$SPX" in spx_data:
-                spx_price = spx_data["$SPX"]["quote"]["lastPrice"]
-                self.logger.info(f"  SPX price: ${spx_price:.2f}")
-            else:
-                self.logger.warning("  Could not get SPX price, using default")
-                spx_price = 6000.0
-        except Exception as e:
-            self.logger.error(f"  Error getting SPX price: {e}")
-            spx_price = 6000.0
-
-        # Calculate strike range
-        strike_min = spx_price * (1 - strike_range_pct)
-        strike_max = spx_price * (1 + strike_range_pct)
-
-        self.logger.info(f"  Strike range: ${strike_min:.0f} - ${strike_max:.0f}")
-        self.logger.info(f"  DTE range: {min_dte} - {max_dte}")
-
-        # Get option chain
-        contracts = []
-
-        try:
-            response = self.schwab_client.option_chains("$SPX", strikeCount=50)
-            chain_data = response.json()
-
-            today = datetime.now().date()
-
-            for option_type in ['callExpDateMap', 'putExpDateMap']:
-                if option_type not in chain_data:
-                    continue
-
-                exp_map = chain_data[option_type]
-
-                for exp_date_str, strikes in exp_map.items():
-                    exp_date = datetime.strptime(exp_date_str.split(':')[0], '%Y-%m-%d').date()
-                    dte = (exp_date - today).days
-
-                    if dte < min_dte or dte > max_dte:
-                        continue
-
-                    for strike_str, contract_list in strikes.items():
-                        strike = float(strike_str)
-
-                        if strike < strike_min or strike > strike_max:
-                            continue
-
-                        for contract in contract_list:
-                            symbol = contract.get('symbol', '')
-                            if 'SPXW' in symbol:
-                                contracts.append(symbol)
-
-            self.logger.info(f"  Found {len(contracts)} SPXW contracts")
-
-        except Exception as e:
-            self.logger.error(f"  Error fetching contracts: {e}", exc_info=True)
-
-        return contracts
 
     def _subscribe_to_contracts(self, contracts: List[str]):
         """Subscribe to option contracts for streaming."""
@@ -503,6 +391,12 @@ class LiveTradingEngine:
 
         self.logger.info("✅ All subscriptions active")
 
+    def _feed_is_stale(self) -> bool:
+        """Check if data feed is stale."""
+        if self.redis_feed:
+            return self.redis_feed.is_data_stale()
+        return True
+
     def _on_new_bars(self, new_bars: List[Dict]):
         """
         Callback when new bars are created by data feed.
@@ -517,7 +411,7 @@ class LiveTradingEngine:
         self.logger.debug(f"Received {len(new_bars)} new bars")
 
         # Check data staleness (use correct feed reference)
-        feed = self.redis_feed if self.use_redis_feed else self.data_feed
+        feed = self.redis_feed
         if feed.is_data_stale():
             self.logger.warning("Data is stale! Pausing new entries.")
             if self.strategy_executor:
@@ -577,11 +471,7 @@ class LiveTradingEngine:
             last_error = None
 
             # Check data staleness (only mark as degraded during market hours)
-            feed_stale = False
-            if self.use_redis_feed and self.redis_feed:
-                feed_stale = self.redis_feed.is_data_stale()
-            elif self.data_feed:
-                feed_stale = self.data_feed.is_data_stale()
+            feed_stale = self._feed_is_stale()
 
             if feed_stale and is_market_open():
                 status = "degraded"
@@ -647,12 +537,7 @@ class LiveTradingEngine:
     def _health_check(self):
         """Perform health checks."""
         # Check data staleness (only warn during market hours)
-        feed_stale = False
-        if self.use_redis_feed and self.redis_feed:
-            feed_stale = self.redis_feed.is_data_stale()
-        elif self.data_feed:
-            feed_stale = self.data_feed.is_data_stale()
-
+        feed_stale = self._feed_is_stale()
         if feed_stale and is_market_open():
             self.logger.warning("⚠️  Data feed is stale!")
             self.state_store.log_event(
@@ -673,12 +558,9 @@ class LiveTradingEngine:
         minutes = int((uptime % 3600) // 60)
 
         # Get stats from active feed
-        if self.use_redis_feed and self.redis_feed:
+        if self.redis_feed:
             stats = self.redis_feed.get_stats()
             feed_type = "Redis"
-        elif self.data_feed:
-            stats = self.data_feed.get_stats()
-            feed_type = "Direct"
         else:
             stats = {}
             feed_type = "Unknown"
@@ -717,20 +599,13 @@ class LiveTradingEngine:
         self.state = TradingState.STOPPING
 
         # Stop data feed
-        if self.use_redis_feed and self.redis_feed:
+        if self.redis_feed:
             self.logger.info("Stopping Redis feed...")
             try:
                 self.redis_feed.stop()
                 self.logger.info("  ✓ Redis feed stopped")
             except Exception as e:
                 self.logger.error(f"  Error stopping Redis feed: {e}")
-        elif self.streamer:
-            self.logger.info("Stopping stream...")
-            try:
-                self.streamer.stop()
-                self.logger.info("  ✓ Stream stopped")
-            except Exception as e:
-                self.logger.error(f"  Error stopping stream: {e}")
 
         # TODO: Close all positions if configured
 
@@ -775,5 +650,5 @@ class LiveTradingEngine:
             'uptime_seconds': (datetime.now() - self.start_time).total_seconds() if self.start_time else 0,
             'bars_processed': self.total_bars_processed,
             'strategies_loaded': len(self.strategies),
-            'data_feed_stats': self.data_feed.get_stats() if self.data_feed else {},
+            'data_feed_stats': self.redis_feed.get_stats() if self.redis_feed else {},
         }

@@ -15,14 +15,12 @@ Components:
 """
 
 from .engine import LiveTradingEngine
-from .data_feed import RealtimeDataFeed
 from .state_store import StateStore
 from .order_manager import OrderManager, Order, OrderStatus, OrderSide, OCOStatus
 from .position_manager import PositionManager
 
 __all__ = [
     'LiveTradingEngine',
-    'RealtimeDataFeed',
     'StateStore',
     'OrderManager',
     'Order',
