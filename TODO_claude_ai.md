@@ -649,9 +649,9 @@ allocations = {
 
 ### Week 1: Validation & Monitoring
 - [x] Enable paper trading (bullish_vertical_put only)
-- [ ] Implement Pushover notifications
-- [ ] Create daily performance reports
-- [ ] Track slippage vs backtest
+- [x] Implement Pushover notifications
+- [x] Create daily performance reports
+- [x] Track slippage vs backtest
 - **Goal**: Validate strategy works in real market
 
 ### Week 2: Optimization & Analysis
