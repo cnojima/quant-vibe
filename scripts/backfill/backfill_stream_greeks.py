@@ -373,16 +373,18 @@ class StreamDataBackfiller:
 
     def mark_expired_contracts(
         self,
-        sentinel_value: float = -999.0
+        sentinel_value: float = -9.0
     ) -> int:
         """
         Mark expired contracts with sentinel values so they're excluded from future queries.
 
-        Uses delta = -999 as a marker that this contract has been processed
-        but Greeks are unavailable (contract expired).
+        Uses delta = -9 as a marker that this contract has been processed
+        but Greeks are unavailable (contract expired). This value is chosen to:
+        - Fit within the numeric(8,6) column constraint (max ±99.999999)
+        - Be clearly outside the normal delta range of -1 to 1
 
         Args:
-            sentinel_value: Value to use as marker (default -999)
+            sentinel_value: Value to use as marker (default -9.0, must be within ±99)
 
         Returns:
             Number of records marked
@@ -894,7 +896,7 @@ class StreamDataBackfiller:
             SELECT COUNT(DISTINCT option_ticker)
             FROM options_bars
             WHERE data_source = 'schwabdev_stream'
-            AND delta = -999
+            AND delta = -9
         """
         with self.ts_store.get_connection() as conn:
             with conn.cursor() as cur:
