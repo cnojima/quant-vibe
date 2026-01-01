@@ -323,6 +323,28 @@ export function useUpdateLiveConfig() {
     },
   });
 }
+
+export function useBacktestSchema() {
+  return useQuery({
+    queryKey: ['schema-backtest'],
+    queryFn: async () => {
+      const response = await apiClient.get<{ schema: any }>('/config/schema/backtest');
+      return response.data.schema;
+    },
+    staleTime: Infinity, // Schema doesn't change often
+  });
+}
+
+export function useLiveSchema() {
+  return useQuery({
+    queryKey: ['schema-live'],
+    queryFn: async () => {
+      const response = await apiClient.get<{ schema: any }>('/config/schema/live');
+      return response.data.schema;
+    },
+    staleTime: Infinity, // Schema doesn't change often
+  });
+}
 // Live trading strategy management queries
 export function useLiveStrategies() {
   return useQuery({

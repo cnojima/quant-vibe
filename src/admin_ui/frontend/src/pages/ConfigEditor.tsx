@@ -1,50 +1,142 @@
-import { useState } from 'react';
-import { useBacktestConfig, useLiveConfig, useUpdateBacktestConfig, useUpdateLiveConfig } from '../api/queries';
+import { useState, useEffect } from 'react';
+import {
+  useBacktestConfig,
+  useLiveConfig,
+  useUpdateBacktestConfig,
+  useUpdateLiveConfig,
+  useBacktestSchema,
+  useLiveSchema,
+} from '../api/queries';
 import { Card } from '../components/common/Card';
 import { Button } from '../components/common/Button';
+import { SchemaForm } from '../components/forms';
+import yaml from 'js-yaml';
 
 type ConfigType = 'backtest' | 'live';
+type ViewMode = 'form' | 'yaml';
 
 export function ConfigEditor() {
   const [selectedConfig, setSelectedConfig] = useState<ConfigType>('backtest');
+  const [viewMode, setViewMode] = useState<ViewMode>('form');
   const [editMode, setEditMode] = useState(false);
-  const [editedConfig, setEditedConfig] = useState<string>('');
+  const [editedConfig, setEditedConfig] = useState<any>(null);
+  const [yamlText, setYamlText] = useState<string>('');
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   const { data: backtestConfig, isLoading: backtestLoading } = useBacktestConfig();
   const { data: liveConfig, isLoading: liveLoading } = useLiveConfig();
+  const { data: backtestSchema, isLoading: backtestSchemaLoading } = useBacktestSchema();
+  const { data: liveSchema, isLoading: liveSchemaLoading } = useLiveSchema();
   const updateBacktest = useUpdateBacktestConfig();
   const updateLive = useUpdateLiveConfig();
 
   const currentConfig = selectedConfig === 'backtest' ? backtestConfig : liveConfig;
+  const currentSchema = selectedConfig === 'backtest' ? backtestSchema : liveSchema;
   const isLoading = selectedConfig === 'backtest' ? backtestLoading : liveLoading;
+  const schemaLoading = selectedConfig === 'backtest' ? backtestSchemaLoading : liveSchemaLoading;
+
+  // Initialize YAML text when entering YAML mode or config changes
+  useEffect(() => {
+    if (viewMode === 'yaml' && editMode && editedConfig) {
+      try {
+        const yamlStr = yaml.dump(editedConfig, {
+          indent: 2,
+          lineWidth: -1,
+          noRefs: true,
+        });
+        setYamlText(yamlStr);
+      } catch (error) {
+        console.error('Failed to convert to YAML:', error);
+      }
+    }
+  }, [viewMode, editMode, editedConfig]);
 
   const handleEdit = () => {
-    setEditedConfig(JSON.stringify(currentConfig, null, 2));
+    setEditedConfig(JSON.parse(JSON.stringify(currentConfig))); // Deep clone
+    setValidationErrors({});
     setEditMode(true);
   };
 
   const handleCancel = () => {
     setEditMode(false);
-    setEditedConfig('');
+    setEditedConfig(null);
+    setYamlText('');
+    setValidationErrors({});
   };
 
   const handleSave = async () => {
     try {
-      const parsedConfig = JSON.parse(editedConfig);
+      let configToSave = editedConfig;
+
+      // If in YAML mode, parse YAML to object
+      if (viewMode === 'yaml') {
+        try {
+          configToSave = yaml.load(yamlText) as any;
+        } catch (error: any) {
+          alert(`Invalid YAML format: ${error.message}`);
+          return;
+        }
+      }
 
       if (selectedConfig === 'backtest') {
-        await updateBacktest.mutateAsync(parsedConfig);
+        await updateBacktest.mutateAsync(configToSave);
       } else {
-        await updateLive.mutateAsync(parsedConfig);
+        await updateLive.mutateAsync(configToSave);
       }
 
       setEditMode(false);
-      setEditedConfig('');
+      setEditedConfig(null);
+      setYamlText('');
+      setValidationErrors({});
     } catch (error: any) {
-      if (error instanceof SyntaxError) {
-        alert('Invalid JSON format. Please check your syntax.');
+      // Handle validation errors from backend
+      if (error.response?.status === 422 && error.response?.data?.detail?.errors) {
+        const errors: Record<string, string> = {};
+        error.response.data.detail.errors.forEach((err: any) => {
+          const path = err.loc.join('.');
+          errors[path] = err.msg;
+        });
+        setValidationErrors(errors);
+        alert('Configuration validation failed. Please check the error messages below.');
       } else {
-        alert(`Failed to save configuration: ${error.message || error}`);
+        alert(`Failed to save configuration: ${error.response?.data?.detail?.message || error.message || error}`);
+      }
+    }
+  };
+
+  const handleFormChange = (newData: any) => {
+    setEditedConfig(newData);
+    setValidationErrors({}); // Clear errors on change
+  };
+
+  const handleYamlChange = (newYaml: string) => {
+    setYamlText(newYaml);
+  };
+
+  const handleModeSwitch = (mode: ViewMode) => {
+    if (mode === 'yaml' && viewMode === 'form') {
+      // Switching from form to YAML
+      if (editedConfig) {
+        try {
+          const yamlStr = yaml.dump(editedConfig, {
+            indent: 2,
+            lineWidth: -1,
+            noRefs: true,
+          });
+          setYamlText(yamlStr);
+        } catch (error) {
+          console.error('Failed to convert to YAML:', error);
+        }
+      }
+      setViewMode('yaml');
+    } else if (mode === 'form' && viewMode === 'yaml') {
+      // Switching from YAML to form
+      try {
+        const parsed = yaml.load(yamlText) as any;
+        setEditedConfig(parsed);
+        setViewMode('form');
+      } catch (error: any) {
+        alert(`Invalid YAML format. Cannot switch to form mode: ${error.message}`);
       }
     }
   };
@@ -54,7 +146,7 @@ export function ConfigEditor() {
       <div className="mb-4 md:mb-6">
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Configuration Editor</h1>
         <p className="text-sm md:text-base text-gray-600 mt-1 md:mt-2">
-          View and edit YAML configuration files
+          View and edit YAML configuration files using form controls or raw YAML
         </p>
       </div>
 
@@ -65,6 +157,8 @@ export function ConfigEditor() {
           onClick={() => {
             setSelectedConfig('backtest');
             setEditMode(false);
+            setEditedConfig(null);
+            setYamlText('');
           }}
           className="w-full sm:w-auto"
         >
@@ -75,6 +169,8 @@ export function ConfigEditor() {
           onClick={() => {
             setSelectedConfig('live');
             setEditMode(false);
+            setEditedConfig(null);
+            setYamlText('');
           }}
           className="w-full sm:w-auto"
         >
@@ -83,32 +179,56 @@ export function ConfigEditor() {
       </div>
 
       <Card>
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
-          <h3 className="text-base md:text-lg font-semibold truncate">
-            {selectedConfig === 'backtest' ? 'config/backtest.yaml' : 'config/live_trading.yaml'}
-          </h3>
-          {!editMode ? (
-            <Button variant="primary" onClick={handleEdit} disabled={isLoading} className="w-full sm:w-auto">
-              Edit Configuration
-            </Button>
-          ) : (
-            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-              <Button variant="secondary" onClick={handleCancel} className="w-full sm:w-auto">
-                Cancel
+        <div className="flex flex-col gap-3 mb-4">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+            <h3 className="text-base md:text-lg font-semibold truncate">
+              {selectedConfig === 'backtest' ? 'config/backtest.yaml' : 'config/live_trading.yaml'}
+            </h3>
+            {!editMode ? (
+              <Button variant="primary" onClick={handleEdit} disabled={isLoading} className="w-full sm:w-auto">
+                Edit Configuration
+              </Button>
+            ) : (
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <Button variant="secondary" onClick={handleCancel} className="w-full sm:w-auto">
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleSave}
+                  disabled={updateBacktest.isPending || updateLive.isPending}
+                  className="w-full sm:w-auto"
+                >
+                  {updateBacktest.isPending || updateLive.isPending ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* View Mode Toggle (only in edit mode) */}
+          {editMode && (
+            <div className="flex gap-2">
+              <Button
+                variant={viewMode === 'form' ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => handleModeSwitch('form')}
+                className="flex-1 sm:flex-initial"
+              >
+                Form Editor
               </Button>
               <Button
-                variant="primary"
-                onClick={handleSave}
-                disabled={updateBacktest.isPending || updateLive.isPending}
-                className="w-full sm:w-auto"
+                variant={viewMode === 'yaml' ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => handleModeSwitch('yaml')}
+                className="flex-1 sm:flex-initial"
               >
-                {updateBacktest.isPending || updateLive.isPending ? 'Saving...' : 'Save Changes'}
+                YAML Editor
               </Button>
             </div>
           )}
         </div>
 
-        {isLoading ? (
+        {isLoading || schemaLoading ? (
           <div className="flex justify-center items-center py-12">
             <div className="text-gray-600">Loading configuration...</div>
           </div>
@@ -119,23 +239,51 @@ export function ConfigEditor() {
               configurations may prevent services from starting. A backup is automatically created
               before saving.
             </div>
-            <div className="overflow-x-auto">
-              <textarea
-                className="w-full min-w-[600px] md:min-w-0 h-80 md:h-96 font-mono text-xs md:text-sm p-3 md:p-4 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                value={editedConfig}
-                onChange={(e) => setEditedConfig(e.target.value)}
-                placeholder="Edit configuration (JSON format)..."
-                spellCheck={false}
-              />
-            </div>
-            <div className="mt-2 text-xs md:text-sm text-gray-600">
-              Format: JSON (will be converted to YAML on save)
-            </div>
+
+            {viewMode === 'form' ? (
+              <div className="max-h-[600px] overflow-y-auto pr-2">
+                {currentSchema && editedConfig ? (
+                  <SchemaForm
+                    schema={currentSchema}
+                    data={editedConfig}
+                    onChange={handleFormChange}
+                    errors={validationErrors}
+                  />
+                ) : (
+                  <div className="text-gray-600">Schema not available. Please use YAML editor.</div>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <textarea
+                  className="w-full min-w-[600px] md:min-w-0 h-80 md:h-96 font-mono text-xs md:text-sm p-3 md:p-4 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  value={yamlText}
+                  onChange={(e) => handleYamlChange(e.target.value)}
+                  placeholder="Edit configuration (YAML format)..."
+                  spellCheck={false}
+                />
+              </div>
+            )}
+
+            {Object.keys(validationErrors).length > 0 && (
+              <div className="mt-4 bg-red-50 border border-red-200 rounded p-3">
+                <p className="text-red-800 font-semibold mb-2">Validation Errors:</p>
+                <ul className="list-disc list-inside text-red-700 text-sm">
+                  {Object.entries(validationErrors).map(([path, message]) => (
+                    <li key={path}>
+                      <strong>{path}:</strong> {message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <pre className="bg-gray-50 border border-gray-200 rounded p-3 md:p-4">
-              <code className="text-xs md:text-sm">{JSON.stringify(currentConfig, null, 2)}</code>
+              <code className="text-xs md:text-sm">
+                {yaml.dump(currentConfig, { indent: 2, lineWidth: -1, noRefs: true })}
+              </code>
             </pre>
           </div>
         )}
@@ -146,7 +294,7 @@ export function ConfigEditor() {
           </div>
         )}
 
-        {(updateBacktest.isError || updateLive.isError) && (
+        {(updateBacktest.isError || updateLive.isError) && !Object.keys(validationErrors).length && (
           <div className="mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
             Failed to save configuration. Please check the format and try again.
           </div>
@@ -191,7 +339,8 @@ export function ConfigEditor() {
               <li>Always test configuration changes in paper trading mode first</li>
               <li>Backup is created automatically before saving</li>
               <li>Restart services after configuration changes</li>
-              <li>Validate JSON syntax before saving</li>
+              <li>Use Form Editor for guided editing with validation</li>
+              <li>Use YAML Editor for advanced editing and bulk changes</li>
               <li>Keep configuration files version controlled</li>
             </ul>
           </div>

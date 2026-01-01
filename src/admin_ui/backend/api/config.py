@@ -9,10 +9,16 @@ from typing import Any
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
+from admin_ui.backend.schemas.config_schemas import (
+    BacktestConfig,
+    LiveTradingConfig,
+    get_backtest_json_schema,
+    get_live_trading_json_schema,
+)
 
 router = APIRouter()
 
@@ -115,7 +121,22 @@ async def update_backtest_config(
 
     Returns:
         Success message
+
+    Raises:
+        HTTPException: If validation fails
     """
+    # Validate config using Pydantic schema
+    try:
+        BacktestConfig(**update.config)
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Configuration validation failed",
+                "errors": e.errors(),
+            }
+        )
+
     save_yaml_config("backtest", update.config)
 
     return {
@@ -153,7 +174,22 @@ async def update_live_config(
 
     Returns:
         Success message
+
+    Raises:
+        HTTPException: If validation fails
     """
+    # Validate config using Pydantic schema
+    try:
+        LiveTradingConfig(**update.config)
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Configuration validation failed",
+                "errors": e.errors(),
+            }
+        )
+
     save_yaml_config("live_trading", update.config)
 
     return {
@@ -190,3 +226,31 @@ async def list_configs(current_user: User = Depends(get_current_user)):
         "configs": configs,
         "count": len(configs),
     }
+
+
+@router.get("/schema/backtest")
+async def get_backtest_schema(current_user: User = Depends(get_current_user)):
+    """
+    Get JSON Schema for backtest configuration.
+
+    Args:
+        current_user: Authenticated user
+
+    Returns:
+        JSON Schema definition for backtest configuration
+    """
+    return {"schema": get_backtest_json_schema()}
+
+
+@router.get("/schema/live")
+async def get_live_schema(current_user: User = Depends(get_current_user)):
+    """
+    Get JSON Schema for live trading configuration.
+
+    Args:
+        current_user: Authenticated user
+
+    Returns:
+        JSON Schema definition for live trading configuration
+    """
+    return {"schema": get_live_trading_json_schema()}
