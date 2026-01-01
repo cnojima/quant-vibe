@@ -6,11 +6,25 @@ This script:
 2. Fetches contract details from Schwab option chain API
 3. Updates records with Greeks, strike price, and implied volatility
 
+OPTIMIZATION MODES:
+- --active-only: Only process non-expired contracts (can get Greeks from API)
+- --strikes-only: Fast bulk update of just strike prices (parsed from symbol, no API)
+- --mark-expired: Mark expired contracts with sentinel values to exclude from future queries
+
 Safe to run during off-market hours. Idempotent (can run multiple times).
 
 Usage:
     # Backfill all missing data
     python scripts/backfill/backfill_stream_greeks.py
+
+    # RECOMMENDED: Only backfill active (non-expired) contracts with full Greeks
+    python scripts/backfill/backfill_stream_greeks.py --active-only
+
+    # Fast: Bulk update strike prices only (no API calls)
+    python scripts/backfill/backfill_stream_greeks.py --strikes-only
+
+    # Mark expired contracts so they're excluded from future queries
+    python scripts/backfill/backfill_stream_greeks.py --mark-expired
 
     # Backfill specific date range
     python scripts/backfill/backfill_stream_greeks.py --start 2025-12-10 --end 2025-12-17
@@ -24,8 +38,9 @@ Usage:
 
 import sys
 import os
+import re
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from typing import Dict, List, Tuple, Optional
 import argparse
 import time
@@ -153,13 +168,360 @@ class StreamDataBackfiller:
         """Extract unique option symbols from records."""
         return sorted(set(r[1] for r in records))
 
+    def find_active_contracts_needing_enrichment(
+        self,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: Optional[int] = None
+    ) -> List[Tuple]:
+        """
+        Find records with missing Greeks for NON-EXPIRED contracts only.
+
+        This is much more efficient because:
+        1. We only query contracts that can actually be enriched via API
+        2. Expired contracts cannot get Greeks from Schwab API
+
+        Args:
+            start_date: Optional start date filter
+            end_date: Optional end date filter
+            limit: Optional limit on number of records
+
+        Returns:
+            List of (timestamp, option_ticker) tuples for active contracts
+        """
+        print("\n" + "="*70)
+        print("FINDING ACTIVE CONTRACTS NEEDING ENRICHMENT")
+        print("="*70)
+
+        today = date.today()
+        print(f"Today: {today}")
+        print("Filtering to contracts expiring today or later...")
+
+        # First, get distinct option_tickers that need enrichment
+        query = """
+            SELECT DISTINCT option_ticker
+            FROM options_bars
+            WHERE data_source = 'schwabdev_stream'
+            AND (
+                delta IS NULL
+                OR gamma IS NULL
+                OR theta IS NULL
+                OR vega IS NULL
+                OR rho IS NULL
+                OR implied_volatility IS NULL
+            )
+        """
+
+        params = []
+
+        if start_date:
+            query += " AND timestamp >= %s"
+            params.append(start_date)
+            print(f"Start date: {start_date}")
+
+        if end_date:
+            query += " AND timestamp <= %s"
+            params.append(end_date)
+            print(f"End date: {end_date}")
+
+        print("\nQuerying for distinct contracts...")
+
+        with self.ts_store.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, params if params else None)
+                all_tickers = [r[0] for r in cur.fetchall()]
+
+        print(f"✓ Found {len(all_tickers):,} unique contracts with missing Greeks")
+
+        # Filter to active (non-expired) contracts
+        active_tickers = []
+        expired_count = 0
+        for ticker in all_tickers:
+            exp_date = self.parse_expiration_from_symbol(ticker)
+            if exp_date and exp_date >= today:
+                active_tickers.append(ticker)
+            else:
+                expired_count += 1
+
+        print(f"  Active (non-expired): {len(active_tickers):,}")
+        print(f"  Expired (skipped): {expired_count:,}")
+
+        if not active_tickers:
+            print("\n⚠️  No active contracts need enrichment")
+            return []
+
+        # Now get actual records for active tickers only
+        ticker_placeholders = ','.join(['%s'] * len(active_tickers))
+        records_query = f"""
+            SELECT DISTINCT timestamp, option_ticker
+            FROM options_bars
+            WHERE data_source = 'schwabdev_stream'
+            AND option_ticker IN ({ticker_placeholders})
+            AND (
+                delta IS NULL
+                OR gamma IS NULL
+                OR theta IS NULL
+                OR vega IS NULL
+                OR rho IS NULL
+                OR implied_volatility IS NULL
+            )
+            ORDER BY timestamp DESC
+        """
+
+        record_params = list(active_tickers)
+
+        if limit:
+            records_query = records_query.replace(
+                "ORDER BY timestamp DESC",
+                f"ORDER BY timestamp DESC LIMIT {limit}"
+            )
+            print(f"Limit: {limit}")
+
+        print("\nQuerying for records of active contracts...")
+
+        with self.ts_store.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(records_query, record_params)
+                results = cur.fetchall()
+
+        print(f"✓ Found {len(results):,} records for active contracts")
+
+        return results
+
+    def bulk_update_strikes_only(
+        self,
+        limit: Optional[int] = None
+    ) -> int:
+        """
+        Bulk update strike prices only using SQL - NO API calls needed.
+
+        This is extremely fast because:
+        1. Strike price can be parsed directly from the option symbol
+        2. Uses a single SQL UPDATE with substring extraction
+        3. No network calls required
+
+        Returns:
+            Number of records updated
+        """
+        print("\n" + "="*70)
+        print("BULK UPDATING STRIKE PRICES (NO API)")
+        print("="*70)
+
+        if self.dry_run:
+            print("\n⚠️  DRY RUN MODE - No changes will be made")
+
+        # Count records needing strike price
+        count_query = """
+            SELECT COUNT(*)
+            FROM options_bars
+            WHERE data_source = 'schwabdev_stream'
+            AND strike_price IS NULL
+        """
+
+        with self.ts_store.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(count_query)
+                total_null = cur.fetchone()[0]
+
+        print(f"\nRecords with NULL strike_price: {total_null:,}")
+
+        if total_null == 0:
+            print("✅ All records already have strike prices!")
+            return 0
+
+        # SQL to extract strike from symbol
+        # Symbol format: "SPXW  251219C06100000" -> last 8 chars / 1000
+        # REPLACE removes spaces, RIGHT gets last 8, CAST converts to numeric
+        update_query = """
+            UPDATE options_bars
+            SET strike_price = CAST(RIGHT(REPLACE(option_ticker, ' ', ''), 8) AS NUMERIC) / 1000.0
+            WHERE data_source = 'schwabdev_stream'
+            AND strike_price IS NULL
+        """
+
+        if limit:
+            # For limited updates, we need a subquery
+            update_query = f"""
+                UPDATE options_bars
+                SET strike_price = CAST(RIGHT(REPLACE(option_ticker, ' ', ''), 8) AS NUMERIC) / 1000.0
+                WHERE ctid IN (
+                    SELECT ctid FROM options_bars
+                    WHERE data_source = 'schwabdev_stream'
+                    AND strike_price IS NULL
+                    LIMIT {limit}
+                )
+            """
+            print(f"Limit: {limit}")
+
+        if self.dry_run:
+            print(f"\nWould update up to {limit or total_null:,} records")
+            return min(limit, total_null) if limit else total_null
+
+        print("\nExecuting bulk UPDATE...")
+        start_time = datetime.now()
+
+        with self.ts_store.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(update_query)
+                updated = cur.rowcount
+                conn.commit()
+
+        elapsed = (datetime.now() - start_time).total_seconds()
+        print(f"✅ Updated {updated:,} records in {elapsed:.1f}s ({updated/elapsed:.0f} records/sec)")
+
+        return updated
+
+    def mark_expired_contracts(
+        self,
+        sentinel_value: float = -999.0
+    ) -> int:
+        """
+        Mark expired contracts with sentinel values so they're excluded from future queries.
+
+        Uses delta = -999 as a marker that this contract has been processed
+        but Greeks are unavailable (contract expired).
+
+        Args:
+            sentinel_value: Value to use as marker (default -999)
+
+        Returns:
+            Number of records marked
+        """
+        print("\n" + "="*70)
+        print("MARKING EXPIRED CONTRACTS")
+        print("="*70)
+
+        if self.dry_run:
+            print("\n⚠️  DRY RUN MODE - No changes will be made")
+
+        today = date.today()
+        print(f"Today: {today}")
+        print(f"Sentinel value: {sentinel_value}")
+
+        # First, find expired contracts with NULL Greeks
+        query = """
+            SELECT DISTINCT option_ticker
+            FROM options_bars
+            WHERE data_source = 'schwabdev_stream'
+            AND delta IS NULL
+        """
+
+        with self.ts_store.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query)
+                all_tickers = [r[0] for r in cur.fetchall()]
+
+        print(f"\nContracts with NULL delta: {len(all_tickers):,}")
+
+        # Filter to expired contracts
+        expired_tickers = []
+        for ticker in all_tickers:
+            exp_date = self.parse_expiration_from_symbol(ticker)
+            if exp_date and exp_date < today:
+                expired_tickers.append(ticker)
+
+        print(f"Expired contracts: {len(expired_tickers):,}")
+
+        if not expired_tickers:
+            print("✅ No expired contracts to mark!")
+            return 0
+
+        if self.dry_run:
+            print(f"\nWould mark records for {len(expired_tickers):,} expired contracts")
+            # Count affected records
+            ticker_placeholders = ','.join(['%s'] * len(expired_tickers))
+            count_query = f"""
+                SELECT COUNT(*)
+                FROM options_bars
+                WHERE data_source = 'schwabdev_stream'
+                AND option_ticker IN ({ticker_placeholders})
+                AND delta IS NULL
+            """
+            with self.ts_store.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(count_query, expired_tickers)
+                    count = cur.fetchone()[0]
+            print(f"Would mark {count:,} records with sentinel value")
+            return count
+
+        # Update in batches to avoid memory issues
+        batch_size = 500
+        total_updated = 0
+        start_time = datetime.now()
+
+        print(f"\nMarking expired contracts in batches of {batch_size}...")
+
+        for i in range(0, len(expired_tickers), batch_size):
+            batch = expired_tickers[i:i + batch_size]
+            ticker_placeholders = ','.join(['%s'] * len(batch))
+
+            update_query = f"""
+                UPDATE options_bars
+                SET delta = %s,
+                    gamma = %s,
+                    theta = %s,
+                    vega = %s,
+                    rho = %s,
+                    implied_volatility = %s
+                WHERE data_source = 'schwabdev_stream'
+                AND option_ticker IN ({ticker_placeholders})
+                AND delta IS NULL
+            """
+
+            params = [sentinel_value] * 6 + batch
+
+            with self.ts_store.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(update_query, params)
+                    total_updated += cur.rowcount
+                    conn.commit()
+
+            progress = min(i + batch_size, len(expired_tickers))
+            print(f"  Progress: {progress:,}/{len(expired_tickers):,} contracts | {total_updated:,} records updated")
+
+        elapsed = (datetime.now() - start_time).total_seconds()
+        print(f"\n✅ Marked {total_updated:,} records in {elapsed:.1f}s")
+
+        return total_updated
+
+    def parse_expiration_from_symbol(self, symbol: str) -> Optional[date]:
+        """
+        Parse expiration date from option symbol.
+
+        Format: "SPXW  251219C06100000"
+                      ^^^^^^ Expiration YYMMDD
+                            ^ Type (C/P)
+                             ^^^^^^^^ Strike × 1000
+
+        Args:
+            symbol: Option symbol
+
+        Returns:
+            Expiration date or None
+        """
+        try:
+            # Remove spaces and find the 6-digit date before C/P
+            clean = symbol.replace(" ", "")
+            # Match pattern: root + YYMMDD + C/P + strike
+            match = re.search(r'(\d{6})[CP]\d{8}$', clean)
+            if match:
+                date_str = match.group(1)
+                year = 2000 + int(date_str[0:2])
+                month = int(date_str[2:4])
+                day = int(date_str[4:6])
+                return date(year, month, day)
+            return None
+        except (ValueError, IndexError):
+            return None
+
     def parse_strike_from_symbol(self, symbol: str) -> Optional[float]:
         """
         Parse strike price from option symbol as fallback.
 
         Format: "SPXW  251219C06100000"
-                         ^ Type
-                          ^^^^^^^^ Strike × 1000
+                      ^^^^^^ Expiration YYMMDD
+                            ^ Type (C/P)
+                             ^^^^^^^^ Strike × 1000
 
         Args:
             symbol: Option symbol
@@ -236,7 +598,8 @@ class StreamDataBackfiller:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         limit: Optional[int] = None,
-        batch_size: int = 100
+        batch_size: int = 100,
+        active_only: bool = False
     ):
         """
         Backfill missing data for streaming records.
@@ -246,6 +609,7 @@ class StreamDataBackfiller:
             end_date: Optional end date filter
             limit: Optional limit on number of records
             batch_size: Number of records to process per batch
+            active_only: If True, only process non-expired contracts (much faster)
         """
         start_time = datetime.now()
 
@@ -253,10 +617,17 @@ class StreamDataBackfiller:
         print("BACKFILLING STREAMING DATA WITH GREEKS")
         print("="*70)
         print(f"Started: {start_time}")
+        if active_only:
+            print("Mode: ACTIVE CONTRACTS ONLY (non-expired)")
+        else:
+            print("Mode: ALL CONTRACTS (may include expired)")
         print("="*70)
 
         # Find records needing enrichment
-        records = self.find_records_needing_enrichment(start_date, end_date, limit)
+        if active_only:
+            records = self.find_active_contracts_needing_enrichment(start_date, end_date, limit)
+        else:
+            records = self.find_records_needing_enrichment(start_date, end_date, limit)
 
         if not records:
             print("\n✅ No records need enrichment!")
@@ -472,8 +843,73 @@ class StreamDataBackfiller:
             print(f"  Missing vega: {nulls[5]:,}")
             print(f"  Missing rho: {nulls[6]:,}")
             print(f"  Missing implied_volatility: {nulls[7]:,}")
+
+            # Show expired vs active breakdown for records needing Greeks
+            self._show_expiration_breakdown()
         else:
             print("\n✅ All records have complete data!")
+
+    def _show_expiration_breakdown(self):
+        """Show breakdown of expired vs active contracts needing enrichment."""
+        print("\n" + "-"*50)
+        print("CONTRACT EXPIRATION BREAKDOWN")
+        print("-"*50)
+
+        # Get distinct contracts with missing Greeks
+        query = """
+            SELECT DISTINCT option_ticker
+            FROM options_bars
+            WHERE data_source = 'schwabdev_stream'
+            AND delta IS NULL
+        """
+
+        with self.ts_store.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query)
+                tickers = [r[0] for r in cur.fetchall()]
+
+        today = date.today()
+        active_count = 0
+        expired_count = 0
+        unknown_count = 0
+
+        for ticker in tickers:
+            exp_date = self.parse_expiration_from_symbol(ticker)
+            if exp_date is None:
+                unknown_count += 1
+            elif exp_date >= today:
+                active_count += 1
+            else:
+                expired_count += 1
+
+        total_contracts = len(tickers)
+        print(f"\nContracts needing Greeks: {total_contracts:,}")
+        print(f"  Active (can enrich via API):  {active_count:,} ({active_count/total_contracts*100:.1f}%)")
+        print(f"  Expired (cannot get Greeks):  {expired_count:,} ({expired_count/total_contracts*100:.1f}%)")
+        if unknown_count > 0:
+            print(f"  Unknown expiration:           {unknown_count:,}")
+
+        # Count marked vs unmarked expired
+        query_marked = """
+            SELECT COUNT(DISTINCT option_ticker)
+            FROM options_bars
+            WHERE data_source = 'schwabdev_stream'
+            AND delta = -999
+        """
+        with self.ts_store.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query_marked)
+                marked_count = cur.fetchone()[0]
+
+        if marked_count > 0:
+            print(f"\n  Already marked as unenrichable: {marked_count:,}")
+
+        print("\n💡 RECOMMENDATIONS:")
+        if active_count > 0:
+            print(f"   • Run with --active-only to enrich {active_count:,} active contracts")
+        if expired_count > 0:
+            print(f"   • Run with --mark-expired to exclude {expired_count:,} expired contracts from future queries")
+        print("   • Run with --strikes-only to quickly fill strike prices (no API needed)")
 
     def cleanup(self):
         """Clean up resources."""
@@ -487,20 +923,35 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Show statistics only
-  python scripts/backfill_stream_greeks.py --stats-only
+  # Show statistics and recommendations
+  python scripts/backfill/backfill_stream_greeks.py --stats-only
 
-  # Backfill all missing data
-  python scripts/backfill_stream_greeks.py
+  # RECOMMENDED: Backfill only active (non-expired) contracts
+  python scripts/backfill/backfill_stream_greeks.py --active-only
+
+  # Fast: Bulk update strike prices only (no API calls)
+  python scripts/backfill/backfill_stream_greeks.py --strikes-only
+
+  # Mark expired contracts so they're excluded from future queries
+  python scripts/backfill/backfill_stream_greeks.py --mark-expired
+
+  # Backfill all contracts (may be slow for large datasets)
+  python scripts/backfill/backfill_stream_greeks.py
 
   # Backfill specific date range
-  python scripts/backfill_stream_greeks.py --start 2025-12-10 --end 2025-12-17
+  python scripts/backfill/backfill_stream_greeks.py --start 2025-12-10 --end 2025-12-17
 
   # Dry run (show what would be updated)
-  python scripts/backfill_stream_greeks.py --dry-run
+  python scripts/backfill/backfill_stream_greeks.py --dry-run
 
   # Limit number of records
-  python scripts/backfill_stream_greeks.py --limit 1000
+  python scripts/backfill/backfill_stream_greeks.py --limit 1000
+
+Recommended workflow for large datasets:
+  1. Run --stats-only to see breakdown of active vs expired contracts
+  2. Run --strikes-only to quickly fill all strike prices
+  3. Run --active-only to get full Greeks for non-expired contracts
+  4. Run --mark-expired to exclude expired contracts from future queries
         """
     )
 
@@ -541,7 +992,34 @@ Examples:
         help='Show statistics only, do not backfill'
     )
 
+    parser.add_argument(
+        '--active-only',
+        action='store_true',
+        help='Only process non-expired contracts (much faster, can get full Greeks)'
+    )
+
+    parser.add_argument(
+        '--strikes-only',
+        action='store_true',
+        help='Only update strike prices using SQL (fastest, no API calls)'
+    )
+
+    parser.add_argument(
+        '--mark-expired',
+        action='store_true',
+        help='Mark expired contracts with sentinel values to exclude from future queries'
+    )
+
     args = parser.parse_args()
+
+    # Validate mutually exclusive options
+    mode_count = sum([args.stats_only, args.strikes_only, args.mark_expired, args.active_only])
+    if mode_count > 1 and not (args.active_only and not args.stats_only and not args.strikes_only and not args.mark_expired):
+        # Allow active_only with regular backfill, but not with other modes
+        exclusive_modes = [m for m in ['--stats-only', '--strikes-only', '--mark-expired'] 
+                          if getattr(args, m.replace('--', '').replace('-', '_'))]
+        if len(exclusive_modes) > 1:
+            parser.error(f"Cannot use multiple modes together: {', '.join(exclusive_modes)}")
 
     # Parse dates
     start_date = None
@@ -559,16 +1037,28 @@ Examples:
     backfiller = StreamDataBackfiller(dry_run=args.dry_run)
 
     try:
-        # Show statistics
         if args.stats_only:
+            # Show statistics only
             backfiller.show_statistics()
+
+        elif args.strikes_only:
+            # Fast bulk update of strike prices
+            backfiller.bulk_update_strikes_only(limit=args.limit)
+            backfiller.show_statistics()
+
+        elif args.mark_expired:
+            # Mark expired contracts
+            backfiller.mark_expired_contracts()
+            backfiller.show_statistics()
+
         else:
-            # Run backfill
+            # Run backfill (with optional active_only filter)
             backfiller.backfill(
                 start_date=start_date,
                 end_date=end_date,
                 limit=args.limit,
-                batch_size=args.batch_size
+                batch_size=args.batch_size,
+                active_only=args.active_only
             )
 
             # Show final statistics
