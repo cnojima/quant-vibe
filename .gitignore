@@ -74,6 +74,9 @@ tokens
 logs/
 *.log
 
+# RAG cache
+.rag_cache/
+
 # OS
 .DS_Store
 Thumbs.db
