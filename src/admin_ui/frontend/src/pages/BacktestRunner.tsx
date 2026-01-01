@@ -4,6 +4,7 @@ import { useStrategies, useRunBacktest, useBacktestStatus, useBacktestResults, u
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
+import { InfoIcon } from '../components/common/InfoIcon';
 import { EquityCurveChart } from '../components/charts/EquityCurveChart';
 import { PnLDistributionChart } from '../components/charts/PnLDistributionChart';
 import { DrawdownChart } from '../components/charts/DrawdownChart';
@@ -244,7 +245,13 @@ export function BacktestRunner() {
       {selectedTab === 'run' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card>
-            <h3 className="text-lg font-semibold mb-4">Backtest Configuration</h3>
+            <div className="flex items-center gap-2 mb-4">
+              <h3 className="text-lg font-semibold">Backtest Configuration</h3>
+              <InfoIcon
+                content="Configure the parameters for your backtest simulation. Select a strategy, date range, and capital to test historical performance."
+                placement="right"
+              />
+            </div>
 
             <div className="space-y-4">
               <div>
@@ -285,7 +292,13 @@ export function BacktestRunner() {
               </div>
 
               <div>
-                <label className="label">DTE Range (Days to Expiration)</label>
+                <div className="flex items-center gap-2 mb-1">
+                  <label className="label mb-0">DTE Range (Days to Expiration)</label>
+                  <InfoIcon
+                    content="DTE (Days to Expiration) controls which options contracts are eligible for trading. 0 DTE = same-day expiration, higher values = longer-dated contracts. Most intraday strategies use 0-2 DTE."
+                    placement="right"
+                  />
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-xs text-gray-600">Min DTE</label>
@@ -336,7 +349,13 @@ export function BacktestRunner() {
               </div>
 
               <div>
-                <label className="label">Initial Capital</label>
+                <div className="flex items-center gap-2 mb-1">
+                  <label className="label mb-0">Initial Capital</label>
+                  <InfoIcon
+                    content="Starting account balance for the backtest. This represents your total available capital for trading. All performance metrics are calculated relative to this amount."
+                    placement="right"
+                  />
+                </div>
                 <input
                   type="number"
                   className="input"
@@ -348,7 +367,13 @@ export function BacktestRunner() {
               </div>
 
               <div>
-                <label className="label">Max Trades Per Day</label>
+                <div className="flex items-center gap-2 mb-1">
+                  <label className="label mb-0">Max Trades Per Day</label>
+                  <InfoIcon
+                    content="Limits the number of positions that can be opened in a single trading day. This helps control risk and prevents over-trading. 1 = one position per day (recommended for most strategies), 0 = no trading, 999 = unlimited."
+                    placement="right"
+                  />
+                </div>
                 <input
                   type="number"
                   className="input"
@@ -375,7 +400,13 @@ export function BacktestRunner() {
           </Card>
 
           <Card>
-            <h3 className="text-lg font-semibold mb-4">Quick Date Presets</h3>
+            <div className="flex items-center gap-2 mb-4">
+              <h3 className="text-lg font-semibold">Quick Date Presets</h3>
+              <InfoIcon
+                content="One-click date range selection for common backtest periods. All dates use US Eastern Time (EST) and only include trading days (Mon-Fri, excluding holidays)."
+                placement="right"
+              />
+            </div>
             <div className="space-y-2">
               <Button
                 variant="secondary"
@@ -507,7 +538,13 @@ export function BacktestRunner() {
               {/* Performance Summary */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                 <Card>
-                  <div className="text-sm text-gray-600 mb-1">Total Return</div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="text-sm text-gray-600">Total Return</div>
+                    <InfoIcon
+                      content="The total percentage gain or loss from your initial capital. A positive return means your strategy made money, negative means it lost money. This is the primary measure of strategy profitability."
+                      placement="bottom"
+                    />
+                  </div>
                   <div className={`text-2xl font-bold ${
                     (backtestResults.metrics?.total_return || 0) >= 0 ? 'text-green-600' : 'text-red-600'
                   }`}>
@@ -516,21 +553,39 @@ export function BacktestRunner() {
                 </Card>
 
                 <Card>
-                  <div className="text-sm text-gray-600 mb-1">Sharpe Ratio</div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="text-sm text-gray-600">Sharpe Ratio</div>
+                    <InfoIcon
+                      content="Risk-adjusted return metric. Higher is better. >1.0 = good, >2.0 = very good, >3.0 = excellent. Measures excess return per unit of risk. A Sharpe ratio of 2.0 means you earned 2% of excess return for every 1% of risk taken."
+                      placement="bottom"
+                    />
+                  </div>
                   <div className="text-2xl font-bold">
                     {backtestResults.metrics?.sharpe_ratio?.toFixed(2) || 'N/A'}
                   </div>
                 </Card>
 
                 <Card>
-                  <div className="text-sm text-gray-600 mb-1">Max Drawdown</div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="text-sm text-gray-600">Max Drawdown</div>
+                    <InfoIcon
+                      content="The largest peak-to-trough decline in portfolio value. Represents the worst losing period you would have experienced. Lower is better. For example, -15% means your portfolio fell 15% from its highest point before recovering."
+                      placement="bottom"
+                    />
+                  </div>
                   <div className="text-2xl font-bold text-red-600">
                     {formatPercent(backtestResults.metrics?.max_drawdown || 0)}
                   </div>
                 </Card>
 
                 <Card>
-                  <div className="text-sm text-gray-600 mb-1">Win Rate</div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="text-sm text-gray-600">Win Rate</div>
+                    <InfoIcon
+                      content="Percentage of trades that were profitable. A 60% win rate means 6 out of 10 trades made money. Note: A high win rate doesn't guarantee profitability if winning trades are small and losing trades are large."
+                      placement="bottom"
+                    />
+                  </div>
                   <div className="text-2xl font-bold">
                     {((backtestResults.metrics?.win_rate || 0) * 100).toFixed(1)}%
                   </div>
@@ -540,7 +595,13 @@ export function BacktestRunner() {
               {/* Backtest Configuration */}
               {backtestResults.parameters && Object.keys(backtestResults.parameters).length > 0 && (
                 <Card className="mb-6">
-                  <h3 className="text-lg font-semibold mb-4">Backtest Configuration</h3>
+                  <div className="flex items-center gap-2 mb-4">
+                    <h3 className="text-lg font-semibold">Backtest Configuration</h3>
+                    <InfoIcon
+                      content="Summary of the parameters used to run this backtest. This includes the strategy name, date range, initial capital, and all strategy-specific parameters that were configured."
+                      placement="right"
+                    />
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <div className="text-sm text-gray-600 mb-1">Strategy</div>
@@ -582,7 +643,13 @@ export function BacktestRunner() {
 
               {/* Charts */}
               <Card className="mb-6">
-                <h3 className="text-lg font-semibold mb-4">Equity Curve & Underlying Price</h3>
+                <div className="flex items-center gap-2 mb-4">
+                  <h3 className="text-lg font-semibold">Equity Curve & Underlying Price</h3>
+                  <InfoIcon
+                    content="Shows your portfolio value over time (blue line) and the underlying SPX price (gray line). Green dots = position entries, light green = profitable exits, red = losing exits. Use this to visualize when your strategy enters/exits and how it performs in different market conditions."
+                    placement="right"
+                  />
+                </div>
                 <EquityCurveChart
                   data={getEquityCurveData()}
                   initialCapital={initialCapital}
@@ -607,19 +674,37 @@ export function BacktestRunner() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <Card>
-                  <h3 className="text-lg font-semibold mb-4">P&L Distribution</h3>
+                  <div className="flex items-center gap-2 mb-4">
+                    <h3 className="text-lg font-semibold">P&L Distribution</h3>
+                    <InfoIcon
+                      content="Histogram showing the distribution of trade profits and losses. This helps you understand if your strategy has consistent returns or high variability. A tight distribution around positive values is ideal."
+                      placement="right"
+                    />
+                  </div>
                   <PnLDistributionChart data={getPnLDistribution()} />
                 </Card>
 
                 <Card>
-                  <h3 className="text-lg font-semibold mb-4">Drawdown</h3>
+                  <div className="flex items-center gap-2 mb-4">
+                    <h3 className="text-lg font-semibold">Drawdown</h3>
+                    <InfoIcon
+                      content="Shows how far your portfolio has fallen from its peak at any point in time. Measures the pain of losing streaks. Shallower drawdowns (closer to 0%) mean smoother performance with less severe losing periods."
+                      placement="right"
+                    />
+                  </div>
                   <DrawdownChart data={getDrawdownData()} />
                 </Card>
               </div>
 
               {/* Trades Table */}
               <Card>
-                <h3 className="text-lg font-semibold mb-4">Trades ({backtestResults.trades?.length || 0})</h3>
+                <div className="flex items-center gap-2 mb-4">
+                  <h3 className="text-lg font-semibold">Trades ({backtestResults.trades?.length || 0})</h3>
+                  <InfoIcon
+                    content="Detailed list of all trades executed during the backtest. Shows entry/exit times, position identifiers, profit/loss in dollars, and return percentage. Use this to analyze individual trade performance and identify patterns."
+                    placement="right"
+                  />
+                </div>
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead>
