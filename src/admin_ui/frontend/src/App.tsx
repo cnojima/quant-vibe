@@ -9,6 +9,7 @@ import { LiveTradingMonitor } from './pages/LiveTradingMonitor';
 import { BacktestRunner } from './pages/BacktestRunner';
 import { ConfigEditor } from './pages/ConfigEditor';
 import { StrategiesManager } from './pages/StrategiesManager';
+import { StrategyOptimizer } from './pages/StrategyOptimizer';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -90,6 +91,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <StrategiesManager />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/optimize"
+            element={
+              <ProtectedRoute>
+                <StrategyOptimizer />
               </ProtectedRoute>
             }
           />

@@ -655,7 +655,7 @@ allocations = {
 - **Goal**: Validate strategy works in real market
 
 ### Week 2: Optimization & Analysis
-- [ ] Fix or disable bearish_iv_scalp
+- [x] Fix or disable bearish_iv_scalp
 - [ ] Run parameter optimization
 - [ ] Run walk-forward analysis
 - [ ] Analyze slippage patterns

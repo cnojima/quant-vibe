@@ -33,6 +33,7 @@ from admin_ui.backend.api import (
     backtests,
     config,
     live,
+    optimization,
     services,
     status,
     strategies,
@@ -120,6 +121,7 @@ app.include_router(backtests.router, prefix=f"{settings.api_prefix}/backtests", 
 app.include_router(config.router, prefix=f"{settings.api_prefix}/config", tags=["config"])
 app.include_router(strategies.router, prefix=f"{settings.api_prefix}/strategies", tags=["strategies"])
 app.include_router(watcher.router, prefix=f"{settings.api_prefix}/watcher", tags=["watcher"])
+app.include_router(optimization.router, prefix=f"{settings.api_prefix}/optimization", tags=["optimization"])
 
 
 # WebSocket endpoint for real-time updates

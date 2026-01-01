@@ -134,9 +134,15 @@ export function getLastNDaysEST(days: number): { start: string; end: string } {
 /**
  * Get a date range going back N months from today (EST).
  * Returns { start: 'YYYY-MM-DD', end: 'YYYY-MM-DD' }
+ *
+ * @param months - Number of months to go back
+ * @param offsetMonths - Optional offset from today (e.g., 2 = start 2 months ago from today)
  */
-export function getLastNMonthsEST(months: number): { start: string; end: string } {
+export function getLastNMonthsEST(months: number, offsetMonths: number = 0): { start: string; end: string } {
   const end = getESTDate();
+  // Apply offset
+  end.setMonth(end.getMonth() - offsetMonths);
+
   const start = new Date(end);
   start.setMonth(start.getMonth() - months);
 

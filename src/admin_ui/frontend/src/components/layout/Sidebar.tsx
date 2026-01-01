@@ -8,6 +8,7 @@ import {
   Cog6ToothIcon,
   PuzzlePieceIcon,
   Bars3Icon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 import { Button } from '../common/Button';
 
@@ -18,6 +19,7 @@ const navigation = [
   { name: 'Live Trading', href: '/live', icon: ChartBarIcon },
   { name: 'Strategies', href: '/strategies', icon: PuzzlePieceIcon },
   { name: 'Backtest', href: '/backtest', icon: BeakerIcon },
+  { name: 'Optimize', href: '/optimize', icon: SparklesIcon },
   { name: 'Configuration', href: '/config', icon: Cog6ToothIcon },
 ];
 

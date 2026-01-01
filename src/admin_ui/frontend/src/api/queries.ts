@@ -422,3 +422,70 @@ export function useUpdateLiveStrategyParams() {
     },
   });
 }
+
+// Optimization queries
+export function useRunOptimization() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (request: any) => {
+      const response = await apiClient.post('/optimization/run', request);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['optimization-history'] });
+    },
+  });
+}
+
+export function useOptimizationStatus(optimizationId: string | null) {
+  return useQuery({
+    queryKey: ['optimization-status', optimizationId],
+    queryFn: async () => {
+      const response = await apiClient.get(`/optimization/status/${optimizationId}`);
+      return response.data;
+    },
+    enabled: !!optimizationId,
+    refetchInterval: (data) => {
+      // Poll every 2 seconds if running, otherwise don't poll
+      return data?.status === 'running' || data?.status === 'pending' ? 2000 : false;
+    },
+  });
+}
+
+export function useOptimizationResults(optimizationId: string | null, status?: string) {
+  return useQuery({
+    queryKey: ['optimization-results', optimizationId],
+    queryFn: async () => {
+      const response = await apiClient.get(`/optimization/results/${optimizationId}`);
+      return response.data;
+    },
+    enabled: !!optimizationId && status === 'completed',
+  });
+}
+
+export function useOptimizationHistory(limit: number = 50) {
+  return useQuery({
+    queryKey: ['optimization-history', limit],
+    queryFn: async () => {
+      const response = await apiClient.get('/optimization/history', {
+        params: { limit },
+      });
+      return response.data;
+    },
+  });
+}
+
+export function useDeleteOptimization() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (optimizationId: string) => {
+      const response = await apiClient.delete(`/optimization/${optimizationId}`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['optimization-history'] });
+    },
+  });
+}
