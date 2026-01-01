@@ -294,6 +294,45 @@ class StateStore:
         """, (exit_value, exit_reason, position_id))
         self.conn.commit()
 
+    def get_trades_for_date(self, trade_date) -> List[Dict]:
+        """
+        Get all closed trades for a specific date.
+
+        Args:
+            trade_date: Date object for the trading day
+
+        Returns:
+            List of trade dicts with P&L calculated
+        """
+        self.cursor.execute("""
+            SELECT
+                position_id,
+                strategy_name as strategy,
+                entry_time,
+                exit_time,
+                entry_cost,
+                exit_value,
+                (exit_value - entry_cost) as pnl,
+                exit_reason,
+                legs,
+                metadata
+            FROM live_positions
+            WHERE status = 'closed'
+              AND DATE(exit_time) = %s
+            ORDER BY exit_time ASC
+        """, (trade_date,))
+
+        trades = self.cursor.fetchall()
+
+        # Parse JSON fields
+        for trade in trades:
+            if trade.get('legs'):
+                trade['legs'] = json.loads(trade['legs']) if isinstance(trade['legs'], str) else trade['legs']
+            if trade.get('metadata'):
+                trade['metadata'] = json.loads(trade['metadata']) if isinstance(trade['metadata'], str) else trade['metadata']
+
+        return trades
+
     # ========================================================================
     # Orders
     # ========================================================================

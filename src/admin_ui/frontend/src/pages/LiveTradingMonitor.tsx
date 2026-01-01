@@ -1,17 +1,20 @@
 import { useState } from 'react';
-import { useLiveStatus, useLivePositions, useLiveOrders, useLiveEvents, useLiveStats } from '../api/queries';
+import { useLiveStatus, useLivePositions, useLiveOrders, useLiveEvents, useLiveStats, useDailyReport, useRecentDailyReports } from '../api/queries';
 // import { useWebSocket } from '../hooks/useWebSocket';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { formatDistanceToNow } from 'date-fns';
 
 export function LiveTradingMonitor() {
-  const [selectedTab, setSelectedTab] = useState<'positions' | 'orders' | 'events'>('positions');
+  const [selectedTab, setSelectedTab] = useState<'positions' | 'orders' | 'events' | 'reports'>('positions');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<'open' | 'filled' | 'rejected' | 'cancelled' | 'all'>('all');
   const { data: status, isLoading: statusLoading } = useLiveStatus();
   const { data: positions } = useLivePositions('open');
-  const { data: orders } = useLiveOrders(50);
+  const { data: orders } = useLiveOrders(50, orderStatusFilter);
   const { data: events } = useLiveEvents(50);
-  const { data: stats } = useLiveStats();
+  const { data: stats} = useLiveStats();
+  const { data: todayReport } = useDailyReport();
+  const { data: recentReports } = useRecentDailyReports(7);
 
   // WebSocket disabled - using REST API polling instead
   // WebSocket has issues with React StrictMode + Docker networking
@@ -184,6 +187,16 @@ export function LiveTradingMonitor() {
           >
             Events ({events?.length || 0})
           </button>
+          <button
+            onClick={() => setSelectedTab('reports')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              selectedTab === 'reports'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Reports
+          </button>
         </nav>
       </div>
 
@@ -253,6 +266,50 @@ export function LiveTradingMonitor() {
 
       {selectedTab === 'orders' && (
         <div className="space-y-4">
+          {/* Order Status Filter */}
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setOrderStatusFilter('all')}
+              className={`px-3 py-1 rounded text-sm ${
+                orderStatusFilter === 'all'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setOrderStatusFilter('open')}
+              className={`px-3 py-1 rounded text-sm ${
+                orderStatusFilter === 'open'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Open
+            </button>
+            <button
+              onClick={() => setOrderStatusFilter('filled')}
+              className={`px-3 py-1 rounded text-sm ${
+                orderStatusFilter === 'filled'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Filled
+            </button>
+            <button
+              onClick={() => setOrderStatusFilter('rejected')}
+              className={`px-3 py-1 rounded text-sm ${
+                orderStatusFilter === 'rejected'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Rejected
+            </button>
+          </div>
+
           {orders && orders.length > 0 ? (
             orders.map((order) => (
               <Card key={order.order_id}>
@@ -297,7 +354,7 @@ export function LiveTradingMonitor() {
           ) : (
             <Card>
               <div className="text-center text-gray-600 py-8">
-                No orders found
+                No {orderStatusFilter !== 'all' ? orderStatusFilter : ''} orders found
               </div>
             </Card>
           )}
@@ -335,6 +392,164 @@ export function LiveTradingMonitor() {
               </div>
             </Card>
           )}
+        </div>
+      )}
+
+      {selectedTab === 'reports' && (
+        <div className="space-y-6">
+          {/* Today's Report */}
+          {todayReport && (
+            <Card>
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold">Today's Performance</h3>
+                  <p className="text-sm text-gray-600">{todayReport.date}</p>
+                </div>
+                <Badge variant={todayReport.risk_metrics.status === 'healthy' ? 'success' : todayReport.risk_metrics.status === 'warning' ? 'warning' : 'error'}>
+                  {todayReport.risk_metrics.status.toUpperCase()}
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div>
+                  <div className="text-sm text-gray-600">Actual P&L</div>
+                  <div className={`text-2xl font-bold ${todayReport.actual_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatCurrency(todayReport.actual_pnl)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600">Target P&L</div>
+                  <div className="text-2xl font-bold text-gray-900">
+                    {formatCurrency(todayReport.target_pnl)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600">Achievement</div>
+                  <div className={`text-2xl font-bold ${todayReport.achievement_pct >= 100 ? 'text-green-600' : todayReport.achievement_pct >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                    {todayReport.achievement_pct.toFixed(1)}%
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600">Win Rate</div>
+                  <div className="text-2xl font-bold">
+                    {todayReport.win_rate.toFixed(1)}%
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div>
+                  <div className="text-sm text-gray-600">Total Trades</div>
+                  <div className="text-xl font-semibold">{todayReport.total_trades}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600">Winners / Losers</div>
+                  <div className="text-xl font-semibold">
+                    <span className="text-green-600">{todayReport.winning_trades}</span> / <span className="text-red-600">{todayReport.losing_trades}</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600">Profit Factor</div>
+                  <div className="text-xl font-semibold">{todayReport.profit_factor.toFixed(2)}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600">Max Drawdown</div>
+                  <div className={`text-xl font-semibold ${todayReport.max_drawdown_pct > 1.5 ? 'text-red-600' : 'text-gray-900'}`}>
+                    {todayReport.max_drawdown_pct.toFixed(2)}%
+                  </div>
+                </div>
+              </div>
+
+              {todayReport.risk_metrics.warnings && todayReport.risk_metrics.warnings.length > 0 && (
+                <div className="border-t pt-4">
+                  <div className="text-sm font-medium text-gray-700 mb-2">⚠️ Warnings:</div>
+                  <ul className="space-y-1">
+                    {todayReport.risk_metrics.warnings.map((warning: string, idx: number) => (
+                      <li key={idx} className="text-sm text-yellow-700">• {warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {Object.keys(todayReport.by_strategy || {}).length > 0 && (
+                <div className="border-t pt-4 mt-4">
+                  <div className="text-sm font-medium text-gray-700 mb-3">Strategy Breakdown:</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {Object.entries(todayReport.by_strategy).map(([strategy, metrics]: [string, any]) => (
+                      <div key={strategy} className="bg-gray-50 p-3 rounded">
+                        <div className="font-medium text-sm mb-2">{strategy}</div>
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div>
+                            <div className="text-gray-600">P&L</div>
+                            <div className={`font-semibold ${metrics.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {formatCurrency(metrics.pnl)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-gray-600">Trades</div>
+                            <div className="font-semibold">{metrics.trades}</div>
+                          </div>
+                          <div>
+                            <div className="text-gray-600">Win Rate</div>
+                            <div className="font-semibold">{metrics.win_rate.toFixed(1)}%</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Recent Reports */}
+          <Card>
+            <h3 className="text-lg font-semibold mb-4">Last 7 Days</h3>
+            {recentReports && recentReports.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">P&L</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Target</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Achievement</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Trades</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Win Rate</th>
+                      <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {recentReports.map((report: any) => (
+                      <tr key={report.date} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 whitespace-nowrap text-sm">{report.date}</td>
+                        <td className={`px-3 py-2 whitespace-nowrap text-sm text-right font-medium ${report.actual_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatCurrency(report.actual_pnl)}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap text-sm text-right text-gray-600">
+                          {formatCurrency(report.target_pnl)}
+                        </td>
+                        <td className={`px-3 py-2 whitespace-nowrap text-sm text-right font-medium ${report.achievement_pct >= 100 ? 'text-green-600' : report.achievement_pct >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                          {report.achievement_pct.toFixed(1)}%
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap text-sm text-right">{report.total_trades}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-sm text-right">{report.win_rate.toFixed(1)}%</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-center">
+                          <Badge variant={report.risk_metrics.status === 'healthy' ? 'success' : report.risk_metrics.status === 'warning' ? 'warning' : 'error'}>
+                            {report.risk_metrics.status}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center text-gray-600 py-8">
+                No recent reports available
+              </div>
+            )}
+          </Card>
         </div>
       )}
     </div>

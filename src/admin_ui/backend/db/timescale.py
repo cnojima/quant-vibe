@@ -178,19 +178,38 @@ async def fetch_closed_positions(limit: int = 100) -> list[dict[str, Any]]:
         return result
 
 
-async def fetch_open_orders(limit: int = 100) -> list[dict[str, Any]]:
+async def fetch_open_orders(limit: int = 100, status_filter: Optional[str] = None) -> list[dict[str, Any]]:
     """
-    Fetch open orders.
+    Fetch orders with optional status filter.
 
     Args:
         limit: Maximum number of orders to return
+        status_filter: Filter by status ('open', 'filled', 'rejected', 'all')
+                      'open' = pending/submitted/accepted
+                      None = same as 'open' (default for backwards compatibility)
 
     Returns:
         List of order dictionaries
     """
     pool = get_pool()
 
-    query = """
+    # Build WHERE clause based on status filter
+    if status_filter == 'all' or status_filter is None:
+        # Default: show open orders for backwards compatibility
+        # Or if 'all' is explicitly requested, show all orders
+        if status_filter == 'all':
+            where_clause = ""
+        else:
+            where_clause = "WHERE status IN ('pending', 'submitted', 'accepted')"
+    elif status_filter == 'open':
+        where_clause = "WHERE status IN ('pending', 'submitted', 'accepted')"
+    elif status_filter in ('filled', 'rejected', 'cancelled'):
+        where_clause = f"WHERE status = '{status_filter}'"
+    else:
+        # Invalid filter, default to open
+        where_clause = "WHERE status IN ('pending', 'submitted', 'accepted')"
+
+    query = f"""
         SELECT
             order_id,
             position_id,
@@ -202,7 +221,7 @@ async def fetch_open_orders(limit: int = 100) -> list[dict[str, Any]]:
             expected_price as limit_price,
             metadata
         FROM live_orders
-        WHERE status IN ('pending', 'submitted', 'accepted')
+        {where_clause}
         ORDER BY submitted_time DESC
         LIMIT $1
     """

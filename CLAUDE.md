@@ -1013,3 +1013,4 @@ await collector.start_streaming()  # Websocket
 - Always use `source venv/bin/activate` before executing a python command
 - auth for local UI development - admin:changeme
 - Schwab API uses `$SPX` as the underlying symbol for SPXW contracts
+- don't assume localhost for the timescaleDB and redis.  check the flags in .env

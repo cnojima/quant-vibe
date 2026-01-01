@@ -7,6 +7,8 @@ engine:
   data_stale_timeout_seconds: 300
 strategies:
   enabled:
+  # PAPER TRADING VALIDATION: Start with ONE strategy, conservative position sizing
+  # After 2 weeks validation, enable other strategies gradually
   - name: bullish_vertical_put
     enabled: true
     params:
@@ -19,11 +21,13 @@ strategies:
       trailing_stop_pct: 0.05
       min_dte: 0
       max_dte: 45
-      num_spreads: 10
+      num_spreads: 1  # REDUCED from 10 for conservative testing
       min_volume: 50
       min_bid_ask_spread_pct: 10
+
+  # DISABLED FOR INITIAL VALIDATION - Enable after bullish_vertical_put validates
   - name: bullish_vertical_call
-    enabled: true
+    enabled: false  # DISABLED - enable after 1 week of successful paper trading
     params:
       max_trades_daily: 1
       spread_width: 20
@@ -34,9 +38,12 @@ strategies:
       trailing_stop_pct: 0.05
       min_dte: 7
       max_dte: 45
-      num_spreads: 10
+      num_spreads: 1  # REDUCED from 10 for conservative testing
+
+  # DISABLED - No IV data available in historical backtests (see TODO #3)
+  # Can only be used with live data where IV is available from Schwab API
   - name: bearish_iv_scalp
-    enabled: true
+    enabled: false  # DISABLED - requires IV data, see TODO_claude_ai.md #3
     params:
       spread_width: 10
       observation_period: 15
@@ -48,14 +55,16 @@ strategies:
       stop_loss_pct: 0.75
       min_dte: 0
       max_dte: 0
-      num_spreads: 5
+      num_spreads: 1  # REDUCED from 5 for conservative testing
       min_volume: 20
       min_bid_ask_spread_pct: 15
       max_trades_daily: 2
       momentum_lookback: 5
       iv_lookback: 30
+
+  # EXPERIMENTAL STRATEGIES - Keep disabled for production
   - name: coin_toss
-    enabled: true
+    enabled: false  # DISABLED - experimental strategy
     params:
       target_price: 2
       buy_limit: 1
@@ -67,8 +76,9 @@ strategies:
       max_dte: 0
       profit_target_pct: 1
       stop_loss_pct: null
+
   - name: coin_toss_limit
-    enabled: true
+    enabled: false  # DISABLED - experimental strategy
     params:
       target_contract_price: 2.0
       limit_buy_price: 1.0
@@ -115,6 +125,25 @@ monitoring:
     on_max_drawdown: true
     on_data_stale: true
     on_order_error: true
+
+# Pushover Notifications (configure API keys in .env)
+# Required environment variables:
+#   PUSHOVER_API_TOKEN=your_app_token
+#   PUSHOVER_USER_KEY=your_user_key
+#   PUSHOVER_ENABLED=true  (optional, defaults to true)
+notifications:
+  pushover:
+    enabled: true  # Can be overridden by PUSHOVER_ENABLED env var
+    notify_on_start: true
+    notify_on_stop: true
+    notify_on_position_open: true
+    notify_on_position_close: true
+    notify_on_order_fill: false  # Can be noisy, enable if you want every fill
+    notify_on_order_reject: true
+    notify_on_risk_alert: true
+    notify_on_error: true
+    notify_daily_summary: true
+    min_pnl_notify: null  # Optional: Minimum P&L to notify (e.g., 100.0)
 logging:
   log_dir: logs/live_trading
   log_level: INFO

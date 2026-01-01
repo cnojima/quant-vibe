@@ -34,6 +34,7 @@ from live_trading_service.utils import (
 from quant_vibe.config.logging_config import setup_normalized_logging
 from quant_vibe.data import LiveMarketDataProvider
 from quant_vibe.messaging import RedisMessageBroker
+from quant_vibe.notifications import TradingNotifier
 
 # Import token service client
 try:
@@ -96,6 +97,7 @@ class LiveTradingEngine:
         self.position_manager: Optional[PositionManager] = None
         self.strategy_executor: Optional[StrategyExecutor] = None
         self.message_broker: Optional[RedisMessageBroker] = None
+        self.notifier: Optional[TradingNotifier] = None
 
         # Strategies (loaded from config)
         self.strategies: List = []
@@ -310,6 +312,27 @@ class LiveTradingEngine:
         )
         self.logger.info("    ✓ StrategyExecutor ready")
 
+        # Initialize TradingNotifier (Pushover)
+        self.logger.info("  - Initializing notification system...")
+        try:
+            notification_config = self.config.get('notifications', {})
+            self.notifier = TradingNotifier(
+                config=notification_config,
+                logger=self.logger
+            )
+            # Validate credentials if enabled
+            if self.notifier.pushover.enabled:
+                if self.notifier.validate():
+                    self.logger.info("    ✓ Pushover notifications enabled and validated")
+                else:
+                    self.logger.warning("    ⚠️  Pushover validation failed - check credentials in .env")
+            else:
+                self.logger.info("    ℹ️  Pushover notifications disabled")
+        except Exception as e:
+            self.logger.warning(f"    ⚠️  Failed to initialize notifier: {e}")
+            self.logger.warning("    Notifications will be disabled")
+            self.notifier = None
+
         # Save initial state
         self.state_store.save_engine_state(
             self.state,
@@ -379,6 +402,12 @@ class LiveTradingEngine:
 
         self.logger.info("✅ Engine is RUNNING")
         self.logger.info("="*70)
+
+        # Send start notification
+        if self.notifier:
+            mode = "PAPER" if self.paper_trading else "LIVE"
+            strategy_names = [s.name for s in self.strategies]
+            self.notifier.on_engine_start(mode=mode, strategies=strategy_names)
 
         # Main loop
         self._run_main_loop()
@@ -729,6 +758,11 @@ class LiveTradingEngine:
             self.logger.info("  ✓ State store closed")
 
         self.state = TradingState.STOPPED
+
+        # Send stop notification
+        if self.notifier:
+            self.notifier.on_engine_stop(reason="Manual shutdown")
+
         self.logger.info("="*70)
         self.logger.info("✅ ENGINE STOPPED")
         self.logger.info("="*70)

@@ -133,12 +133,12 @@ export function useLivePositions(status: 'open' | 'closed' | 'all' = 'open', lim
   });
 }
 
-export function useLiveOrders(limit: number = 100) {
+export function useLiveOrders(limit: number = 100, status: 'open' | 'filled' | 'rejected' | 'cancelled' | 'all' = 'all') {
   return useQuery({
-    queryKey: ['live-orders', limit],
+    queryKey: ['live-orders', limit, status],
     queryFn: async () => {
-      const response = await apiClient.get<{ orders: Order[]; count: number }>('/live/orders', {
-        params: { limit },
+      const response = await apiClient.get<{ orders: Order[]; count: number; filter: string }>('/live/orders', {
+        params: { limit, status },
       });
       return response.data.orders;
     },
@@ -167,6 +167,30 @@ export function useLiveStats(startTime?: string, endTime?: string) {
         params: { start_time: startTime, end_time: endTime },
       });
       return response.data;
+    },
+  });
+}
+
+export function useDailyReport(reportDate?: string) {
+  return useQuery({
+    queryKey: ['daily-report', reportDate],
+    queryFn: async () => {
+      const response = await apiClient.get<{report: any; generated_at: string}>('/live/daily-report', {
+        params: reportDate ? { report_date: reportDate } : {},
+      });
+      return response.data.report;
+    },
+  });
+}
+
+export function useRecentDailyReports(days: number = 7) {
+  return useQuery({
+    queryKey: ['daily-reports-recent', days],
+    queryFn: async () => {
+      const response = await apiClient.get<{reports: any[]; count: number; days: number}>('/live/daily-reports/recent', {
+        params: { days },
+      });
+      return response.data.reports;
     },
   });
 }
