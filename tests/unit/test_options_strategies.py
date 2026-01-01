@@ -3,6 +3,7 @@
 
 from quant_vibe.strategies.bullish_vertical_call import BullishVerticalCallStrategy
 from quant_vibe.strategies.bullish_vertical_put import BullishVerticalPutStrategy
+from quant_vibe.strategies.bollinger_band import BollingerBandStrategy
 
 
 class TestMaxTradesDaily:
@@ -142,3 +143,96 @@ class TestMaxTradesDaily:
         assert strategy1.trades_today == 0
         assert strategy2.trades_today == 2  # Unchanged
         assert strategy3.trades_today == 0  # Unchanged
+
+
+class TestBollingerBandStrategy:
+    """Test BollingerBandStrategy-specific functionality."""
+
+    def test_initialization_with_defaults(self):
+        """Test that BollingerBandStrategy initializes with default parameters."""
+        strategy = BollingerBandStrategy()
+
+        assert strategy.target_price == 2.0
+        assert strategy.buy_limit == 1.0
+        assert strategy.sell_target == 2.0
+        assert strategy.otm_percent_min == 0.10
+        assert strategy.otm_percent_max == 0.15
+        assert strategy.price_tolerance == 1.0
+        assert strategy.max_trades_daily == 5
+        assert strategy.quantity == 10
+        assert strategy.min_dte == 0
+        assert strategy.max_dte == 45
+        assert strategy.profit_target_pct == 1.0
+        assert strategy.stop_loss_pct == 0.50
+        assert strategy.bb_period == 20
+        assert strategy.bb_std == 2.0
+        assert strategy.bb_threshold == 0.0
+
+    def test_initialization_with_custom_params(self):
+        """Test that BollingerBandStrategy accepts custom parameters."""
+        strategy = BollingerBandStrategy(
+            target_price=3.0,
+            otm_percent_min=0.15,
+            otm_percent_max=0.20,
+            max_trades_daily=3,
+            quantity=5,
+            bb_period=30,
+            bb_std=3.0,
+        )
+
+        assert strategy.target_price == 3.0
+        assert strategy.otm_percent_min == 0.15
+        assert strategy.otm_percent_max == 0.20
+        assert strategy.max_trades_daily == 3
+        assert strategy.quantity == 5
+        assert strategy.bb_period == 30
+        assert strategy.bb_std == 3.0
+
+    def test_get_strategy_name(self):
+        """Test that get_strategy_name returns correct name."""
+        strategy = BollingerBandStrategy()
+        assert strategy.get_strategy_name() == "BollingerBand"
+
+    def test_get_description(self):
+        """Test that get_description returns valid description."""
+        strategy = BollingerBandStrategy(
+            bb_period=20,
+            bb_std=2.0,
+            otm_percent_min=0.10,
+            otm_percent_max=0.15,
+            target_price=2.0,
+            profit_target_pct=1.0,
+            max_trades_daily=5,
+        )
+        description = strategy.get_description()
+
+        assert "Bollinger Band" in description
+        assert "20" in description  # bb_period
+        assert "2.0" in description  # bb_std
+        assert "10" in description  # 10% OTM min
+        assert "15" in description  # 15% OTM max
+        assert "$2" in description  # target_price
+        assert "100%" in description  # profit_target_pct
+        assert "5" in description  # max_trades_daily
+
+    def test_max_trades_daily_enforced(self):
+        """Test that max_trades_daily is enforced for BollingerBandStrategy."""
+        strategy = BollingerBandStrategy(max_trades_daily=2)
+
+        assert strategy.can_enter_new_position()
+        strategy.increment_daily_trade_count()
+        assert strategy.can_enter_new_position()
+        strategy.increment_daily_trade_count()
+        assert not strategy.can_enter_new_position()
+
+    def test_bollinger_parameters_stored(self):
+        """Test that Bollinger Band parameters are stored correctly."""
+        strategy = BollingerBandStrategy(
+            bb_period=50,
+            bb_std=1.5,
+            bb_threshold=0.05,
+        )
+
+        assert strategy.bb_period == 50
+        assert strategy.bb_std == 1.5
+        assert strategy.bb_threshold == 0.05

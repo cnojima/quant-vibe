@@ -4,16 +4,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development Commands
 
-### Environment Setup
-```bash
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install package in editable mode with all dependencies
-pip install -e ".[dev,backtest,schwab]"
-```
-
 ### Testing
 ```bash
 # Run all tests with coverage
@@ -124,11 +114,6 @@ The system uses **Redis pub/sub** for real-time communication between services:
 
 **Configuration**:
 ```yaml
-# config/live_trading.yaml
-engine:
-  use_redis_feed: true  # Use Redis (recommended)
-  # use_redis_feed: false  # Legacy: direct Schwab connection
-
 redis:
   host: null  # Uses REDIS_HOST env var or 'localhost'
   port: null  # Uses REDIS_PORT env var or 6379
@@ -278,7 +263,6 @@ The codebase provides two parallel top-level orchestration layers for running st
 │  src/quant_vibe/live/engine.py                          │
 │  LiveTradingEngine                                      │
 │  ├─ Loads config/live_trading.yaml                      │
-│  ├─ Initializes schwabdev streaming                     │
 │  ├─ Sets up data feed, order manager, position manager  │
 │  ├─ Loads and runs strategies                           │
 │  ├─ Manages risk, state persistence                     │

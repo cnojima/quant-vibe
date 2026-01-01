@@ -198,6 +198,7 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
         markers.push({
           timestamp: entryPoint.timestamp,
           portfolioValue: entryPoint.portfolioValue,
+          underlyingPrice: entryPoint.underlyingPrice,
           type: 'entry' as const,
           trade: trade, // Store complete trade data
           tradeIndex: tradeIndex, // Store trade index for selection
@@ -216,6 +217,7 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
         markers.push({
           timestamp: exitPoint.timestamp,
           portfolioValue: exitPoint.portfolioValue,
+          underlyingPrice: exitPoint.underlyingPrice,
           type: 'exit' as const,
           pnl: trade.pnl,
           trade: trade, // Store complete trade data
@@ -452,15 +454,15 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
         )}
         {/* Trade Entry Points - Blue Circles */}
         {tradeMarkers
-          .filter(marker => marker.type === 'entry')
+          .filter(marker => marker.type === 'entry' && marker.underlyingPrice !== null)
           .map((marker, index) => {
             const isSelected = marker.tradeIndex === selectedTradeIndex;
             return (
               <ReferenceDot
                 key={`entry-${index}`}
-                yAxisId="left"
+                yAxisId="right"
                 x={marker.timestamp}
-                y={marker.portfolioValue}
+                y={marker.underlyingPrice}
                 r={isSelected ? 12 : 10}
                 fill="#3b82f6"
                 stroke={isSelected ? "#fbbf24" : "#ffffff"}
@@ -472,16 +474,16 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
           })}
         {/* Trade Exit Points - Colored by P&L */}
         {tradeMarkers
-          .filter(marker => marker.type === 'exit')
+          .filter(marker => marker.type === 'exit' && marker.underlyingPrice !== null)
           .map((marker, index) => {
             const isProfit = (marker.pnl ?? 0) >= 0;
             const isSelected = marker.tradeIndex === selectedTradeIndex;
             return (
               <ReferenceDot
                 key={`exit-${index}`}
-                yAxisId="left"
+                yAxisId="right"
                 x={marker.timestamp}
-                y={marker.portfolioValue}
+                y={marker.underlyingPrice}
                 r={isSelected ? 12 : 10}
                 fill={isProfit ? '#22c55e' : '#ef4444'}
                 stroke={isSelected ? "#fbbf24" : "#ffffff"}

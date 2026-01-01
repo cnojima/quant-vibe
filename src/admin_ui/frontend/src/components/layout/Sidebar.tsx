@@ -7,7 +7,9 @@ import {
   BeakerIcon,
   Cog6ToothIcon,
   PuzzlePieceIcon,
+  Bars3Icon,
 } from '@heroicons/react/24/outline';
+import { Button } from '../common/Button';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
@@ -23,9 +25,10 @@ interface SidebarProps {
   collapsed: boolean;
   mobileOpen: boolean;
   onClose: () => void;
+  onToggleSidebar: () => void;
 }
 
-export function Sidebar({ collapsed, mobileOpen, onClose }: SidebarProps) {
+export function Sidebar({ collapsed, mobileOpen, onClose, onToggleSidebar }: SidebarProps) {
   return (
     <div
       className={`
@@ -37,11 +40,24 @@ export function Sidebar({ collapsed, mobileOpen, onClose }: SidebarProps) {
         /* Mobile: slides in from left when open */
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
 
-        /* Width: responsive based on collapsed state */
-        ${collapsed ? 'w-16' : 'w-64'}
+        /* Width: full on mobile, responsive on desktop based on collapsed state */
+        w-64 ${collapsed ? 'md:w-16' : 'md:w-64'}
       `}
     >
-      <nav className="mt-5 px-2">
+      {/* Hamburger Button at Top - only visible on desktop */}
+      <div className="hidden md:block px-2 pt-3 pb-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onToggleSidebar}
+          className="w-full p-2 min-w-[44px] min-h-[44px] text-gray-300 hover:text-white hover:bg-gray-700 rounded-md transition-colors"
+          aria-label="Toggle sidebar"
+        >
+          <Bars3Icon className="h-6 w-6 mx-auto" />
+        </Button>
+      </div>
+
+      <nav className="px-2">
         <div className="space-y-1">
           {navigation.map((item) => (
             <NavLink

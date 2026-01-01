@@ -17,11 +17,12 @@ export function Header({ onToggleSidebar, sidebarCollapsed }: HeaderProps) {
     }`}>
       <div className="mx-auto px-3 md:px-4 lg:px-8 py-2 md:py-4 flex justify-between items-center">
         <div className="flex items-center gap-2 md:gap-3">
+          {/* Hamburger button - only visible on mobile */}
           <Button
             variant="ghost"
             size="sm"
             onClick={onToggleSidebar}
-            className="p-2 min-w-[44px] min-h-[44px]"
+            className="p-2 min-w-[44px] min-h-[44px] md:hidden"
             aria-label="Toggle sidebar"
           >
             <Bars3Icon className="h-6 w-6" />

@@ -104,6 +104,8 @@ class BacktestOrchestrator:
             'bearish_iv_scalp': 'quant_vibe.strategies.bearish_iv_scalp.BearishIVScalpStrategy',
             'coin_toss': 'quant_vibe.strategies.coin_toss.CoinTossStrategy',
             'coin_toss_limit': 'quant_vibe.strategies.coin_toss_limit.CoinTossLimitStrategy',
+            'bollinger_band': 'quant_vibe.strategies.bollinger_band.BollingerBandStrategy',
+            'bollinger_band_limit': 'quant_vibe.strategies.bollinger_band_limit.BollingerBandLimitStrategy',
         }
 
         if strategy_name not in strategy_map:

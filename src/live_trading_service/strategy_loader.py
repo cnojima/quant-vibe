@@ -12,6 +12,8 @@ from quant_vibe.strategies.bullish_vertical_call import BullishVerticalCallStrat
 from quant_vibe.strategies.bearish_iv_scalp import BearishIVScalpStrategy
 from quant_vibe.strategies.coin_toss import CoinTossStrategy
 from quant_vibe.strategies.coin_toss_limit import CoinTossLimitStrategy
+from quant_vibe.strategies.bollinger_band import BollingerBandStrategy
+from quant_vibe.strategies.bollinger_band_limit import BollingerBandLimitStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,8 @@ class StrategyLoader:
         'bearish_iv_scalp': BearishIVScalpStrategy,
         'coin_toss': CoinTossStrategy,
         'coin_toss_limit': CoinTossLimitStrategy,
+        'bollinger_band': BollingerBandStrategy,
+        'bollinger_band_limit': BollingerBandLimitStrategy,
     }
 
     @classmethod

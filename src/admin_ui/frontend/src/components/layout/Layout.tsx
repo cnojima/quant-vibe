@@ -42,6 +42,7 @@ export function Layout({ children }: LayoutProps) {
           collapsed={sidebarCollapsed}
           mobileOpen={sidebarOpen}
           onClose={closeMobileSidebar}
+          onToggleSidebar={toggleSidebar}
         />
 
         {/* Main content - add left margin to account for fixed sidebar on desktop */}

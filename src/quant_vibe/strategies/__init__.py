@@ -9,12 +9,13 @@ from .macd_crossover import MACDCrossoverStrategy
 from .macd_histogram import MACDHistogramStrategy
 from .rsi_ma_filter import RSIMAFilterStrategy
 from .triple_ma import TripleMAStrategy
-from .bollinger_bands import BollingerBandsStrategy
 from .multi_rsi import MultiRSIStrategy
 from .rsi_macd_confirmation import RSIMACDConfirmationStrategy
 from .bearish_iv_scalp import BearishIVScalpStrategy
 from .coin_toss import CoinTossStrategy
 from .coin_toss_limit import CoinTossLimitStrategy
+from .bollinger_band import BollingerBandStrategy
+from .bollinger_band_limit import BollingerBandLimitStrategy
 
 __all__ = [
     "Strategy",
@@ -27,10 +28,11 @@ __all__ = [
     "MACDHistogramStrategy",
     "RSIMAFilterStrategy",
     "TripleMAStrategy",
-    "BollingerBandsStrategy",
     "MultiRSIStrategy",
     "RSIMACDConfirmationStrategy",
     "BearishIVScalpStrategy",
     "CoinTossStrategy",
     "CoinTossLimitStrategy",
+    "BollingerBandStrategy",
+    "BollingerBandLimitStrategy",
 ]
