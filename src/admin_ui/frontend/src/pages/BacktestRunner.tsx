@@ -189,9 +189,9 @@ export function BacktestRunner() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Backtest Runner</h1>
-        <p className="text-gray-600 mt-2">
+      <div className="mb-4 md:mb-6">
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Backtest Runner</h1>
+        <p className="text-sm md:text-base text-gray-600 mt-1 md:mt-2">
           Test your trading strategies on historical data
         </p>
       </div>

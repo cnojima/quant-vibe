@@ -59,28 +59,30 @@ export function LiveTradingMonitor() {
 
   return (
     <div>
-      <div className="mb-6 flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Live Trading Monitor</h1>
-          <p className="text-gray-600 mt-2">
-            Real-time monitoring of live trading engine
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {isConnected && (
-            <Badge variant="success">
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                Live
-              </span>
-            </Badge>
-          )}
-          {getStatusBadge()}
+      <div className="mb-4 md:mb-6">
+        <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Live Trading Monitor</h1>
+            <p className="text-sm md:text-base text-gray-600 mt-1 md:mt-2">
+              Real-time monitoring of live trading engine
+            </p>
+          </div>
+          <div className="flex items-center gap-2 md:gap-3">
+            {isConnected && (
+              <Badge variant="success">
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                  Live
+                </span>
+              </Badge>
+            )}
+            {getStatusBadge()}
+          </div>
         </div>
       </div>
 
       {/* Engine Status Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
         <Card>
           <div className="text-sm text-gray-600 mb-1">Engine Status</div>
           <div className="text-2xl font-bold">

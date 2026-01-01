@@ -51,21 +51,22 @@ export function ConfigEditor() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Configuration Editor</h1>
-        <p className="text-gray-600 mt-2">
+      <div className="mb-4 md:mb-6">
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Configuration Editor</h1>
+        <p className="text-sm md:text-base text-gray-600 mt-1 md:mt-2">
           View and edit YAML configuration files
         </p>
       </div>
 
       {/* Config Type Selector */}
-      <div className="mb-6 flex gap-4">
+      <div className="mb-4 md:mb-6 flex flex-col sm:flex-row gap-2 sm:gap-4">
         <Button
           variant={selectedConfig === 'backtest' ? 'primary' : 'secondary'}
           onClick={() => {
             setSelectedConfig('backtest');
             setEditMode(false);
           }}
+          className="w-full sm:w-auto"
         >
           Backtest Config
         </Button>
@@ -75,29 +76,31 @@ export function ConfigEditor() {
             setSelectedConfig('live');
             setEditMode(false);
           }}
+          className="w-full sm:w-auto"
         >
           Live Trading Config
         </Button>
       </div>
 
       <Card>
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
+          <h3 className="text-base md:text-lg font-semibold truncate">
             {selectedConfig === 'backtest' ? 'config/backtest.yaml' : 'config/live_trading.yaml'}
           </h3>
           {!editMode ? (
-            <Button variant="primary" onClick={handleEdit} disabled={isLoading}>
+            <Button variant="primary" onClick={handleEdit} disabled={isLoading} className="w-full sm:w-auto">
               Edit Configuration
             </Button>
           ) : (
-            <div className="flex gap-2">
-              <Button variant="secondary" onClick={handleCancel}>
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <Button variant="secondary" onClick={handleCancel} className="w-full sm:w-auto">
                 Cancel
               </Button>
               <Button
                 variant="primary"
                 onClick={handleSave}
                 disabled={updateBacktest.isPending || updateLive.isPending}
+                className="w-full sm:w-auto"
               >
                 {updateBacktest.isPending || updateLive.isPending ? 'Saving...' : 'Save Changes'}
               </Button>
@@ -111,26 +114,28 @@ export function ConfigEditor() {
           </div>
         ) : editMode ? (
           <div>
-            <div className="mb-2 bg-yellow-50 border border-yellow-200 rounded p-3 text-sm text-yellow-800">
+            <div className="mb-2 bg-yellow-50 border border-yellow-200 rounded p-3 text-xs md:text-sm text-yellow-800">
               <strong>Warning:</strong> Be careful when editing configuration files. Invalid
               configurations may prevent services from starting. A backup is automatically created
               before saving.
             </div>
-            <textarea
-              className="w-full h-96 font-mono text-sm p-4 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={editedConfig}
-              onChange={(e) => setEditedConfig(e.target.value)}
-              placeholder="Edit configuration (JSON format)..."
-              spellCheck={false}
-            />
-            <div className="mt-2 text-sm text-gray-600">
+            <div className="overflow-x-auto">
+              <textarea
+                className="w-full min-w-[600px] md:min-w-0 h-80 md:h-96 font-mono text-xs md:text-sm p-3 md:p-4 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                value={editedConfig}
+                onChange={(e) => setEditedConfig(e.target.value)}
+                placeholder="Edit configuration (JSON format)..."
+                spellCheck={false}
+              />
+            </div>
+            <div className="mt-2 text-xs md:text-sm text-gray-600">
               Format: JSON (will be converted to YAML on save)
             </div>
           </div>
         ) : (
-          <div>
-            <pre className="bg-gray-50 border border-gray-200 rounded p-4 overflow-x-auto">
-              <code className="text-sm">{JSON.stringify(currentConfig, null, 2)}</code>
+          <div className="overflow-x-auto">
+            <pre className="bg-gray-50 border border-gray-200 rounded p-3 md:p-4">
+              <code className="text-xs md:text-sm">{JSON.stringify(currentConfig, null, 2)}</code>
             </pre>
           </div>
         )}

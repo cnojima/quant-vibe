@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLogin } from '../api/queries';
 import { Button } from '../components/common/Button';
+import logo from '../assets/quant_vibe_white_bg.svg';
 
 export function Login() {
   const [username, setUsername] = useState('');
@@ -27,7 +28,9 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">QuantVibe Admin</h1>
+          <div className="flex justify-center mb-4">
+            <img src={logo} alt="QuantVibe" className="h-80 w-auto" />
+          </div>
           <p className="text-gray-600 mt-2">Sign in to your account</p>
         </div>
 
@@ -76,10 +79,6 @@ export function Login() {
             {loginMutation.isPending ? 'Signing in...' : 'Sign in'}
           </Button>
         </form>
-
-        <div className="mt-6 text-center text-sm text-gray-600">
-          <p>Default credentials: admin / changeme</p>
-        </div>
       </div>
     </div>
   );

@@ -1,0 +1,21 @@
+<svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <!-- White Background -->
+  <rect width="400" height="400" fill="#ffffff"/>
+  
+  <!-- Simple Q with clean lines - centered -->
+  <g transform="translate(200, 200)">
+    <!-- Q circle -->
+    <circle cx="0" cy="0" r="80" fill="none" stroke="#0a0e27" stroke-width="14" stroke-linecap="round"/>
+    
+    <!-- Q tail -->
+    <line x1="48" y1="48" x2="80" y2="80" stroke="#0a0e27" stroke-width="14" stroke-linecap="round"/>
+  </g>
+  
+  <!-- Single clean wave through the Q -->
+  <path d="M 80 200 Q 140 160, 200 200 T 320 200" 
+        fill="none" 
+        stroke="#0a0e27" 
+        stroke-width="4" 
+        stroke-linecap="round"
+        opacity="0.4"/>
+</svg>
