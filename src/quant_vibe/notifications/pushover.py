@@ -8,6 +8,7 @@ Pushover API: https://pushover.net/api
 
 import os
 import logging
+import json
 from enum import IntEnum
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -15,6 +16,13 @@ import requests
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Import database store for logging notifications
+try:
+    from quant_vibe.data.timescale_store import TimescaleStore
+    DB_AVAILABLE = True
+except ImportError:
+    DB_AVAILABLE = False
 
 
 class NotificationPriority(IntEnum):
@@ -91,7 +99,8 @@ class PushoverNotifier:
         user_key: Optional[str] = None,
         device: Optional[str] = None,
         enabled: Optional[bool] = None,
-        logger: Optional[logging.Logger] = None
+        logger: Optional[logging.Logger] = None,
+        db_logging: bool = True,
     ):
         """Initialize Pushover notifier.
 
@@ -101,6 +110,7 @@ class PushoverNotifier:
             device: Specific device to send to (None = all devices)
             enabled: Enable/disable notifications
             logger: Logger instance
+            db_logging: Enable database logging of notifications (default: True)
         """
         self.api_token = api_token or os.getenv("PUSHOVER_API_TOKEN")
         self.user_key = user_key or os.getenv("PUSHOVER_USER_KEY")
@@ -111,6 +121,17 @@ class PushoverNotifier:
         self.enabled = enabled if enabled is not None else (enabled_env == "true")
 
         self.logger = logger or logging.getLogger(__name__)
+
+        # Database logging configuration
+        self.db_logging = db_logging and DB_AVAILABLE
+        self._db_store = None
+        if self.db_logging:
+            try:
+                self._db_store = TimescaleStore()
+                self.logger.debug("Database logging enabled for notifications")
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize database logging: {e}")
+                self.db_logging = False
 
         # Validate credentials if enabled
         if self.enabled:
@@ -166,6 +187,67 @@ class PushoverNotifier:
             self.logger.error(f"Failed to validate Pushover credentials: {e}")
             return False
 
+    def _log_to_database(
+        self,
+        title: Optional[str],
+        message: str,
+        notification_type: str,
+        priority: NotificationPriority,
+        sound: Optional[str],
+        device: Optional[str],
+        url: Optional[str],
+        url_title: Optional[str],
+        sent_successfully: bool,
+        error_message: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Log notification to database for audit trail.
+
+        Args:
+            title: Notification title
+            message: Notification message
+            notification_type: Type of notification
+            priority: Priority level
+            sound: Sound used
+            device: Target device
+            url: Supplementary URL
+            url_title: URL title
+            sent_successfully: Whether notification was sent successfully
+            error_message: Error message if failed
+            metadata: Additional metadata (JSON)
+        """
+        if not self.db_logging or self._db_store is None:
+            return
+
+        try:
+            with self._db_store.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO notifications (
+                            title, message, notification_type, priority, sound, device,
+                            sent_successfully, error_message, metadata, url, url_title
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            title,
+                            message,
+                            notification_type,
+                            int(priority),
+                            sound,
+                            device,
+                            sent_successfully,
+                            error_message,
+                            json.dumps(metadata) if metadata else None,
+                            url,
+                            url_title,
+                        ),
+                    )
+                    conn.commit()
+                    self.logger.debug(f"Logged notification to database: {notification_type}")
+        except Exception as e:
+            self.logger.warning(f"Failed to log notification to database: {e}")
+
     def send(
         self,
         message: str,
@@ -177,6 +259,8 @@ class PushoverNotifier:
         device: Optional[str] = None,
         timestamp: Optional[datetime] = None,
         html: bool = False,
+        notification_type: str = "custom",
+        metadata: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> bool:
         """Send a push notification via Pushover.
@@ -191,6 +275,8 @@ class PushoverNotifier:
             device: Specific device to send to (overrides default)
             timestamp: Unix timestamp for notification (defaults to now)
             html: Enable HTML formatting in message
+            notification_type: Type of notification for database logging
+            metadata: Additional metadata for database logging (JSON)
             **kwargs: Additional Pushover API parameters
 
         Returns:
@@ -198,6 +284,21 @@ class PushoverNotifier:
         """
         if not self.enabled:
             self.logger.debug(f"Pushover disabled, skipping: {title or message[:50]}")
+            # Still log to database even if disabled
+            if self.db_logging:
+                self._log_to_database(
+                    title=title,
+                    message=message,
+                    notification_type=notification_type,
+                    priority=priority,
+                    sound=sound,
+                    device=device or self.device,
+                    url=url,
+                    url_title=url_title,
+                    sent_successfully=False,
+                    error_message="Pushover disabled",
+                    metadata=metadata,
+                )
             return False
 
         # Build request payload
@@ -242,6 +343,8 @@ class PushoverNotifier:
                 payload[key] = value
 
         # Send notification
+        sent_successfully = False
+        error_msg = None
         try:
             response = requests.post(
                 self.API_URL,
@@ -253,17 +356,35 @@ class PushoverNotifier:
                 data = response.json()
                 if data.get("status") == 1:
                     self.logger.debug(f"✓ Pushover notification sent: {title or message[:50]}")
-                    return True
+                    sent_successfully = True
                 else:
-                    self.logger.error(f"Pushover error: {data.get('errors')}")
-                    return False
+                    error_msg = f"Pushover error: {data.get('errors')}"
+                    self.logger.error(error_msg)
             else:
-                self.logger.error(f"Pushover API error: {response.status_code} - {response.text}")
-                return False
+                error_msg = f"Pushover API error: {response.status_code} - {response.text}"
+                self.logger.error(error_msg)
 
         except requests.RequestException as e:
-            self.logger.error(f"Failed to send Pushover notification: {e}")
-            return False
+            error_msg = f"Failed to send Pushover notification: {e}"
+            self.logger.error(error_msg)
+
+        # Log to database
+        if self.db_logging:
+            self._log_to_database(
+                title=title,
+                message=message,
+                notification_type=notification_type,
+                priority=priority,
+                sound=sound,
+                device=device or self.device,
+                url=url,
+                url_title=url_title,
+                sent_successfully=sent_successfully,
+                error_message=error_msg,
+                metadata=metadata,
+            )
+
+        return sent_successfully
 
     def send_order_filled(
         self,
@@ -290,6 +411,8 @@ class PushoverNotifier:
             message=f"{order_type}: {quantity} {symbol} @ ${price:.2f}",
             priority=NotificationPriority.HIGH,
             sound=PushoverSound.CASHREGISTER,
+            notification_type="order_filled",
+            metadata={"symbol": symbol, "quantity": quantity, "price": price, "order_type": order_type},
             **kwargs
         )
 
@@ -316,6 +439,8 @@ class PushoverNotifier:
             message=f"{strategy}: {symbol}\nEntry: ${entry_price:.2f}",
             priority=NotificationPriority.HIGH,
             sound=PushoverSound.INCOMING,
+            notification_type="position_opened",
+            metadata={"strategy": strategy, "symbol": symbol, "entry_price": entry_price},
             **kwargs
         )
 
@@ -349,6 +474,8 @@ class PushoverNotifier:
             message=f"{strategy}: {symbol}\nP&L: {pnl_str}",
             priority=NotificationPriority.HIGH,
             sound=PushoverSound.CASHREGISTER if pnl >= 0 else PushoverSound.FALLING,
+            notification_type="position_closed",
+            metadata={"strategy": strategy, "symbol": symbol, "pnl": pnl, "pnl_pct": pnl_pct},
             **kwargs
         )
 
@@ -373,6 +500,8 @@ class PushoverNotifier:
             message=message,
             priority=NotificationPriority.EMERGENCY,
             sound=PushoverSound.SIREN,
+            notification_type="critical_alert",
+            metadata={"alert_type": alert_type},
             **kwargs
         )
 
@@ -397,6 +526,8 @@ class PushoverNotifier:
             message=message,
             priority=NotificationPriority.HIGH,
             sound=PushoverSound.SPACEALARM,
+            notification_type="warning",
+            metadata={"warning_type": warning_type},
             **kwargs
         )
 
@@ -420,6 +551,7 @@ class PushoverNotifier:
             title=f"ℹ️ {title}",
             message=message,
             priority=NotificationPriority.NORMAL,
+            notification_type="info",
             **kwargs
         )
 
@@ -447,6 +579,8 @@ class PushoverNotifier:
             title="🚀 Engine Started",
             message=msg,
             priority=NotificationPriority.HIGH,
+            notification_type="engine_started",
+            metadata={"mode": mode, "strategies": strategies},
             **kwargs
         )
 
@@ -479,6 +613,8 @@ class PushoverNotifier:
             title="🛑 Engine Stopped",
             message=msg,
             priority=NotificationPriority.HIGH,
+            notification_type="engine_stopped",
+            metadata={"reason": reason, "stats": stats},
             **kwargs
         )
 
@@ -518,6 +654,174 @@ class PushoverNotifier:
             title=f"{emoji} Daily Summary",
             message=msg,
             priority=NotificationPriority.NORMAL,
+            notification_type="daily_summary",
+            metadata={"date": date.isoformat(), "trades": trades, "pnl": pnl, "win_rate": win_rate},
+            **kwargs
+        )
+
+    def send_optimization_complete(
+        self,
+        strategy_name: str,
+        optimization_id: str,
+        best_sharpe: Optional[float] = None,
+        best_return: Optional[float] = None,
+        runtime_minutes: Optional[float] = None,
+        **kwargs
+    ) -> bool:
+        """Send notification for completed optimization.
+
+        Args:
+            strategy_name: Name of optimized strategy
+            optimization_id: Unique optimization ID
+            best_sharpe: Best Sharpe ratio found
+            best_return: Best return percentage
+            runtime_minutes: Optimization runtime in minutes
+            **kwargs: Additional parameters for send()
+
+        Returns:
+            True if sent successfully
+        """
+        msg = f"Optimization {optimization_id} finished successfully."
+        if best_sharpe is not None:
+            msg += f"\nBest Sharpe: {best_sharpe:.2f}"
+        if best_return is not None:
+            msg += f"\nBest Return: {best_return:+.2f}%"
+        if runtime_minutes is not None:
+            msg += f"\nRuntime: {runtime_minutes:.1f} min"
+
+        return self.send(
+            title=f"✅ Optimization Complete: {strategy_name}",
+            message=msg,
+            priority=NotificationPriority.NORMAL,
+            sound=PushoverSound.CASHREGISTER,
+            notification_type="optimization_complete",
+            metadata={
+                "strategy_name": strategy_name,
+                "optimization_id": optimization_id,
+                "best_sharpe": best_sharpe,
+                "best_return": best_return,
+                "runtime_minutes": runtime_minutes,
+            },
+            **kwargs
+        )
+
+    def send_optimization_failed(
+        self,
+        strategy_name: str,
+        optimization_id: str,
+        error_message: str,
+        runtime_minutes: Optional[float] = None,
+        **kwargs
+    ) -> bool:
+        """Send notification for failed optimization.
+
+        Args:
+            strategy_name: Name of optimized strategy
+            optimization_id: Unique optimization ID
+            error_message: Error description
+            runtime_minutes: Optimization runtime in minutes
+            **kwargs: Additional parameters for send()
+
+        Returns:
+            True if sent successfully
+        """
+        msg = f"Optimization {optimization_id} failed."
+        msg += f"\nError: {error_message[:200]}"  # Truncate long errors
+        if runtime_minutes is not None:
+            msg += f"\nRuntime: {runtime_minutes:.1f} min"
+
+        return self.send(
+            title=f"❌ Optimization Failed: {strategy_name}",
+            message=msg,
+            priority=NotificationPriority.HIGH,
+            sound=PushoverSound.SIREN,
+            notification_type="optimization_failed",
+            metadata={
+                "strategy_name": strategy_name,
+                "optimization_id": optimization_id,
+                "error_message": error_message[:200],
+                "runtime_minutes": runtime_minutes,
+            },
+            **kwargs
+        )
+
+    def send_backtest_complete(
+        self,
+        strategy_name: str,
+        backtest_id: str,
+        total_return: Optional[float] = None,
+        sharpe_ratio: Optional[float] = None,
+        num_trades: Optional[int] = None,
+        **kwargs
+    ) -> bool:
+        """Send notification for completed backtest.
+
+        Args:
+            strategy_name: Name of strategy
+            backtest_id: Unique backtest ID
+            total_return: Total return percentage
+            sharpe_ratio: Sharpe ratio
+            num_trades: Number of trades
+            **kwargs: Additional parameters for send()
+
+        Returns:
+            True if sent successfully
+        """
+        msg = f"Backtest {backtest_id} finished."
+        if total_return is not None:
+            msg += f"\nReturn: {total_return:+.2f}%"
+        if sharpe_ratio is not None:
+            msg += f"\nSharpe: {sharpe_ratio:.2f}"
+        if num_trades is not None:
+            msg += f"\nTrades: {num_trades}"
+
+        return self.send(
+            title=f"✅ Backtest Complete: {strategy_name}",
+            message=msg,
+            priority=NotificationPriority.NORMAL,
+            sound=PushoverSound.MAGIC,
+            notification_type="backtest_complete",
+            metadata={
+                "strategy_name": strategy_name,
+                "backtest_id": backtest_id,
+                "total_return": total_return,
+                "sharpe_ratio": sharpe_ratio,
+                "num_trades": num_trades,
+            },
+            **kwargs
+        )
+
+    def send_backtest_failed(
+        self,
+        strategy_name: str,
+        backtest_id: str,
+        error_message: str,
+        **kwargs
+    ) -> bool:
+        """Send notification for failed backtest.
+
+        Args:
+            strategy_name: Name of strategy
+            backtest_id: Unique backtest ID
+            error_message: Error description
+            **kwargs: Additional parameters for send()
+
+        Returns:
+            True if sent successfully
+        """
+        msg = f"Backtest {backtest_id} failed.\nError: {error_message[:200]}"
+
+        return self.send(
+            title=f"❌ Backtest Failed: {strategy_name}",
+            message=msg,
+            priority=NotificationPriority.HIGH,
+            sound=PushoverSound.SIREN,
+            notification_type="backtest_failed",
+            metadata={
+                "strategy_name": strategy_name,
+                "backtest_id": backtest_id,
+                "error_message": error_message[:200],
+            },
             **kwargs
         )
 

@@ -56,7 +56,7 @@ async def get_live_status(current_user: User = Depends(get_current_user)):
 
 @router.get("/positions")
 async def get_positions(
-    status: str = Query("open", regex="^(open|closed|all)$"),
+    status: str = Query("open", pattern="^(open|closed|all)$"),
     limit: int = Query(100, ge=1, le=1000),
     current_user: User = Depends(get_current_user),
 ):
@@ -90,7 +90,7 @@ async def get_positions(
 @router.get("/orders")
 async def get_orders(
     limit: int = Query(100, ge=1, le=1000),
-    status: str = Query("all", regex="^(open|filled|rejected|cancelled|all)$"),
+    status: str = Query("all", pattern="^(open|filled|rejected|cancelled|all)$"),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -117,7 +117,7 @@ async def get_orders(
 async def get_events(
     limit: int = Query(100, ge=1, le=1000),
     event_type: Optional[str] = Query(None),
-    severity: Optional[str] = Query(None, regex="^(info|warning|error)$"),
+    severity: Optional[str] = Query(None, pattern="^(info|warning|error)$"),
     current_user: User = Depends(get_current_user),
 ):
     """

@@ -17,6 +17,14 @@ from pydantic import BaseModel
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
 
+# Import Pushover notifications
+try:
+    from quant_vibe.notifications import PushoverNotifier
+    PUSHOVER_AVAILABLE = True
+except ImportError:
+    PUSHOVER_AVAILABLE = False
+    print("[Optimization] Pushover notifications not available")
+
 router = APIRouter()
 
 # Track running optimizations (persistent storage)
@@ -102,10 +110,11 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
         request: Optimization parameters
     """
     settings = get_settings()
+    start_time = datetime.now()
 
     # Update status
     _running_optimizations[optimization_id]["status"] = "running"
-    _running_optimizations[optimization_id]["started_at"] = datetime.now()
+    _running_optimizations[optimization_id]["started_at"] = start_time
     _save_optimizations(_running_optimizations)
 
     try:
@@ -159,8 +168,11 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
 
             if process.returncode == 0:
                 # Success - parse results
+                end_time = datetime.now()
+                runtime_minutes = (end_time - start_time).total_seconds() / 60.0
+
                 _running_optimizations[optimization_id]["status"] = "completed"
-                _running_optimizations[optimization_id]["completed_at"] = datetime.now()
+                _running_optimizations[optimization_id]["completed_at"] = end_time
                 _running_optimizations[optimization_id]["progress"] = 100
 
                 # Find result files
@@ -172,36 +184,117 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
 
                 print(f"[Optimization] {optimization_id} completed successfully")
 
+                # Send success notification
+                if PUSHOVER_AVAILABLE:
+                    try:
+                        # Try to parse results for notification
+                        import pandas as pd
+                        best_sharpe = None
+                        best_return = None
+
+                        grid_search_file = None
+                        for key, path in result_files.items():
+                            if "grid_search" in key:
+                                grid_search_file = path
+                                break
+
+                        if grid_search_file and os.path.exists(grid_search_file):
+                            df = pd.read_csv(grid_search_file)
+                            if len(df) > 0:
+                                best_sharpe = float(df.iloc[0]["sharpe_ratio"])
+                                best_return = float(df.iloc[0]["total_return"])
+
+                        notifier = PushoverNotifier()
+                        notifier.send_optimization_complete(
+                            strategy_name=request.strategy_name,
+                            optimization_id=optimization_id,
+                            best_sharpe=best_sharpe,
+                            best_return=best_return,
+                            runtime_minutes=runtime_minutes,
+                        )
+                    except Exception as e:
+                        print(f"[Optimization] Failed to send success notification: {e}")
+
             else:
                 # Failed
+                end_time = datetime.now()
+                runtime_minutes = (end_time - start_time).total_seconds() / 60.0
+
                 error_msg = stderr.decode() if stderr else "Unknown error"
                 _running_optimizations[optimization_id]["status"] = "failed"
                 _running_optimizations[optimization_id]["error"] = error_msg
-                _running_optimizations[optimization_id]["completed_at"] = datetime.now()
+                _running_optimizations[optimization_id]["completed_at"] = end_time
 
                 print(f"[Optimization] {optimization_id} failed: {error_msg}")
 
+                # Send failure notification
+                if PUSHOVER_AVAILABLE:
+                    try:
+                        notifier = PushoverNotifier()
+                        notifier.send_optimization_failed(
+                            strategy_name=request.strategy_name,
+                            optimization_id=optimization_id,
+                            error_message=error_msg,
+                            runtime_minutes=runtime_minutes,
+                        )
+                    except Exception as e:
+                        print(f"[Optimization] Failed to send failure notification: {e}")
+
         except asyncio.TimeoutError:
             # Timeout
+            end_time = datetime.now()
+            runtime_minutes = (end_time - start_time).total_seconds() / 60.0
+
             process.kill()
+            error_msg = "Optimization timeout (1 hour limit exceeded)"
             _running_optimizations[optimization_id]["status"] = "failed"
-            _running_optimizations[optimization_id]["error"] = "Optimization timeout (1 hour limit exceeded)"
-            _running_optimizations[optimization_id]["completed_at"] = datetime.now()
+            _running_optimizations[optimization_id]["error"] = error_msg
+            _running_optimizations[optimization_id]["completed_at"] = end_time
 
             print(f"[Optimization] {optimization_id} timed out")
+
+            # Send timeout notification
+            if PUSHOVER_AVAILABLE:
+                try:
+                    notifier = PushoverNotifier()
+                    notifier.send_optimization_failed(
+                        strategy_name=request.strategy_name,
+                        optimization_id=optimization_id,
+                        error_message=error_msg,
+                        runtime_minutes=runtime_minutes,
+                    )
+                except Exception as e:
+                    print(f"[Optimization] Failed to send timeout notification: {e}")
 
         _save_optimizations(_running_optimizations)
 
     except Exception as e:
         # Unexpected error
+        end_time = datetime.now()
+        runtime_minutes = (end_time - start_time).total_seconds() / 60.0
+
+        error_msg = str(e)
         _running_optimizations[optimization_id]["status"] = "failed"
-        _running_optimizations[optimization_id]["error"] = str(e)
-        _running_optimizations[optimization_id]["completed_at"] = datetime.now()
+        _running_optimizations[optimization_id]["error"] = error_msg
+        _running_optimizations[optimization_id]["completed_at"] = end_time
         _save_optimizations(_running_optimizations)
 
         print(f"[Optimization] {optimization_id} error: {e}")
         import traceback
         traceback.print_exc()
+
+        # Send error notification
+        if PUSHOVER_AVAILABLE:
+            try:
+                notifier = PushoverNotifier()
+                notifier.send_optimization_failed(
+                    strategy_name=request.strategy_name,
+                    optimization_id=optimization_id,
+                    error_message=error_msg,
+                    runtime_minutes=runtime_minutes,
+                )
+            except Exception as notify_error:
+                print(f"[Optimization] Failed to send error notification: {notify_error}")
 
 
 @router.post("/run", response_model=dict)
@@ -429,3 +522,60 @@ async def delete_optimization(
         "message": "Optimization deleted",
         "deleted_files": deleted_files
     }
+
+
+@router.post("/test-notification")
+async def test_notification(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Send a test notification via Pushover.
+
+    Args:
+        current_user: Authenticated user
+
+    Returns:
+        Success/failure status
+    """
+    if not PUSHOVER_AVAILABLE:
+        return {
+            "sent": False,
+            "message": "Pushover notifications not available. Install required packages."
+        }
+
+    try:
+        notifier = PushoverNotifier()
+
+        if not notifier.enabled:
+            return {
+                "sent": False,
+                "message": "Pushover notifications are disabled. Check PUSHOVER_ENABLED env var and credentials."
+            }
+
+        success = notifier.send(
+            message="This is a test notification from Quant-Vibe Admin UI. If you received this, your notifications are working correctly!",
+            title="🧪 Test Notification",
+            priority=0,
+            sound="magic",
+        )
+
+        if success:
+            return {
+                "sent": True,
+                "message": "Test notification sent successfully!"
+            }
+        else:
+            return {
+                "sent": False,
+                "message": "Failed to send test notification. Check server logs for details."
+            }
+
+    except Exception as e:
+        print(f"[Optimization] Test notification error: {e}")
+        import traceback
+        traceback.print_exc()
+
+        return {
+            "sent": False,
+            "message": f"Error: {str(e)}"
+        }

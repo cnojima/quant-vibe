@@ -10,6 +10,8 @@ import { BacktestRunner } from './pages/BacktestRunner';
 import { ConfigEditor } from './pages/ConfigEditor';
 import { StrategiesManager } from './pages/StrategiesManager';
 import { StrategyOptimizer } from './pages/StrategyOptimizer';
+import { NotificationSettings } from './pages/NotificationSettings';
+import { NotificationHistory } from './pages/NotificationHistory';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -99,6 +101,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <StrategyOptimizer />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/notifications"
+            element={
+              <ProtectedRoute>
+                <NotificationSettings />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/notification-history"
+            element={
+              <ProtectedRoute>
+                <NotificationHistory />
               </ProtectedRoute>
             }
           />

@@ -6,6 +6,19 @@ The Strategy Optimization UI provides a web-based interface for finding optimal 
 
 ## Features
 
+### 0. Push Notifications (New!)
+Get notified on your phone when optimizations complete! No more checking the UI constantly.
+
+**Setup:** See `docs/PUSHOVER_SETUP_QUICKSTART.md` (5 minutes)
+
+**What you get:**
+- ✅ Success notifications with Sharpe ratio & return
+- ❌ Failure notifications with error message
+- ⏱️ Timeout alerts (after 1 hour)
+- 📱 Instant delivery to your phone
+
+**Cost:** $5 one-time, no monthly fees
+
 ### 1. Grid Search Optimization
 - **Purpose**: Find the best parameter combination from a defined search space
 - **Method**: Tests all possible combinations of parameters on training data
