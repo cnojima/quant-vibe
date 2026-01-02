@@ -255,7 +255,11 @@ class RedisDataFeed:
             bar: Underlying bar data
         """
         symbol = bar.get('underlying_ticker')
+        print(f"DEBUG [_handle_underlying_bar] Received bar for symbol: '{symbol}'")
+        print(f"DEBUG   Bar data: {bar}")
+
         if not symbol:
+            print(f"DEBUG   No symbol in bar, skipping")
             return
 
         # Add to deque
@@ -265,6 +269,8 @@ class RedisDataFeed:
         close_price = bar.get('close')
         if close_price:
             self.underlying_prices[symbol] = close_price
+            print(f"DEBUG   Updated underlying_prices['{symbol}'] = ${close_price:.2f}")
+            print(f"DEBUG   All underlying_prices keys: {list(self.underlying_prices.keys())}")
 
         self.bars_received += 1
 
