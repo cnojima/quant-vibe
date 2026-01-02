@@ -464,6 +464,57 @@ class StrategyExecutor:
                 positions.append(strategy.active_position)
         return positions
 
+    def update_strategies(self, new_strategies: List[OptionsStrategy]):
+        """
+        Update the strategy list without closing existing positions.
+
+        This allows hot-reloading of strategies from config changes.
+        Existing positions are preserved and transferred to matching strategies.
+
+        Args:
+            new_strategies: New list of strategy instances
+
+        Note:
+            - Strategies with active positions are preserved
+            - New strategies are added
+            - Removed strategies are gracefully handled (positions kept)
+        """
+        logger.info(f"Updating strategies (current: {len(self.strategies)}, new: {len(new_strategies)})")
+
+        # Build new strategy dict
+        new_strategy_dict = {strategy.name: strategy for strategy in new_strategies}
+
+        # Transfer active positions from old strategies to new ones
+        for old_name, old_strategy in self.strategies.items():
+            if old_strategy.active_position is not None:
+                if old_name in new_strategy_dict:
+                    # Strategy still exists, transfer position
+                    logger.info(f"  Transferring active position from {old_name}")
+                    new_strategy_dict[old_name].active_position = old_strategy.active_position
+                    new_strategy_dict[old_name].positions = old_strategy.positions
+                else:
+                    # Strategy removed but has active position - keep old strategy instance
+                    logger.warning(f"  Keeping removed strategy {old_name} (has active position)")
+                    new_strategy_dict[old_name] = old_strategy
+
+        # Update strategies
+        self.strategies = new_strategy_dict
+
+        # Update stats for new strategies
+        for name in new_strategy_dict.keys():
+            if name not in self.strategy_stats:
+                self.strategy_stats[name] = {
+                    'positions_opened': 0,
+                    'positions_closed': 0,
+                    'total_pnl': 0.0,
+                    'wins': 0,
+                    'losses': 0,
+                    'last_entry_time': None,
+                    'last_exit_time': None,
+                }
+
+        logger.info(f"  Strategies updated: {list(self.strategies.keys())}")
+
     def force_close_all_positions(self, reason: str = "Manual close"):
         """
         Force close all active positions.

@@ -387,3 +387,42 @@ async def get_active_strategies(current_user: User = Depends(get_current_user)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch active strategies: {str(e)}")
+
+
+@router.post("/strategies/reload")
+async def reload_strategies(current_user: User = Depends(get_current_user)):
+    """
+    Reload strategies from configuration without restarting the engine.
+
+    This publishes a reload command to Redis, which the live trading engine
+    will pick up and process. Active positions are preserved.
+
+    Args:
+        current_user: Authenticated user
+
+    Returns:
+        Success message
+    """
+    try:
+        from quant_vibe.messaging import RedisMessageBroker
+
+        # Publish reload command to Redis
+        broker = RedisMessageBroker()
+        broker.publish(
+            topic="control.live_trading",
+            data={
+                "command": "reload_strategies",
+                "timestamp": datetime.now().isoformat(),
+                "user": current_user.username,
+            }
+        )
+        broker.close()
+
+        return {
+            "success": True,
+            "message": "Strategy reload command sent to live trading engine",
+            "note": "Check live trading logs for reload confirmation",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send reload command: {str(e)}")

@@ -118,6 +118,7 @@ class EventType:
     STRATEGY_ENTRY = "strategy_entry"
     STRATEGY_EXIT = "strategy_exit"
     STRATEGY_ERROR = "strategy_error"
+    STRATEGY_RELOAD = "strategy_reload"
 
     # Order events
     ORDER_SUBMITTED = "order_submitted"

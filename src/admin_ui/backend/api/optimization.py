@@ -60,6 +60,75 @@ def _save_optimizations(optimizations: dict[str, dict[str, Any]]):
 _running_optimizations: dict[str, dict[str, Any]] = _load_optimizations()
 
 
+def _read_status_file(optimization_id: str) -> dict[str, Any]:
+    """
+    Read status file and extract latest progress and logs.
+
+    Args:
+        optimization_id: Optimization ID
+
+    Returns:
+        Dict with latest progress, params, metrics, and recent logs
+    """
+    settings = get_settings()
+    status_file = settings.project_root / "results" / "optimization" / optimization_id / "status.jsonl"
+
+    result = {
+        "current_combination": None,
+        "total_combinations": None,
+        "progress_pct": 0,
+        "current_params": None,
+        "current_metrics": None,
+        "logs": [],
+    }
+
+    if not status_file.exists():
+        return result
+
+    try:
+        # Read all lines (newline-delimited JSON)
+        with open(status_file, 'r') as f:
+            lines = f.readlines()
+
+        # Keep track of latest progress and collect recent logs
+        logs = []
+        latest_progress = None
+
+        for line in lines:
+            if not line.strip():
+                continue
+
+            try:
+                entry = json.loads(line)
+
+                if entry.get("type") == "progress":
+                    latest_progress = entry
+                elif entry.get("type") == "log":
+                    logs.append({
+                        "timestamp": entry.get("timestamp"),
+                        "level": entry.get("level", "INFO"),
+                        "message": entry.get("message"),
+                    })
+            except json.JSONDecodeError:
+                continue
+
+        # Extract latest progress info
+        if latest_progress:
+            result["current_combination"] = latest_progress.get("current_combination")
+            result["total_combinations"] = latest_progress.get("total_combinations")
+            result["progress_pct"] = latest_progress.get("progress_pct", 0)
+            result["current_params"] = latest_progress.get("current_params")
+            result["current_metrics"] = latest_progress.get("current_metrics")
+
+        # Keep last 50 log entries
+        result["logs"] = logs[-50:]
+
+    except Exception as e:
+        print(f"[Optimization] Error reading status file: {e}")
+
+    return result
+
+
 class OptimizationRequest(BaseModel):
     """Optimization execution request."""
 
@@ -82,10 +151,13 @@ class OptimizationStatus(BaseModel):
     progress: Optional[int] = 0  # Progress percentage
     current_combination: Optional[int] = None
     total_combinations: Optional[int] = None
+    current_params: Optional[dict[str, Any]] = None
+    current_metrics: Optional[dict[str, float]] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
     result_files: Optional[dict[str, str]] = None
+    logs: Optional[list[dict[str, Any]]] = None  # Recent log messages
 
 
 class OptimizationResult(BaseModel):
@@ -148,6 +220,10 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
         output_dir = settings.project_root / "results" / "optimization" / optimization_id
         output_dir.mkdir(parents=True, exist_ok=True)
         cmd.extend(["--output-dir", str(output_dir)])
+
+        # Add status file for real-time updates
+        status_file = output_dir / "status.jsonl"
+        cmd.extend(["--status-file", str(status_file)])
 
         print(f"[Optimization] Running: {' '.join(cmd)}")
 
@@ -357,16 +433,24 @@ async def get_optimization_status(
 
     opt = _running_optimizations[optimization_id]
 
+    # Read real-time status from status file if running
+    status_data = {}
+    if opt["status"] == "running":
+        status_data = _read_status_file(optimization_id)
+
     return OptimizationStatus(
         optimization_id=optimization_id,
         status=opt["status"],
-        progress=opt.get("progress", 0),
-        current_combination=opt.get("current_combination"),
-        total_combinations=opt.get("total_combinations"),
+        progress=int(status_data.get("progress_pct", opt.get("progress", 0))),
+        current_combination=status_data.get("current_combination", opt.get("current_combination")),
+        total_combinations=status_data.get("total_combinations", opt.get("total_combinations")),
+        current_params=status_data.get("current_params"),
+        current_metrics=status_data.get("current_metrics"),
         started_at=opt.get("started_at"),
         completed_at=opt.get("completed_at"),
         error=opt.get("error"),
         result_files=opt.get("result_files"),
+        logs=status_data.get("logs", []),
     )
 
 

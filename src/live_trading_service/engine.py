@@ -183,7 +183,7 @@ class LiveTradingEngine:
         """Initialize all components."""
         self.logger.info("Initializing components...")
 
-        # Initialize message broker for heartbeats
+        # Initialize message broker for heartbeats and control messages
         self.logger.info("  - Initializing message broker...")
         try:
             redis_config = self.config.get('redis', {})
@@ -192,10 +192,10 @@ class LiveTradingEngine:
                 port=redis_config.get('port'),
                 db=redis_config.get('db'),
             )
-            self.logger.info("    ✓ Message broker ready (for heartbeats)")
+            self.logger.info("    ✓ Message broker ready (for heartbeats and control)")
         except Exception as e:
             self.logger.warning(f"    ⚠️  Failed to initialize message broker: {e}")
-            self.logger.warning("    Heartbeats will be disabled")
+            self.logger.warning("    Heartbeats and control messages will be disabled")
             self.message_broker = None
 
         # Initialize state store
@@ -347,6 +347,18 @@ class LiveTradingEngine:
             severity='info'
         )
 
+        # Start control message listener (non-blocking)
+        if self.message_broker:
+            self.logger.info("Starting control message listener...")
+            import threading
+            self.control_thread = threading.Thread(
+                target=self._listen_for_control_messages,
+                daemon=True,
+                name="ControlMessageListener"
+            )
+            self.control_thread.start()
+            self.logger.info("✅ Control message listener started")
+
         # Use Redis feed - no need to subscribe to contracts
         self.logger.info("Starting Redis data feed...")
         self.redis_feed.start()
@@ -454,6 +466,55 @@ class LiveTradingEngine:
 
                 except Exception as e:
                     self.logger.error(f"Error executing strategies on bar: {e}", exc_info=True)
+
+    def _listen_for_control_messages(self):
+        """
+        Listen for control messages on Redis pub/sub.
+
+        Runs in a background thread and processes commands like reload_strategies.
+        """
+        if not self.message_broker:
+            return
+
+        self.logger.info("Control message listener thread started")
+
+        try:
+            # Create a separate broker instance for subscription (thread-safe)
+            from quant_vibe.messaging import RedisMessageBroker
+            redis_config = self.config.get('redis', {})
+            listener_broker = RedisMessageBroker(
+                host=redis_config.get('host'),
+                port=redis_config.get('port'),
+                db=redis_config.get('db'),
+            )
+
+            def handle_control_message(topic: str, data: dict):
+                """Handle incoming control messages."""
+                try:
+                    command = data.get('command')
+                    self.logger.info(f"Received control command: {command}")
+
+                    if command == 'reload_strategies':
+                        self.logger.info("Processing reload_strategies command...")
+                        result = self.reload_strategies()
+                        if result['success']:
+                            self.logger.info(f"✅ {result['message']}")
+                        else:
+                            self.logger.error(f"❌ {result['message']}")
+                    else:
+                        self.logger.warning(f"Unknown control command: {command}")
+
+                except Exception as e:
+                    self.logger.error(f"Error handling control message: {e}", exc_info=True)
+
+            # Subscribe to control topic
+            listener_broker.subscribe(["control.live_trading"], callback=handle_control_message)
+
+            # Listen for messages (blocking in this thread)
+            listener_broker.listen()
+
+        except Exception as e:
+            self.logger.error(f"Control message listener error: {e}", exc_info=True)
 
     def _publish_heartbeat(self):
         """Publish heartbeat to Redis."""
@@ -641,6 +702,74 @@ class LiveTradingEngine:
         self.logger.info("="*70)
         self.logger.info("✅ ENGINE STOPPED")
         self.logger.info("="*70)
+
+    def reload_strategies(self) -> Dict:
+        """
+        Reload strategies from configuration file without restarting.
+
+        This allows hot-reloading of strategy changes from the YAML config.
+        Active positions are preserved and transferred to matching strategies.
+
+        Returns:
+            Dictionary with reload status and details
+        """
+        self.logger.info("="*70)
+        self.logger.info("RELOADING STRATEGIES")
+        self.logger.info("="*70)
+
+        try:
+            # Reload config from file
+            self.config = self._load_config("config/live_trading.yaml")
+            self.logger.info("  ✓ Configuration reloaded")
+
+            # Load new strategies
+            from live_trading_service.strategy_loader import StrategyLoader
+            new_strategies = StrategyLoader.load_strategies(self.config)
+            self.logger.info(f"  ✓ Loaded {len(new_strategies)} strategies from config")
+
+            # Update strategy executor
+            if self.strategy_executor:
+                self.strategy_executor.update_strategies(new_strategies)
+                self.logger.info("  ✓ Strategy executor updated")
+            else:
+                self.logger.warning("  ⚠️  Strategy executor not initialized")
+
+            # Update our local reference
+            self.strategies = new_strategies
+
+            # Log event
+            if self.state_store:
+                self.state_store.log_event(
+                    EventType.STRATEGY_RELOAD,
+                    f"Strategies reloaded: {[s.name for s in new_strategies]}",
+                    severity='info'
+                )
+
+            self.logger.info("="*70)
+            self.logger.info("✅ STRATEGIES RELOADED SUCCESSFULLY")
+            self.logger.info("="*70)
+
+            return {
+                'success': True,
+                'message': f'Successfully reloaded {len(new_strategies)} strategies',
+                'strategies': [s.name for s in new_strategies],
+            }
+
+        except Exception as e:
+            self.logger.error(f"Failed to reload strategies: {e}", exc_info=True)
+
+            if self.state_store:
+                self.state_store.log_event(
+                    EventType.STRATEGY_RELOAD,
+                    f"Strategy reload failed: {str(e)}",
+                    severity='error'
+                )
+
+            return {
+                'success': False,
+                'message': f'Failed to reload strategies: {str(e)}',
+                'strategies': [],
+            }
 
     def get_status(self) -> Dict:
         """Get current engine status."""

@@ -232,11 +232,38 @@ async def toggle_strategy(
     # Save config
     save_yaml_config("live_trading", config)
 
-    return {
-        "success": True,
-        "message": f"Strategy '{strategy_name}' {'enabled' if toggle.enabled else 'disabled'}",
-        "requires_restart": True,
-    }
+    # Trigger hot-reload
+    try:
+        from quant_vibe.messaging import RedisMessageBroker
+        from datetime import datetime
+
+        broker = RedisMessageBroker()
+        broker.publish(
+            topic="control.live_trading",
+            data={
+                "command": "reload_strategies",
+                "timestamp": datetime.now().isoformat(),
+                "trigger": "strategy_toggle",
+                "strategy": strategy_name,
+            }
+        )
+        broker.close()
+
+        return {
+            "success": True,
+            "message": f"Strategy '{strategy_name}' {'enabled' if toggle.enabled else 'disabled'}. Live engine will reload automatically.",
+            "requires_restart": False,
+            "auto_reload": True,
+        }
+    except Exception as e:
+        # If hot-reload fails, still return success but indicate restart needed
+        return {
+            "success": True,
+            "message": f"Strategy '{strategy_name}' {'enabled' if toggle.enabled else 'disabled'}",
+            "requires_restart": True,
+            "auto_reload": False,
+            "reload_error": str(e),
+        }
 
 
 @router.put("/{strategy_name}/params")
@@ -297,8 +324,35 @@ async def update_strategy_params(
     # Save config
     save_yaml_config("live_trading", config)
 
-    return {
-        "success": True,
-        "message": f"Parameters updated for strategy '{strategy_name}'",
-        "requires_restart": True,
-    }
+    # Trigger hot-reload
+    try:
+        from quant_vibe.messaging import RedisMessageBroker
+        from datetime import datetime
+
+        broker = RedisMessageBroker()
+        broker.publish(
+            topic="control.live_trading",
+            data={
+                "command": "reload_strategies",
+                "timestamp": datetime.now().isoformat(),
+                "trigger": "params_update",
+                "strategy": strategy_name,
+            }
+        )
+        broker.close()
+
+        return {
+            "success": True,
+            "message": f"Parameters updated for strategy '{strategy_name}'. Live engine will reload automatically.",
+            "requires_restart": False,
+            "auto_reload": True,
+        }
+    except Exception as e:
+        # If hot-reload fails, still return success but indicate restart needed
+        return {
+            "success": True,
+            "message": f"Parameters updated for strategy '{strategy_name}'",
+            "requires_restart": True,
+            "auto_reload": False,
+            "reload_error": str(e),
+        }

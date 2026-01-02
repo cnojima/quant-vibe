@@ -348,49 +348,132 @@ export function StrategyOptimizer() {
       {selectedTab === 'results' && (
         <div>
           {optimizationStatus && optimizationStatus.status !== 'completed' && (
-            <Card className="mb-6">
-              <div className="flex items-center gap-4">
-                <div className="flex-1">
-                  <div className="font-medium mb-1">
-                    Optimization Status: {optimizationStatus.status}
+            <>
+              <Card className="mb-6">
+                <div className="flex items-center gap-4">
+                  <div className="flex-1">
+                    <div className="font-medium mb-1">
+                      Optimization Status: {optimizationStatus.status}
+                    </div>
+                    {optimizationStatus.status === 'failed' && optimizationStatus.error && (
+                      <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded">
+                        <div className="text-sm font-medium text-red-800">Error:</div>
+                        <pre className="text-xs text-red-700 mt-1 whitespace-pre-wrap overflow-x-auto">
+                          {optimizationStatus.error}
+                        </pre>
+                      </div>
+                    )}
+                    {optimizationStatus.current_combination !== undefined && optimizationStatus.total_combinations !== undefined && (
+                      <div className="mt-2">
+                        <div className="text-sm text-gray-600 mb-1">
+                          Testing combination {optimizationStatus.current_combination} of {optimizationStatus.total_combinations} ({optimizationStatus.progress}%)
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2.5">
+                          <div
+                            className="bg-blue-600 h-2.5 rounded-full transition-all"
+                            style={{ width: `${optimizationStatus.progress}%` }}
+                          />
+                        </div>
+
+                        {/* Current parameters and metrics */}
+                        {optimizationStatus.current_params && (
+                          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded">
+                            <div className="text-xs font-medium text-blue-900 mb-2">Current Test:</div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                              {Object.entries(optimizationStatus.current_params).slice(0, 8).map(([key, value]) => (
+                                <div key={key}>
+                                  <span className="text-blue-700">{key}:</span>{' '}
+                                  <span className="font-semibold text-blue-900">
+                                    {typeof value === 'number' ? value.toFixed(2) : String(value)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                            {optimizationStatus.current_metrics && (
+                              <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs pt-2 border-t border-blue-300">
+                                {optimizationStatus.current_metrics.sharpe_ratio !== undefined && (
+                                  <div>
+                                    <span className="text-blue-700">Sharpe:</span>{' '}
+                                    <span className="font-semibold text-blue-900">
+                                      {optimizationStatus.current_metrics.sharpe_ratio.toFixed(2)}
+                                    </span>
+                                  </div>
+                                )}
+                                {optimizationStatus.current_metrics.total_return !== undefined && (
+                                  <div>
+                                    <span className="text-blue-700">Return:</span>{' '}
+                                    <span className="font-semibold text-blue-900">
+                                      {formatPercent(optimizationStatus.current_metrics.total_return)}
+                                    </span>
+                                  </div>
+                                )}
+                                {optimizationStatus.current_metrics.win_rate !== undefined && (
+                                  <div>
+                                    <span className="text-blue-700">Win Rate:</span>{' '}
+                                    <span className="font-semibold text-blue-900">
+                                      {optimizationStatus.current_metrics.win_rate.toFixed(1)}%
+                                    </span>
+                                  </div>
+                                )}
+                                {optimizationStatus.current_metrics.num_trades !== undefined && (
+                                  <div>
+                                    <span className="text-blue-700">Trades:</span>{' '}
+                                    <span className="font-semibold text-blue-900">
+                                      {optimizationStatus.current_metrics.num_trades}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {optimizationStatus.progress !== undefined && optimizationStatus.current_combination === undefined && (
+                      <div className="mt-2">
+                        <div className="w-full bg-gray-200 rounded-full h-2.5">
+                          <div
+                            className="bg-blue-600 h-2.5 rounded-full transition-all"
+                            style={{ width: `${optimizationStatus.progress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  {optimizationStatus.status === 'failed' && optimizationStatus.error && (
-                    <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded">
-                      <div className="text-sm font-medium text-red-800">Error:</div>
-                      <pre className="text-xs text-red-700 mt-1 whitespace-pre-wrap overflow-x-auto">
-                        {optimizationStatus.error}
-                      </pre>
-                    </div>
-                  )}
-                  {optimizationStatus.current_combination !== undefined && optimizationStatus.total_combinations !== undefined && (
-                    <div className="mt-2">
-                      <div className="text-sm text-gray-600 mb-1">
-                        Testing combination {optimizationStatus.current_combination} of {optimizationStatus.total_combinations}
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-blue-600 h-2 rounded-full transition-all"
-                          style={{ width: `${(optimizationStatus.current_combination / optimizationStatus.total_combinations) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
-                  {optimizationStatus.progress !== undefined && optimizationStatus.current_combination === undefined && (
-                    <div className="mt-2">
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-blue-600 h-2 rounded-full transition-all"
-                          style={{ width: `${optimizationStatus.progress}%` }}
-                        />
-                      </div>
-                    </div>
+                  {optimizationStatus.status === 'running' && (
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
                   )}
                 </div>
-                {optimizationStatus.status === 'running' && (
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-                )}
-              </div>
-            </Card>
+              </Card>
+
+              {/* Optimization Logs */}
+              {optimizationStatus.logs && optimizationStatus.logs.length > 0 && (
+                <Card className="mb-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <h3 className="text-lg font-semibold">Optimization Progress Log</h3>
+                    <InfoIcon
+                      content="Real-time log messages from the optimization process. Shows what the optimizer is currently doing."
+                      placement="right"
+                    />
+                  </div>
+                  <div className="bg-gray-900 text-gray-100 rounded p-4 font-mono text-xs max-h-96 overflow-y-auto">
+                    {optimizationStatus.logs.map((log: any, idx: number) => (
+                      <div key={idx} className="mb-1">
+                        <span className="text-gray-500">[{new Date(log.timestamp).toLocaleTimeString()}]</span>{' '}
+                        <span className={
+                          log.level === 'ERROR' ? 'text-red-400' :
+                          log.level === 'WARNING' ? 'text-yellow-400' :
+                          'text-green-400'
+                        }>
+                          [{log.level}]
+                        </span>{' '}
+                        <span className="text-gray-200">{log.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+            </>
           )}
 
           {optimizationResults && (

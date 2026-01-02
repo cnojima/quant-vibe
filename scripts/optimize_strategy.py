@@ -23,6 +23,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 import argparse
 from datetime import datetime
 import pandas as pd
+import json
+from pathlib import Path
 
 from quant_vibe.optimization import ParameterOptimizer, WalkForwardAnalysis
 from quant_vibe.strategies.registry import StrategyRegistry
@@ -31,6 +33,73 @@ from quant_vibe.config.logging_config import setup_normalized_logging
 
 # Setup logging
 logger = setup_normalized_logging("optimize_strategy", "INFO", "logs/optimization")
+
+# Global variable for status file path (set in main)
+STATUS_FILE_PATH = None
+
+
+def update_status(current: int, total: int, params: dict, metrics: dict, status_type: str = "progress"):
+    """
+    Update status file with current progress.
+
+    Args:
+        current: Current combination number
+        total: Total combinations
+        params: Current parameter combination
+        metrics: Current metrics
+        status_type: Type of status update ("progress", "complete", "log")
+    """
+    if STATUS_FILE_PATH is None:
+        return
+
+    try:
+        status_data = {
+            "timestamp": datetime.now().isoformat(),
+            "type": status_type,
+            "current_combination": current,
+            "total_combinations": total,
+            "progress_pct": (current / total * 100) if total > 0 else 0,
+            "current_params": params,
+            "current_metrics": metrics,
+        }
+
+        # Append to status file as newline-delimited JSON
+        with open(STATUS_FILE_PATH, "a") as f:
+            f.write(json.dumps(status_data) + "\n")
+    except Exception as e:
+        logger.warning(f"Failed to update status file: {e}")
+
+
+def log_message(message: str, level: str = "INFO"):
+    """
+    Log a message and write to status file.
+
+    Args:
+        message: Log message
+        level: Log level (INFO, WARNING, ERROR)
+    """
+    # Log normally
+    if level == "INFO":
+        logger.info(message)
+    elif level == "WARNING":
+        logger.warning(message)
+    elif level == "ERROR":
+        logger.error(message)
+
+    # Also write to status file for UI consumption
+    if STATUS_FILE_PATH:
+        try:
+            log_data = {
+                "timestamp": datetime.now().isoformat(),
+                "type": "log",
+                "level": level,
+                "message": message,
+            }
+            with open(STATUS_FILE_PATH, "a") as f:
+                f.write(json.dumps(log_data) + "\n")
+        except Exception as e:
+            logger.warning(f"Failed to write log to status file: {e}")
+
 
 # Strategy mapping (use central registry)
 STRATEGY_MAP = {
@@ -115,12 +184,12 @@ def run_grid_search(
     Returns:
         ParameterOptimizer instance with results
     """
-    logger.info(f"\n{'='*70}")
-    logger.info(f"GRID SEARCH OPTIMIZATION: {strategy_name}")
-    logger.info(f"{'='*70}")
+    log_message(f"\n{'='*70}")
+    log_message(f"GRID SEARCH OPTIMIZATION: {strategy_name}")
+    log_message(f"{'='*70}")
 
     # Validate param_grid and fixed_params before optimization
-    logger.info("Validating parameter specifications...")
+    log_message("Validating parameter specifications...")
     try:
         # Combine param_grid and fixed_params for validation
         sample_params = {**fixed_params}
@@ -129,10 +198,10 @@ def run_grid_search(
 
         # Validate using registry
         StrategyRegistry.validate_params(strategy_name, sample_params)
-        logger.info("✓ Parameter validation passed")
+        log_message("✓ Parameter validation passed")
     except ValueError as e:
-        logger.error(f"❌ Parameter validation failed: {e}")
-        logger.error("Please check your PARAM_GRIDS and FIXED_PARAMS configurations")
+        log_message(f"❌ Parameter validation failed: {e}", level="ERROR")
+        log_message("Please check your PARAM_GRIDS and FIXED_PARAMS configurations", level="ERROR")
         raise
 
     strategy_class = STRATEGY_MAP[strategy_name]
@@ -144,11 +213,17 @@ def run_grid_search(
         initial_capital=initial_capital,
     )
 
+    # Define progress callback
+    def progress_callback(current: int, total: int, params: dict, metrics: dict):
+        update_status(current, total, params, metrics, status_type="progress")
+
     # Run grid search
+    log_message(f"Starting grid search with parameter combinations...")
     results = optimizer.grid_search(
         param_grid=param_grid,
         fixed_params=fixed_params,
         verbose=True,
+        progress_callback=progress_callback,
     )
 
     # Show top 10 results
@@ -291,6 +366,8 @@ def run_walk_forward(
 
 
 def main():
+    global STATUS_FILE_PATH
+
     parser = argparse.ArgumentParser(description="Optimize strategy parameters")
     parser.add_argument(
         "--strategy",
@@ -340,8 +417,22 @@ def main():
         default="results/optimization",
         help="Output directory for results",
     )
+    parser.add_argument(
+        "--status-file",
+        type=str,
+        default=None,
+        help="Path to write status updates for UI consumption (optional)",
+    )
 
     args = parser.parse_args()
+
+    # Set status file path if provided
+    if args.status_file:
+        STATUS_FILE_PATH = Path(args.status_file)
+        # Clear/create status file
+        STATUS_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        STATUS_FILE_PATH.write_text("")  # Clear file
+        log_message(f"Status file: {STATUS_FILE_PATH}")
 
     # Create output directory
     output_dir = Path(args.output_dir)
@@ -355,11 +446,11 @@ def main():
     test_end = datetime.strptime(args.test_end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
     # Load data
-    logger.info(f"\n{'='*70}")
-    logger.info("LOADING DATA")
-    logger.info(f"{'='*70}")
-    logger.info(f"Training period: {args.train_start} to {args.train_end}")
-    logger.info(f"Test period: {args.test_start} to {args.test_end}")
+    log_message(f"\n{'='*70}")
+    log_message("LOADING DATA")
+    log_message(f"{'='*70}")
+    log_message(f"Training period: {args.train_start} to {args.train_end}")
+    log_message(f"Test period: {args.test_start} to {args.test_end}")
 
     # Load full date range for walk-forward (if requested)
     if args.walk_forward:
@@ -379,8 +470,8 @@ def main():
         verbose=True,
     )
 
-    logger.info(f"\nLoaded {len(underlying_data)} underlying bars")
-    logger.info(f"Loaded {len(options_data)} options bars")
+    log_message(f"\nLoaded {len(underlying_data)} underlying bars")
+    log_message(f"Loaded {len(options_data)} options bars")
 
     # Get parameter grid and fixed params for strategy
     param_grid = PARAM_GRIDS[args.strategy]
@@ -408,7 +499,7 @@ def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     grid_results_file = output_dir / f"{args.strategy}_grid_search_{timestamp}.csv"
     optimizer.save_results(str(grid_results_file))
-    logger.info(f"\nGrid search results saved to: {grid_results_file}")
+    log_message(f"\nGrid search results saved to: {grid_results_file}")
 
     # Run walk-forward analysis if requested
     if args.walk_forward:
@@ -426,16 +517,16 @@ def main():
         # Save walk-forward results
         wf_results_file = output_dir / f"{args.strategy}_walk_forward_{timestamp}.csv"
         wf.save_results(str(wf_results_file))
-        logger.info(f"\nWalk-forward results saved to: {wf_results_file}")
+        log_message(f"\nWalk-forward results saved to: {wf_results_file}")
 
-    logger.info(f"\n{'='*70}")
-    logger.info("OPTIMIZATION COMPLETE")
-    logger.info(f"{'='*70}")
-    logger.info(f"\nNext steps:")
-    logger.info(f"1. Review results in: {output_dir}")
-    logger.info(f"2. Update config/backtest.yaml with optimal parameters")
-    logger.info(f"3. Run out-of-sample backtest on {args.test_start} to {args.test_end}")
-    logger.info(f"4. If results look good, update config/live_trading.yaml")
+    log_message(f"\n{'='*70}")
+    log_message("OPTIMIZATION COMPLETE")
+    log_message(f"{'='*70}")
+    log_message(f"\nNext steps:")
+    log_message(f"1. Review results in: {output_dir}")
+    log_message(f"2. Update config/backtest.yaml with optimal parameters")
+    log_message(f"3. Run out-of-sample backtest on {args.test_start} to {args.test_end}")
+    log_message(f"4. If results look good, update config/live_trading.yaml")
 
 
 if __name__ == "__main__":

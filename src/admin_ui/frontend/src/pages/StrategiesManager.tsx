@@ -8,6 +8,11 @@ export function StrategiesManager() {
   const { data: strategiesData, isLoading } = useLiveStrategies();
   const toggleStrategy = useToggleLiveStrategy();
   const [expandedStrategy, setExpandedStrategy] = useState<string | null>(null);
+  const [lastReloadStatus, setLastReloadStatus] = useState<{
+    success: boolean;
+    message: string;
+    autoReload?: boolean;
+  } | null>(null);
 
   if (isLoading) {
     return (
@@ -21,10 +26,20 @@ export function StrategiesManager() {
 
   const handleToggle = async (strategyName: string, currentlyEnabled: boolean) => {
     try {
-      await toggleStrategy.mutateAsync({
+      const result = await toggleStrategy.mutateAsync({
         strategyName,
         enabled: !currentlyEnabled,
       });
+
+      // Update reload status banner
+      setLastReloadStatus({
+        success: result.success,
+        message: result.message,
+        autoReload: result.auto_reload,
+      });
+
+      // Clear message after 10 seconds
+      setTimeout(() => setLastReloadStatus(null), 10000);
     } catch (error) {
       console.error('Failed to toggle strategy:', error);
       alert(`Failed to ${currentlyEnabled ? 'disable' : 'enable'} strategy`);
@@ -44,21 +59,51 @@ export function StrategiesManager() {
         </p>
       </div>
 
-      {/* Warning Banner */}
-      <Card className="mb-6 bg-yellow-50 border-yellow-200">
-        <div className="flex items-start gap-3">
-          <svg className="w-6 h-6 text-yellow-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-          <div>
-            <h3 className="font-semibold text-yellow-900">Restart Required</h3>
-            <p className="text-sm text-yellow-800 mt-1">
-              Changes to strategy configuration require restarting the live_trading service to take effect.
-              Use the Services page to restart the service after making changes.
-            </p>
+      {/* Status Banner - Dynamic based on reload capability */}
+      {lastReloadStatus && lastReloadStatus.autoReload ? (
+        <Card className="mb-6 bg-green-50 border-green-200">
+          <div className="flex items-start gap-3">
+            <svg className="w-6 h-6 text-green-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <h3 className="font-semibold text-green-900">Auto-Reload Active</h3>
+              <p className="text-sm text-green-800 mt-1">
+                {lastReloadStatus.message}
+              </p>
+            </div>
           </div>
-        </div>
-      </Card>
+        </Card>
+      ) : lastReloadStatus && !lastReloadStatus.autoReload ? (
+        <Card className="mb-6 bg-yellow-50 border-yellow-200">
+          <div className="flex items-start gap-3">
+            <svg className="w-6 h-6 text-yellow-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <h3 className="font-semibold text-yellow-900">Restart Required</h3>
+              <p className="text-sm text-yellow-800 mt-1">
+                {lastReloadStatus.message} Use the Services page to restart the live_trading service.
+              </p>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <Card className="mb-6 bg-blue-50 border-blue-200">
+          <div className="flex items-start gap-3">
+            <svg className="w-6 h-6 text-blue-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <div>
+              <h3 className="font-semibold text-blue-900">Hot-Reload Enabled</h3>
+              <p className="text-sm text-blue-800 mt-1">
+                Strategy changes are applied automatically to the running live trading engine.
+                No restart required! Active positions are preserved during reload.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Strategy List */}
       <div className="space-y-4">

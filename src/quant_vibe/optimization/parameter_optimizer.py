@@ -10,7 +10,7 @@ This module provides tools to:
 import itertools
 import pandas as pd
 import numpy as np
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, Callable
 from datetime import datetime
 import logging
 
@@ -57,6 +57,7 @@ class ParameterOptimizer:
         param_grid: Dict[str, List[Any]],
         fixed_params: Optional[Dict[str, Any]] = None,
         verbose: bool = True,
+        progress_callback: Optional[Callable[[int, int, Dict[str, Any], Dict[str, float]], None]] = None,
     ) -> pd.DataFrame:
         """
         Run grid search over parameter combinations.
@@ -70,6 +71,8 @@ class ParameterOptimizer:
                        }
             fixed_params: Dict of fixed parameters to pass to every strategy instance
             verbose: Whether to print progress
+            progress_callback: Optional callback function called after each combination.
+                             Signature: callback(current: int, total: int, params: dict, metrics: dict)
 
         Returns:
             DataFrame with columns:
@@ -112,7 +115,9 @@ class ParameterOptimizer:
 
             try:
                 # Run backtest with this parameter set
+                start_time = datetime.now()
                 metrics = self._run_single_backtest(params)
+                elapsed_time = (datetime.now() - start_time).total_seconds()
 
                 # Store results
                 result = {
@@ -138,14 +143,23 @@ class ParameterOptimizer:
                         f"  → Sharpe: {metrics['sharpe_ratio']:.2f}, "
                         f"Return: {metrics['total_return']:.2f}%, "
                         f"Win Rate: {metrics['win_rate']:.2f}%, "
-                        f"Trades: {metrics['num_trades']}",
+                        f"Trades: {metrics['num_trades']}, "
+                        f"Time: {elapsed_time:.1f}s",
                         extra={
                             "sharpe": metrics["sharpe_ratio"],
                             "return": metrics["total_return"],
                             "win_rate": metrics["win_rate"],
                             "trades": metrics["num_trades"],
+                            "elapsed_time": elapsed_time,
                         },
                     )
+
+                # Call progress callback if provided
+                if progress_callback:
+                    try:
+                        progress_callback(idx, total_combinations, params, metrics)
+                    except Exception as cb_error:
+                        logger.warning(f"Progress callback error: {cb_error}")
 
             except Exception as e:
                 logger.error(
@@ -168,6 +182,19 @@ class ParameterOptimizer:
                 for param_name, param_value in params.items():
                     result[f"param_{param_name}"] = param_value
                 results.append(result)
+
+                # Call progress callback even for failures
+                if progress_callback:
+                    try:
+                        progress_callback(idx, total_combinations, params, {
+                            "sharpe_ratio": 0.0,
+                            "total_return": 0.0,
+                            "win_rate": 0.0,
+                            "num_trades": 0,
+                            "error": str(e),
+                        })
+                    except Exception as cb_error:
+                        logger.warning(f"Progress callback error: {cb_error}")
 
         # Convert to DataFrame
         self.results = pd.DataFrame(results)
