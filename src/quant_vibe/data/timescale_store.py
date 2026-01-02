@@ -461,6 +461,7 @@ class TimescaleStore:
         min_dte: Optional[int] = None,
         max_dte: Optional[int] = None,
         strike_range_pct: Optional[float] = None,
+        timeframe: str = "1min",
     ) -> pd.DataFrame:
         """
         Get options data optimized for backtesting.
@@ -472,6 +473,8 @@ class TimescaleStore:
             min_dte: Minimum days to expiration filter
             max_dte: Maximum days to expiration filter
             strike_range_pct: Optional percentage range around ATM (e.g., 0.1 for ±10%)
+            timeframe: Time aggregation - "1min" (default), "5min", "15min", "1hour", "daily"
+                      Using 5min or 15min dramatically reduces memory usage for optimizations
 
         Returns:
             DataFrame with all options data in the time range, with columns:
@@ -482,9 +485,23 @@ class TimescaleStore:
 
             Note: contract_type values are lowercase enum: 'call', 'put'
         """
-        query = """
+        # Map timeframe to table/view name
+        table_map = {
+            "1min": "options_bars",
+            "5min": "options_bars_5min",
+            "15min": "options_bars_15min",
+            "1hour": "options_bars_1hour",
+            "daily": "options_bars_daily",
+        }
+
+        table_name = table_map.get(timeframe, "options_bars")
+
+        # For aggregated views, use 'bucket' column; for base table use 'timestamp'
+        time_column = "bucket" if timeframe != "1min" else "timestamp"
+
+        query = f"""
         SELECT
-            timestamp,
+            {time_column} as timestamp,
             option_ticker as contract_symbol,
             strike_price,
             contract_type,
@@ -495,21 +512,21 @@ class TimescaleStore:
             bid_size, ask_size,
             delta, gamma, theta, vega, rho,
             implied_volatility
-        FROM options_bars
+        FROM {table_name}
         WHERE underlying_ticker = %s
-            AND timestamp >= %s
-            AND timestamp <= %s
+            AND {time_column} >= %s
+            AND {time_column} <= %s
         """
 
         params = [underlying_ticker, start_time, end_time]
 
         # Add DTE filters if specified
         if min_dte is not None:
-            query += " AND (expiration_date - timestamp::date) >= %s"
+            query += f" AND (expiration_date - {time_column}::date) >= %s"
             params.append(min_dte)
 
         if max_dte is not None:
-            query += " AND (expiration_date - timestamp::date) <= %s"
+            query += f" AND (expiration_date - {time_column}::date) <= %s"
             params.append(max_dte)
 
         query += " ORDER BY timestamp, expiration_date, strike_price, contract_type"

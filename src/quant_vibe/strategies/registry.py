@@ -319,31 +319,75 @@ class StrategyRegistry:
     def generate_optimization_grid(
         cls,
         strategy_name: str,
-        custom_ranges: Optional[Dict[str, List[Any]]] = None
+        custom_ranges: Optional[Dict[str, List[Any]]] = None,
+        optimize_only: Optional[List[str]] = None,
+        num_values: int = 3,
     ) -> Dict[str, List[Any]]:
         """
         Auto-generate optimization grid from parameter specs.
 
+        IMPORTANT: This method now generates FEWER values by default (3 instead of 5)
+        to prevent combinatorial explosion. Use custom_ranges or optimize_only to
+        control which parameters are optimized.
+
         Args:
             strategy_name: Name of strategy
             custom_ranges: Optional custom ranges to override defaults
+            optimize_only: Optional list of parameter names to optimize (ignores others)
+            num_values: Number of values to generate per parameter (default: 3)
 
         Returns:
             Parameter grid for optimization
 
         Example:
-            {
-                'target_price': [1.5, 2.0, 2.5],
-                'profit_target_pct': [0.5, 0.75, 1.0],
-            }
+            # Auto-generate grid (only 3 values per parameter)
+            grid = generate_optimization_grid('coin_toss')
+
+            # Optimize only specific parameters
+            grid = generate_optimization_grid('coin_toss', optimize_only=['target_price', 'profit_target_pct'])
+
+            # Custom ranges for specific parameters
+            grid = generate_optimization_grid('coin_toss', custom_ranges={'target_price': [1.0, 1.5, 2.0, 2.5]})
+
+        Note:
+            - Parameters commonly excluded from optimization:
+              - min_dte, max_dte (usually fixed based on strategy concept)
+              - observation_period (usually fixed based on strategy concept)
+              - num_spreads (position sizing, not strategy logic)
+              - max_trades_daily (risk management, not strategy logic)
+              - min_volume, min_bid_ask_spread_pct (data quality filters)
+            - Parameters good for optimization:
+              - Entry thresholds (pullback_amount, bb_threshold, etc.)
+              - Exit targets (profit_target_*, stop_loss_*)
+              - Strategy-specific parameters (spread_width, target_price, etc.)
         """
         specs = cls.get_param_specs(strategy_name)
         grid = {}
 
+        # Common parameters to EXCLUDE from auto-generation (usually fixed)
+        # These are typically risk management, position sizing, or data quality filters
+        EXCLUDE_FROM_AUTO_OPTIMIZATION = {
+            'min_dte', 'max_dte',  # Strategy concept parameters
+            'observation_period',  # Strategy concept parameter
+            'num_spreads',  # Position sizing
+            'max_trades_daily',  # Risk management
+            'min_volume',  # Data quality filter
+            'min_bid_ask_spread_pct',  # Data quality filter
+            'profit_target_max',  # Usually fixed at 1.0 (100%)
+        }
+
         for param_name, spec in specs.items():
+            # Skip if optimize_only is specified and this param is not in it
+            if optimize_only is not None and param_name not in optimize_only:
+                continue
+
             # Skip if custom range provided
             if custom_ranges and param_name in custom_ranges:
                 grid[param_name] = custom_ranges[param_name]
+                continue
+
+            # Skip common parameters that shouldn't be auto-optimized
+            if optimize_only is None and param_name in EXCLUDE_FROM_AUTO_OPTIMIZATION:
                 continue
 
             # Auto-generate range based on type and constraints
@@ -358,14 +402,23 @@ class StrategyRegistry:
                 ge = spec.get('ge', 0)
                 le = spec.get('le')
 
-                # Generate 3-5 values around default
+                # Generate num_values values around default
                 if le is not None:
                     # Use range from ge to le
-                    step = (le - ge) / 4
-                    values = [ge + i * step for i in range(5)]
+                    step = (le - ge) / (num_values - 1) if num_values > 1 else 0
+                    values = [ge + i * step for i in range(num_values)]
                 else:
-                    # Use values around default
-                    values = [default * 0.5, default * 0.75, default, default * 1.25, default * 1.5]
+                    # Use values around default (e.g., 0.8x, 1.0x, 1.2x for num_values=3)
+                    if num_values == 3:
+                        values = [default * 0.8, default, default * 1.2]
+                    elif num_values == 5:
+                        values = [default * 0.6, default * 0.8, default, default * 1.2, default * 1.4]
+                    else:
+                        # General case: spread values around default
+                        spread = 0.4  # ±40% range
+                        step = (2 * spread * default) / (num_values - 1) if num_values > 1 else 0
+                        values = [default * (1 - spread) + i * step for i in range(num_values)]
+
                     # Apply ge constraint
                     values = [max(v, ge) for v in values]
 
@@ -375,7 +428,9 @@ class StrategyRegistry:
                 else:
                     values = sorted(set(round(v, 2) for v in values))
 
-                grid[param_name] = values
+                # Only add to grid if we have multiple unique values
+                if len(values) > 1:
+                    grid[param_name] = values
 
         return grid
 

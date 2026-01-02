@@ -13,9 +13,20 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
+from dotenv import load_dotenv
 
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
+
+# Load .env file to ensure environment variables are available for subprocesses
+# In Docker, environment variables are set via docker-compose, but load_dotenv() won't hurt
+from pathlib import Path
+env_path = Path(__file__).parent.parent.parent.parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
+    print(f"[Optimization] Loaded .env from {env_path}")
+else:
+    print(f"[Optimization] No .env file at {env_path}, using docker-compose environment variables")
 
 # Import Pushover notifications
 try:
@@ -191,8 +202,10 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
 
     try:
         # Build command to run optimization
+        # Use sys.executable to ensure we use the same Python that's running this backend
+        import sys
         cmd = [
-            "python",
+            sys.executable,  # Use current Python interpreter
             str(settings.project_root / "scripts" / "optimize_strategy.py"),
             "--strategy",
             request.strategy_name,
@@ -227,12 +240,29 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
 
         print(f"[Optimization] Running: {' '.join(cmd)}")
 
+        # Build environment for subprocess - inherit parent env and add any missing vars
+        import os
+        subprocess_env = os.environ.copy()
+
+        # Debug: Check what Pushover vars are in the environment
+        pushover_vars = ['PUSHOVER_API_TOKEN', 'PUSHOVER_USER_KEY', 'PUSHOVER_DEVICE', 'PUSHOVER_ENABLED']
+        print(f"[Optimization] Checking Pushover environment variables:")
+        for key in pushover_vars:
+            value = os.environ.get(key, "NOT_SET")
+            if value and value != "NOT_SET":
+                masked_value = value[:10] + "..." if 'TOKEN' in key or 'KEY' in key else value
+                print(f"[Optimization]   {key}: {masked_value}")
+                subprocess_env[key] = value
+            else:
+                print(f"[Optimization]   {key}: NOT SET")
+
         # Run optimization as subprocess
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(settings.project_root),
+            env=subprocess_env,
         )
 
         # Wait for process to complete (with timeout for long-running optimizations)
@@ -296,12 +326,25 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
                 end_time = datetime.now()
                 runtime_minutes = (end_time - start_time).total_seconds() / 60.0
 
-                error_msg = stderr.decode() if stderr else "Unknown error"
+                # Build error message from both stdout and stderr
+                error_parts = []
+                if stdout:
+                    stdout_text = stdout.decode().strip()
+                    if stdout_text:
+                        error_parts.append(f"STDOUT:\n{stdout_text[-1000:]}")  # Last 1000 chars
+                if stderr:
+                    stderr_text = stderr.decode().strip()
+                    if stderr_text:
+                        error_parts.append(f"STDERR:\n{stderr_text[-1000:]}")  # Last 1000 chars
+
+                error_msg = "\n\n".join(error_parts) if error_parts else f"Process exited with code {process.returncode}"
+
                 _running_optimizations[optimization_id]["status"] = "failed"
                 _running_optimizations[optimization_id]["error"] = error_msg
                 _running_optimizations[optimization_id]["completed_at"] = end_time
 
-                print(f"[Optimization] {optimization_id} failed: {error_msg}")
+                print(f"[Optimization] {optimization_id} failed with return code {process.returncode}")
+                print(f"[Optimization] Error output: {error_msg[:500]}")
 
                 # Send failure notification
                 if PUSHOVER_AVAILABLE:
@@ -557,9 +600,19 @@ async def get_optimization_history(
         List of optimization runs (most recent first)
     """
     # Sort by created_at descending
+    # Note: created_at might be a string (from JSON) or datetime object
+    def get_sort_key(x):
+        created_at = x.get("created_at", datetime.min)
+        if isinstance(created_at, str):
+            try:
+                return datetime.fromisoformat(created_at)
+            except (ValueError, TypeError):
+                return datetime.min
+        return created_at
+
     history = sorted(
         _running_optimizations.values(),
-        key=lambda x: x.get("created_at", datetime.min),
+        key=get_sort_key,
         reverse=True
     )
 

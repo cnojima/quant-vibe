@@ -219,6 +219,11 @@ services:
       TIMESCALE_DB: options_data
       TIMESCALE_USER: quantvibe
       TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD:-quantvibe_dev}
+      # Pushover notifications (for optimization completion alerts)
+      PUSHOVER_API_TOKEN: ${PUSHOVER_API_TOKEN:-}
+      PUSHOVER_USER_KEY: ${PUSHOVER_USER_KEY:-}
+      PUSHOVER_DEVICE: ${PUSHOVER_DEVICE:-}
+      PUSHOVER_ENABLED: ${PUSHOVER_ENABLED:-true}
     volumes:
       # Mount Docker socket for service control
       - /var/run/docker.sock:/var/run/docker.sock

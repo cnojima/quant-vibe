@@ -128,6 +128,23 @@ PARAM_GRIDS = {
         "profit_target_pct": [0.50, 0.75, 1.0],
         "stop_loss_pct": [0.20, 0.30, 0.40],
     },
+    "bollinger_band_limit": {
+        # Optimize only the most important parameters (5 params × 3-4 values = 324 combos)
+        # Key strategy parameters:
+        "bb_period": [15, 20, 25],  # Bollinger Band lookback period
+        "bb_std": [1.5, 2.0, 2.5],  # Standard deviation multiplier
+        "bb_threshold": [0.02, 0.03, 0.04],  # Entry threshold (distance from band)
+        "target_contract_price": [0.8, 1.0, 1.2],  # Limit order entry price
+        "profit_target_price": [1.6, 2.0, 2.4],  # Limit order exit price
+        # Fixed parameters set in FIXED_PARAMS:
+        # - min_dte, max_dte (strategy concept)
+        # - observation_period (strategy concept)
+        # - num_spreads (position sizing)
+        # - max_trades_daily (risk management)
+        # - profit_target_pct (redundant with profit_target_price)
+        # - stop_loss_pct (stop loss strategy)
+        # - trailing_stop_pct, trailing_stop_threshold (trailing stop)
+    },
 }
 
 # Fixed parameters for each strategy
@@ -157,6 +174,23 @@ FIXED_PARAMS = {
         "observation_period": 15,  # Faster than 30 minutes
         "profit_target_max": 1.0,
         "num_spreads": 10,
+        "max_trades_daily": 5,
+    },
+    "bollinger_band_limit": {
+        # Strategy concept parameters
+        "min_dte": 0,
+        "max_dte": 0,  # 0 DTE strategy
+        # Position sizing
+        "quantity": 10,
+        # Price tolerance
+        "price_tolerance": 1.0,
+        "limit_buy_price": 1.0,  # Fixed at $1 limit entry
+        # OTM range
+        "otm_percent_min": 0.10,  # 10% OTM minimum
+        "otm_percent_max": 0.15,  # 15% OTM maximum
+        # Risk management
+        "stop_loss_pct": 0.50,  # 50% stop loss
+        "order_expiry_minutes": 60,  # 1 hour limit order expiry
         "max_trades_daily": 5,
     },
 }
@@ -461,6 +495,8 @@ def main():
         data_start = train_start
         data_end = test_end
 
+    # Use 5-minute timeframe for optimizations to reduce memory usage by 95%
+    # This allows longer date ranges without running out of memory
     options_data, underlying_data = load_options_backtest_data(
         underlying_ticker="SPX",
         start_date=data_start,
@@ -468,14 +504,42 @@ def main():
         min_dte=0,
         max_dte=45,
         verbose=True,
+        timeframe="5min",  # 95% less memory than 1min data
     )
 
     log_message(f"\nLoaded {len(underlying_data)} underlying bars")
     log_message(f"Loaded {len(options_data)} options bars")
 
     # Get parameter grid and fixed params for strategy
-    param_grid = PARAM_GRIDS[args.strategy]
-    fixed_params = FIXED_PARAMS[args.strategy]
+    # Use predefined grids if available, otherwise auto-generate from registry
+    if args.strategy in PARAM_GRIDS:
+        param_grid = PARAM_GRIDS[args.strategy]
+        log_message(f"Using predefined parameter grid for {args.strategy}")
+    else:
+        # Auto-generate from registry
+        log_message(f"No predefined parameter grid found for {args.strategy}, auto-generating...")
+        try:
+            # Use registry's optimization grid generator
+            param_grid = StrategyRegistry.generate_optimization_grid(args.strategy)
+            log_message(f"Auto-generated parameter grid with {sum(len(v) for v in param_grid.values())} total parameter values")
+        except Exception as e:
+            log_message(f"Failed to auto-generate parameter grid: {e}", level="ERROR")
+            log_message(f"Strategy '{args.strategy}' needs a predefined parameter grid in PARAM_GRIDS", level="ERROR")
+            raise ValueError(f"No parameter grid defined for strategy '{args.strategy}' and auto-generation failed: {e}")
+
+    if args.strategy in FIXED_PARAMS:
+        fixed_params = FIXED_PARAMS[args.strategy]
+        log_message(f"Using predefined fixed parameters for {args.strategy}")
+    else:
+        # Use default params from registry as fixed params
+        try:
+            default_params = StrategyRegistry.get_default_params(args.strategy)
+            # Remove any params that are in the grid (those will be optimized)
+            fixed_params = {k: v for k, v in default_params.items() if k not in param_grid}
+            log_message(f"Using {len(fixed_params)} default parameters as fixed params")
+        except Exception as e:
+            log_message(f"Warning: Could not get default params: {e}", level="WARNING")
+            fixed_params = {}
 
     # Run grid search (on training data only)
     # Note: underlying_data has timestamp as index, options_data has it as column
@@ -485,6 +549,34 @@ def main():
     train_options = options_data[
         (options_data["timestamp"] >= train_start) & (options_data["timestamp"] <= train_end)
     ]
+
+    # Calculate and log total combinations
+    import math
+    total_combinations = math.prod(len(values) for values in param_grid.values())
+    log_message(f"\nParameter grid details:")
+    for param_name, values in param_grid.items():
+        log_message(f"  {param_name}: {len(values)} values {values}")
+    log_message(f"\n⚠️  TOTAL COMBINATIONS: {total_combinations:,}")
+
+    # Estimate memory and time
+    rows_per_backtest = len(train_options)
+    memory_per_backtest_gb = rows_per_backtest * 0.000002  # ~2KB per row
+    total_memory_gb = total_combinations * memory_per_backtest_gb
+    time_estimate_hours = total_combinations / 60  # ~1 min per backtest
+
+    log_message(f"  Training data rows: {rows_per_backtest:,}")
+    log_message(f"  Estimated memory: {total_memory_gb:.1f} GB")
+    log_message(f"  Estimated time: {time_estimate_hours:.1f} hours ({time_estimate_hours/24:.1f} days)")
+
+    # Warn if too large
+    if total_combinations > 1000:
+        log_message(f"\n⚠️  WARNING: {total_combinations:,} combinations is very large!", level="WARNING")
+        log_message(f"  Consider reducing parameter grid size or using optimize_only parameter", level="WARNING")
+        if total_combinations > 10000:
+            log_message(f"\n❌ ERROR: {total_combinations:,} combinations is too large to optimize efficiently!", level="ERROR")
+            log_message(f"  Maximum recommended: 1000 combinations", level="ERROR")
+            log_message(f"  Please define a manual PARAM_GRIDS entry with fewer parameters/values", level="ERROR")
+            raise ValueError(f"Parameter grid too large: {total_combinations:,} combinations")
 
     optimizer = run_grid_search(
         strategy_name=args.strategy,

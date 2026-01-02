@@ -136,9 +136,9 @@ class PushoverNotifier:
         # Validate credentials if enabled
         if self.enabled:
             if not self.api_token or not self.user_key:
-                self.logger.error(
-                    "Pushover credentials not configured. "
-                    "Set PUSHOVER_API_TOKEN and PUSHOVER_USER_KEY environment variables."
+                self.logger.warning(
+                    "Pushover credentials not configured. Notifications will be disabled. "
+                    "Set PUSHOVER_API_TOKEN and PUSHOVER_USER_KEY environment variables to enable."
                 )
                 self.enabled = False
             else:
