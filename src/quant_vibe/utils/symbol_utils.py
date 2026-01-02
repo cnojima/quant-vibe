@@ -90,6 +90,40 @@ def parse_contract_type_from_ticker(ticker: str) -> Optional[str]:
         return None
 
 
+def parse_strike_from_ticker(ticker: str) -> Optional[float]:
+    """
+    Parse strike price from option ticker symbol.
+
+    Format: {UNDERLYING}{YYMMDD}{C|P}{STRIKE8DIGITS}
+    Example: "SPXW251231C06875000" -> 6875.0
+
+    Strike is encoded as 8 digits with 3 decimal places.
+    Example: 06875000 -> 6875.000
+
+    Args:
+        ticker: Normalized option ticker
+
+    Returns:
+        Strike price as float, or None if parsing fails
+    """
+    try:
+        # Strike is always the last 8 digits
+        if len(ticker) < 8:
+            return None
+
+        strike_str = ticker[-8:]
+        if not strike_str.isdigit():
+            return None
+
+        # Convert to float with 3 decimal places
+        # Example: 06875000 -> 6875.000
+        strike = int(strike_str) / 1000.0
+
+        return strike
+    except (ValueError, IndexError):
+        return None
+
+
 def normalize_option_ticker(ticker: str) -> str:
     """
     Normalize option ticker to canonical format.
