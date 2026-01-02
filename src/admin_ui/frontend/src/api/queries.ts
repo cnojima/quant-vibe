@@ -224,6 +224,27 @@ export function useActiveStrategies() {
   });
 }
 
+export function useLiveTradesVisualization(days: number = 7) {
+  return useQuery({
+    queryKey: ['live-trades-visualization', days],
+    queryFn: async () => {
+      const response = await apiClient.get<{
+        trades: any[];
+        equity_curve: any[];
+        underlying_data: any[];
+        initial_capital: number;
+        start_date: string;
+        end_date: string;
+        total_trades: number;
+      }>('/live/trades/visualization', {
+        params: { days },
+      });
+      return response.data;
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+}
+
 // Backtest queries
 export function useStrategies() {
   return useQuery({

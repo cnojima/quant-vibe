@@ -211,7 +211,15 @@ async def get_daily_report(
             trades = state_store.get_trades_for_date(report_date)
 
             import pandas as pd
+            from decimal import Decimal
+
             if trades:
+                # Convert Decimal to float for numeric fields
+                for trade in trades:
+                    for key in ['entry_cost', 'exit_value', 'pnl']:
+                        if key in trade and isinstance(trade[key], Decimal):
+                            trade[key] = float(trade[key])
+
                 trades_df = pd.DataFrame(trades)
             else:
                 trades_df = pd.DataFrame()
@@ -260,6 +268,8 @@ async def get_recent_daily_reports(
 
         state_store = StateStore()
         try:
+            from decimal import Decimal
+
             # Generate reports for last N days
             for i in range(days):
                 target_date = date.today() - timedelta(days=i)
@@ -268,6 +278,12 @@ async def get_recent_daily_reports(
                 trades = state_store.get_trades_for_date(target_date)
 
                 if trades:
+                    # Convert Decimal to float for numeric fields
+                    for trade in trades:
+                        for key in ['entry_cost', 'exit_value', 'pnl']:
+                            if key in trade and isinstance(trade[key], Decimal):
+                                trade[key] = float(trade[key])
+
                     trades_df = pd.DataFrame(trades)
                 else:
                     trades_df = pd.DataFrame()
@@ -426,3 +442,152 @@ async def reload_strategies(current_user: User = Depends(get_current_user)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send reload command: {str(e)}")
+
+
+@router.get("/trades/visualization")
+async def get_trades_visualization(
+    days: int = Query(7, ge=1, le=90, description="Number of days to retrieve"),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get trades data for visualization with equity curve and underlying price.
+
+    Args:
+        days: Number of days to retrieve (1-90)
+        current_user: Authenticated user
+
+    Returns:
+        Trades, equity curve, and underlying price data for charting
+    """
+    try:
+        import pandas as pd
+        from datetime import timedelta, timezone
+        from decimal import Decimal
+        from quant_vibe.data.timescale_store import TimescaleStore
+
+        # Calculate date range (timezone-aware UTC)
+        end_date = datetime.now(timezone.utc)
+        start_date = end_date - timedelta(days=days)
+
+        # Load trades from state store
+        state_store = StateStore()
+        ts_store = TimescaleStore()
+
+        try:
+            # Get all closed positions in date range
+            closed_positions = await timescale.fetch_closed_positions(limit=10000)
+
+            # Filter by date range and convert to trades format
+            trades = []
+            for pos in closed_positions:
+                exit_time = pos.get('exit_time')
+                if exit_time:
+                    exit_dt = exit_time if isinstance(exit_time, datetime) else datetime.fromisoformat(str(exit_time))
+                    # Ensure timezone-aware comparison
+                    if exit_dt.tzinfo is None:
+                        exit_dt = exit_dt.replace(tzinfo=timezone.utc)
+                    if start_date <= exit_dt <= end_date:
+                        # Parse legs JSON if needed
+                        legs = pos.get('legs', [])
+                        if isinstance(legs, str):
+                            import json
+                            legs = json.loads(legs)
+
+                        trades.append({
+                            'position_id': pos.get('position_id'),
+                            'strategy': pos.get('strategy', pos.get('strategy_name', 'unknown')),
+                            'entry_time': pos.get('entry_time'),
+                            'exit_time': exit_time,
+                            'entry_cost': float(pos.get('entry_cost', 0)) if pos.get('entry_cost') else 0,
+                            'exit_value': float(pos.get('exit_value', 0)) if pos.get('exit_value') else 0,
+                            'pnl': float(pos.get('realized_pnl', 0)) if pos.get('realized_pnl') else 0,
+                            'exit_reason': pos.get('exit_reason'),
+                            'spread_type': pos.get('spread_type'),
+                            'legs': legs,
+                            'metadata': pos.get('metadata', {})
+                        })
+
+            # Sort trades by entry time
+            trades.sort(key=lambda t: t['entry_time'] if t['entry_time'] else datetime.min.replace(tzinfo=timezone.utc))
+
+            # Build equity curve from trades
+            initial_capital = 800000.0  # TODO: Get from config
+            equity_curve = []
+            current_equity = initial_capital
+
+            # Add starting point
+            if len(trades) > 0:
+                equity_curve.append({
+                    'timestamp': start_date.isoformat(),
+                    'value': current_equity
+                })
+
+            # Add points at each trade exit
+            for trade in trades:
+                if trade['exit_time']:
+                    current_equity += trade['pnl']
+                    equity_curve.append({
+                        'timestamp': trade['exit_time'].isoformat() if isinstance(trade['exit_time'], datetime) else str(trade['exit_time']),
+                        'value': current_equity
+                    })
+
+            # Add ending point
+            if len(trades) > 0:
+                equity_curve.append({
+                    'timestamp': end_date.isoformat(),
+                    'value': current_equity
+                })
+
+            # Fetch underlying price data (SPX)
+            underlying_data = []
+            try:
+                # Get SPX price from options_bars (derived from ATM options)
+                underlying_df = ts_store.get_underlying_price_from_options(
+                    underlying_ticker='SPX',
+                    start_time=start_date,
+                    end_time=end_date
+                )
+
+                if underlying_df is not None and not underlying_df.empty:
+                    # Resample to 5-minute bars for performance
+                    underlying_df = underlying_df.resample('5min').agg({
+                        'open': 'first',
+                        'high': 'max',
+                        'low': 'min',
+                        'close': 'last',
+                        'volume': 'sum'
+                    }).dropna()
+
+                    underlying_data = [
+                        {
+                            'timestamp': idx.isoformat(),
+                            'open': float(row['open']),
+                            'high': float(row['high']),
+                            'low': float(row['low']),
+                            'close': float(row['close']),
+                            'volume': int(row['volume']) if not pd.isna(row['volume']) else 0
+                        }
+                        for idx, row in underlying_df.iterrows()
+                    ]
+            except Exception as e:
+                print(f"Warning: Failed to fetch underlying data: {e}")
+                # Continue without underlying data
+
+            return {
+                'trades': trades,
+                'equity_curve': equity_curve,
+                'underlying_data': underlying_data,
+                'initial_capital': initial_capital,
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat(),
+                'total_trades': len(trades)
+            }
+
+        finally:
+            state_store.close()
+            ts_store.close()
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to fetch trades visualization data: {str(e)}")

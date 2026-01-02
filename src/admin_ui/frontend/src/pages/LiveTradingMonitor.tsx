@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { useLiveStatus, useLivePositions, useLiveOrders, useLiveEvents, useLiveStats, useDailyReport, useRecentDailyReports, useActiveStrategies } from '../api/queries';
+import { useLiveStatus, useLivePositions, useLiveOrders, useLiveEvents, useLiveStats, useDailyReport, useRecentDailyReports, useActiveStrategies, useLiveTradesVisualization } from '../api/queries';
 // import { useWebSocket } from '../hooks/useWebSocket';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
+import { LiveTradesChart } from '../components/charts/LiveTradesChart';
 import { formatDistanceToNow } from 'date-fns';
 
 export function LiveTradingMonitor() {
-  const [selectedTab, setSelectedTab] = useState<'positions' | 'orders' | 'events' | 'reports'>('positions');
+  const [selectedTab, setSelectedTab] = useState<'positions' | 'orders' | 'events' | 'reports' | 'trades'>('positions');
   const [orderStatusFilter, setOrderStatusFilter] = useState<'open' | 'filled' | 'rejected' | 'cancelled' | 'all'>('all');
+  const [tradesDays, setTradesDays] = useState<number>(7);
   const { data: status, isLoading: statusLoading } = useLiveStatus();
   const { data: positions } = useLivePositions('open');
   const { data: orders } = useLiveOrders(50, orderStatusFilter);
@@ -16,6 +18,7 @@ export function LiveTradingMonitor() {
   const { data: todayReport } = useDailyReport();
   const { data: recentReports } = useRecentDailyReports(7);
   const { data: activeStrategies } = useActiveStrategies();
+  const { data: tradesViz, isLoading: tradesLoading } = useLiveTradesVisualization(tradesDays);
 
   // WebSocket disabled - using REST API polling instead
   // WebSocket has issues with React StrictMode + Docker networking
@@ -247,6 +250,16 @@ export function LiveTradingMonitor() {
       <div className="mb-4 border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
           <button
+            onClick={() => setSelectedTab('trades')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              selectedTab === 'trades'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Trades ({tradesViz?.total_trades || 0})
+          </button>
+          <button
             onClick={() => setSelectedTab('positions')}
             className={`py-4 px-1 border-b-2 font-medium text-sm ${
               selectedTab === 'positions'
@@ -290,6 +303,140 @@ export function LiveTradingMonitor() {
       </div>
 
       {/* Tab Content */}
+      {selectedTab === 'trades' && (
+        <div className="space-y-4">
+          {/* Time Range Selector */}
+          <Card>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Trades Visualization</h3>
+              <div className="flex items-center gap-2">
+                <label htmlFor="trades-days" className="text-sm text-gray-600">Time Range:</label>
+                <select
+                  id="trades-days"
+                  value={tradesDays}
+                  onChange={(e) => setTradesDays(Number(e.target.value))}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value={1}>Last 24 Hours</option>
+                  <option value={3}>Last 3 Days</option>
+                  <option value={7}>Last 7 Days</option>
+                  <option value={14}>Last 14 Days</option>
+                  <option value={30}>Last 30 Days</option>
+                  <option value={60}>Last 60 Days</option>
+                  <option value={90}>Last 90 Days</option>
+                </select>
+              </div>
+            </div>
+          </Card>
+
+          {/* Trades Chart */}
+          <Card>
+            {tradesLoading ? (
+              <div className="flex justify-center items-center h-64">
+                <div className="text-gray-600">Loading trades data...</div>
+              </div>
+            ) : tradesViz && tradesViz.total_trades > 0 ? (
+              <>
+                <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <div className="text-sm text-gray-600">Total Trades</div>
+                    <div className="text-xl font-semibold">{tradesViz.total_trades}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-600">Initial Capital</div>
+                    <div className="text-xl font-semibold">{formatCurrency(tradesViz.initial_capital)}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-600">Current Equity</div>
+                    <div className="text-xl font-semibold">
+                      {tradesViz.equity_curve.length > 0
+                        ? formatCurrency(tradesViz.equity_curve[tradesViz.equity_curve.length - 1].value)
+                        : formatCurrency(tradesViz.initial_capital)
+                      }
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-600">Total P&L</div>
+                    <div className={`text-xl font-semibold ${
+                      (tradesViz.equity_curve.length > 0
+                        ? tradesViz.equity_curve[tradesViz.equity_curve.length - 1].value - tradesViz.initial_capital
+                        : 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {formatCurrency(
+                        tradesViz.equity_curve.length > 0
+                          ? tradesViz.equity_curve[tradesViz.equity_curve.length - 1].value - tradesViz.initial_capital
+                          : 0
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <LiveTradesChart
+                  data={tradesViz.equity_curve}
+                  underlyingData={tradesViz.underlying_data}
+                  trades={tradesViz.trades}
+                  initialCapital={tradesViz.initial_capital}
+                />
+              </>
+            ) : (
+              <div className="text-center text-gray-600 py-8">
+                No trades found in the selected time range
+              </div>
+            )}
+          </Card>
+
+          {/* Trade Details Table */}
+          {tradesViz && tradesViz.trades && tradesViz.trades.length > 0 && (
+            <Card>
+              <h3 className="text-lg font-semibold mb-4">Recent Trades</h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Strategy</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Spread</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Entry</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Exit</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">P&L</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Exit Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {tradesViz.trades.slice().reverse().map((trade: any) => (
+                      <tr key={trade.position_id} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 whitespace-nowrap text-sm">
+                          {new Date(trade.exit_time).toLocaleString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap text-sm">{trade.strategy}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-sm">{trade.spread_type || 'N/A'}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-sm text-right">
+                          {formatCurrency(trade.entry_cost)}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap text-sm text-right">
+                          {formatCurrency(trade.exit_value)}
+                        </td>
+                        <td className={`px-3 py-2 whitespace-nowrap text-sm text-right font-medium ${
+                          trade.pnl >= 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {formatCurrency(trade.pnl)}
+                        </td>
+                        <td className="px-3 py-2 text-sm">{trade.exit_reason || 'N/A'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+
       {selectedTab === 'positions' && (
         <div className="space-y-4">
           {positions && positions.length > 0 ? (

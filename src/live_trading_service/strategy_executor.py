@@ -379,7 +379,11 @@ class StrategyExecutor:
             return
 
         # Update position with exit details
-        position.exit_value = order.filled_total_price
+        # NOTE: filled_total_price uses accounting convention (sell = negative),
+        # but exit_value needs to be positive for P&L calculation (exit_value - entry_cost)
+        # For closing a long position (selling), we negate to get positive value
+        # For closing a short position (buying), we negate to get negative value
+        position.exit_value = -order.filled_total_price
         position.exit_time = current_time
         position.exit_reason = exit_reason
 

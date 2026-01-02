@@ -71,6 +71,14 @@ def main():
 
         if trades:
             import pandas as pd
+            from decimal import Decimal
+
+            # Convert Decimal to float for numeric fields
+            for trade in trades:
+                for key in ['entry_cost', 'exit_value', 'pnl']:
+                    if key in trade and isinstance(trade[key], Decimal):
+                        trade[key] = float(trade[key])
+
             trades_df = pd.DataFrame(trades)
             print(f"  Found {len(trades_df)} trades")
         else:
