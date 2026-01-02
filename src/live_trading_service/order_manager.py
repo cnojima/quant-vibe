@@ -52,7 +52,8 @@ class Order:
         strategy_name: str,
         legs: List[Dict],
         order_type: str = "LIMIT",
-        time_in_force: str = "DAY"
+        time_in_force: str = "DAY",
+        action_type: str = "opening"  # 'opening' or 'closing'
     ):
         self.order_id = order_id
         self.position_id = position_id
@@ -60,6 +61,7 @@ class Order:
         self.legs = legs  # List of leg dicts with symbol, quantity, side, price
         self.order_type = order_type
         self.time_in_force = time_in_force
+        self.action_type = action_type  # 'opening' or 'closing'
 
         self.status = OrderStatus.PENDING
         self.submitted_time: Optional[datetime] = None
@@ -156,7 +158,13 @@ class OrderManager:
 
         # Create order
         order = self._create_order_from_position(position, strategy_name, is_opening=True)
-        self.logger.debug(f"Created order: {order.order_id}, legs={len(position.legs)}")
+
+        # Log clear OPEN order intent
+        legs_summary = ", ".join([
+            f"{leg['side'].upper()} {leg['quantity']}x {leg['symbol']}"
+            for leg in order.legs
+        ])
+        self.logger.info(f"[OPENING] Position {position.position_id} | {strategy_name} | {legs_summary}")
 
         # Calculate expected price from position legs
         expected_price = self._calculate_expected_price(position.legs, options_data)
@@ -165,7 +173,7 @@ class OrderManager:
         if self.paper_trading:
             # Simulated mode
             self.logger.debug(f"Simulating fill for order {order.order_id}")
-            success, message = self._simulate_fill(order, options_data)
+            success, message = self._simulate_fill(order, options_data, is_opening=True)
         else:
             # Live mode
             self.logger.debug(f"Submitting order {order.order_id} to Schwab API")
@@ -201,14 +209,20 @@ class OrderManager:
 
         # Create closing order (reverse sides)
         order = self._create_order_from_position(position, strategy_name, is_opening=False)
-        self.logger.debug(f"Created exit order: {order.order_id}")
+
+        # Log clear CLOSE order intent
+        legs_summary = ", ".join([
+            f"{leg['side'].upper()} {leg['quantity']}x {leg['symbol']}"
+            for leg in order.legs
+        ])
+        self.logger.info(f"[CLOSING] Position {position.position_id} | {strategy_name} | {legs_summary}")
 
         # Calculate expected exit price
         expected_price = self._calculate_exit_price(position.legs, options_data)
         order.expected_total_price = expected_price
 
         if self.paper_trading:
-            success, message = self._simulate_fill(order, options_data)
+            success, message = self._simulate_fill(order, options_data, is_opening=False)
         else:
             success, message = self._submit_to_schwab(order)
 
@@ -251,7 +265,8 @@ class OrderManager:
             order_id=order_id,
             position_id=position.position_id,
             strategy_name=strategy_name,
-            legs=order_legs
+            legs=order_legs,
+            action_type="opening" if is_opening else "closing"
         )
 
         return order
@@ -336,7 +351,8 @@ class OrderManager:
     def _simulate_fill(
         self,
         order: Order,
-        options_data: Dict[str, Dict]
+        options_data: Dict[str, Dict],
+        is_opening: bool = True
     ) -> Tuple[bool, str]:
         """
         Simulate order fill with realistic slippage.
@@ -344,6 +360,7 @@ class OrderManager:
         Args:
             order: Order to fill
             options_data: Current options quotes
+            is_opening: Whether this is an opening trade (True) or closing trade (False)
 
         Returns:
             Tuple of (success, message)
@@ -389,10 +406,12 @@ class OrderManager:
             order.filled_time = datetime.now()
             order.filled_total_price = filled_price
 
+            # Log fill with clear open/close indicator
+            order_type = "OPENING" if is_opening else "CLOSING"
             self.logger.info(
-                f"Simulated fill: {order.order_id} "
-                f"Expected: ${order.expected_total_price:.2f} "
-                f"Filled: ${filled_price:.2f} "
+                f"[{order_type}] Simulated fill: {order.order_id} | "
+                f"Expected: ${order.expected_total_price:.2f} | "
+                f"Filled: ${filled_price:.2f} | "
                 f"Slippage: ${filled_price - order.expected_total_price:.2f}"
             )
 
@@ -464,16 +483,36 @@ class OrderManager:
         if not self.state_store:
             return
 
+        # Determine side classification
+        if len(order.legs) == 1:
+            # Single-leg: use actual side (buy/sell)
+            side = order.legs[0]['side']
+        else:
+            # Multi-leg: classify as DEBIT or CREDIT spread
+            # Debit spread: we pay (positive expected_price)
+            # Credit spread: we receive (negative expected_price)
+            if order.expected_total_price is not None:
+                if order.expected_total_price > 0:
+                    side = 'debit'  # We pay to enter
+                elif order.expected_total_price < 0:
+                    side = 'credit'  # We receive to enter
+                else:
+                    side = 'multi_leg'  # Net-zero (rare)
+            else:
+                side = 'multi_leg'  # Fallback if price not set yet
+
         order_data = {
             'order_id': order.order_id,
             'position_id': order.position_id,
             'strategy_name': order.strategy_name,
             'order_type': order.order_type,
-            'side': 'multi_leg',  # Multi-leg spread
+            'action_type': order.action_type,  # 'opening' or 'closing'
+            'side': side,  # BUG FIX: use actual side for single-leg
             'quantity': len(order.legs),
             'symbol': order.legs[0]['symbol'] if order.legs else 'N/A',
             'status': order.status.value,
             'submitted_time': order.submitted_time,
+            'filled_time': order.filled_time,  # BUG FIX: was missing
             'expected_price': order.expected_total_price,
             'filled_price': order.filled_total_price,
             'broker_order_id': order.broker_order_id,

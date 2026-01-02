@@ -214,6 +214,7 @@ async def fetch_open_orders(limit: int = 100, status_filter: Optional[str] = Non
             order_id,
             position_id,
             order_type,
+            action_type,
             status,
             submitted_time,
             symbol,

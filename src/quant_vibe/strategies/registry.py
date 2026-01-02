@@ -47,6 +47,7 @@ from quant_vibe.strategies.coin_toss import CoinTossStrategy
 from quant_vibe.strategies.coin_toss_limit import CoinTossLimitStrategy
 from quant_vibe.strategies.bollinger_band import BollingerBandStrategy
 from quant_vibe.strategies.bollinger_band_limit import BollingerBandLimitStrategy
+from quant_vibe.strategies.naive_bullish_put import NaiveBullishPutStrategy
 
 
 class StrategyRegistry:
@@ -70,6 +71,7 @@ class StrategyRegistry:
         'coin_toss_limit': CoinTossLimitStrategy,
         'bollinger_band': BollingerBandStrategy,
         'bollinger_band_limit': BollingerBandLimitStrategy,
+        'naive_bullish_put': NaiveBullishPutStrategy,
     }
 
     # Map strategy names to module paths (for dynamic import)
@@ -81,6 +83,7 @@ class StrategyRegistry:
         'coin_toss_limit': 'quant_vibe.strategies.coin_toss_limit.CoinTossLimitStrategy',
         'bollinger_band': 'quant_vibe.strategies.bollinger_band.BollingerBandStrategy',
         'bollinger_band_limit': 'quant_vibe.strategies.bollinger_band_limit.BollingerBandLimitStrategy',
+        'naive_bullish_put': 'quant_vibe.strategies.naive_bullish_put.NaiveBullishPutStrategy',
     }
 
     # Strategy descriptions for UI

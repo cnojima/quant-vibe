@@ -16,6 +16,7 @@ from .coin_toss import CoinTossStrategy
 from .coin_toss_limit import CoinTossLimitStrategy
 from .bollinger_band import BollingerBandStrategy
 from .bollinger_band_limit import BollingerBandLimitStrategy
+from .naive_bullish_put import NaiveBullishPutStrategy
 
 # Central registry for all strategies (single source of truth)
 from .registry import StrategyRegistry, validate_strategy_params
@@ -38,6 +39,7 @@ __all__ = [
     "CoinTossLimitStrategy",
     "BollingerBandStrategy",
     "BollingerBandLimitStrategy",
+    "NaiveBullishPutStrategy",
     "StrategyRegistry",
     "validate_strategy_params",
 ]

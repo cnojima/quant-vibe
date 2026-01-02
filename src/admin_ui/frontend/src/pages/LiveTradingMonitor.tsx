@@ -480,7 +480,7 @@ export function LiveTradingMonitor() {
                       {position.legs.map((leg, idx) => (
                         <div key={idx} className="flex justify-between text-sm">
                           <span>
-                            {(leg.action ?? leg.side) === 'buy' ? '🟢 BUY' : '🔴 SELL'} {leg.contract_symbol}
+                            {(leg.quantity ?? 0) > 0 ? '🟢 BUY' : '🔴 SELL'} {leg.contract_symbol}
                           </span>
                           <span className="font-mono">{formatCurrency(leg.price ?? leg.entry_price)}</span>
                         </div>
@@ -551,7 +551,14 @@ export function LiveTradingMonitor() {
               <Card key={order.order_id}>
                 <div className="flex justify-between items-start">
                   <div>
-                    <h4 className="font-semibold text-lg">{order.symbol}</h4>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-semibold text-lg">{order.symbol}</h4>
+                      {order.action_type && (
+                        <Badge variant={order.action_type === 'opening' ? 'success' : 'default'}>
+                          {order.action_type.toUpperCase()}
+                        </Badge>
+                      )}
+                    </div>
                     <p className="text-sm text-gray-600">
                       {(order.action ?? order.side ?? '').toUpperCase()} {order.quantity} @ {formatCurrency(order.price ?? order.limit_price ?? 0)}
                     </p>

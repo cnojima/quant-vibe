@@ -130,6 +130,7 @@ class StateStore:
                 position_id TEXT REFERENCES live_positions(position_id),
                 strategy_name TEXT NOT NULL,
                 order_type TEXT NOT NULL,
+                action_type TEXT,  -- 'opening' or 'closing'
                 side TEXT NOT NULL,
                 quantity INTEGER NOT NULL,
                 symbol TEXT NOT NULL,
@@ -380,17 +381,18 @@ class StateStore:
         try:
             self.cursor.execute("""
                 INSERT INTO live_orders (
-                    order_id, position_id, strategy_name, order_type, side,
-                    quantity, symbol, status, submitted_time, expected_price,
-                    broker_order_id, metadata
+                    order_id, position_id, strategy_name, order_type, action_type, side,
+                    quantity, symbol, status, submitted_time, filled_time, expected_price,
+                    filled_price, broker_order_id, metadata
                 ) VALUES (
                     %(order_id)s, %(position_id)s, %(strategy_name)s, %(order_type)s,
-                    %(side)s, %(quantity)s, %(symbol)s, %(status)s,
-                    %(submitted_time)s, %(expected_price)s,
-                    %(broker_order_id)s, %(metadata)s
+                    %(action_type)s, %(side)s, %(quantity)s, %(symbol)s, %(status)s,
+                    %(submitted_time)s, %(filled_time)s, %(expected_price)s,
+                    %(filled_price)s, %(broker_order_id)s, %(metadata)s
                 )
                 ON CONFLICT (order_id) DO UPDATE SET
                     status = EXCLUDED.status,
+                    action_type = EXCLUDED.action_type,
                     filled_time = COALESCE(EXCLUDED.filled_time, live_orders.filled_time),
                     filled_price = COALESCE(EXCLUDED.filled_price, live_orders.filled_price),
                     filled_quantity = COALESCE(EXCLUDED.filled_quantity, live_orders.filled_quantity),
@@ -402,12 +404,15 @@ class StateStore:
                 'position_id': order_data.get('position_id'),
                 'strategy_name': order_data['strategy_name'],
                 'order_type': order_data['order_type'],
+                'action_type': order_data.get('action_type', 'opening'),
                 'side': order_data['side'],
                 'quantity': order_data['quantity'],
                 'symbol': order_data['symbol'],
                 'status': order_data.get('status', 'pending'),
                 'submitted_time': order_data.get('submitted_time', datetime.now()),
+                'filled_time': order_data.get('filled_time'),  # BUG FIX: was missing
                 'expected_price': order_data.get('expected_price'),
+                'filled_price': order_data.get('filled_price'),  # BUG FIX: was missing
                 'broker_order_id': order_data.get('broker_order_id'),
                 'metadata': json.dumps(order_data.get('metadata', {}))
             })

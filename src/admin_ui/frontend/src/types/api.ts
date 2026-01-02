@@ -80,6 +80,7 @@ export interface Order {
   order_id: string;
   position_id: string;
   order_type: 'entry' | 'exit' | 'profit_target' | 'stop_loss';
+  action_type?: 'opening' | 'closing';
   status: 'pending' | 'submitted' | 'accepted' | 'filled' | 'cancelled' | 'rejected';
   submitted_time: string | null;
   filled_time: string | null;
