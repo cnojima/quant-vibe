@@ -291,6 +291,7 @@ class LiveTradingEngine:
             state_store=self.state_store,
             underlying_ticker="SPX",
             enabled=True,
+            notifier=self.notifier,
         )
         self.logger.info("    ✓ StrategyExecutor ready")
 

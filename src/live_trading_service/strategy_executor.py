@@ -11,6 +11,7 @@ import pandas as pd
 import pytz
 
 from quant_vibe.strategies.options_base import OptionsStrategy, OptionsPosition
+from quant_vibe.notifications import TradingNotifier
 from .order_manager import OrderManager
 from .position_manager import PositionManager
 from .state_store import StateStore
@@ -29,6 +30,7 @@ class StrategyExecutor:
         state_store: StateStore,
         underlying_ticker: str = "SPX",
         enabled: bool = True,
+        notifier: Optional[TradingNotifier] = None,
     ):
         """
         Initialize strategy executor.
@@ -40,6 +42,7 @@ class StrategyExecutor:
             state_store: State store for persistence
             underlying_ticker: Underlying ticker symbol (default: SPX)
             enabled: Whether strategy execution is enabled (default: True)
+            notifier: Trading notifier for push notifications (optional)
         """
         self.strategies = {strategy.name: strategy for strategy in strategies}
         self.order_manager = order_manager
@@ -47,6 +50,7 @@ class StrategyExecutor:
         self.state_store = state_store
         self.underlying_ticker = underlying_ticker
         self.enabled = enabled
+        self.notifier = notifier
 
         # Track last bar time to detect new bars
         self.last_bar_time: Optional[datetime] = None
@@ -320,6 +324,22 @@ class StrategyExecutor:
             f"Cost: ${position.entry_cost:.2f}"
         )
 
+        # Send notification
+        if self.notifier:
+            try:
+                self.notifier.on_position_opened(
+                    strategy=strategy_name,
+                    symbol=position.position_id,
+                    entry_price=position.entry_cost,
+                    metadata={
+                        'underlying_price': position.underlying_price_at_entry,
+                        'spread_type': position.spread_type.value,
+                        'num_legs': len(position.legs),
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send position opened notification: {e}")
+
     def _handle_exit(
         self,
         strategy_name: str,
@@ -408,6 +428,24 @@ class StrategyExecutor:
             f"P&L: ${pnl:.2f} ({position.pnl_percent*100:.1f}%), "
             f"Reason: {exit_reason}"
         )
+
+        # Send notification
+        if self.notifier:
+            try:
+                pnl_pct = position.pnl_percent if position.pnl_percent else 0.0
+                self.notifier.on_position_closed(
+                    strategy=strategy_name,
+                    symbol=position.position_id,
+                    pnl=pnl if pnl else 0.0,
+                    pnl_pct=pnl_pct,
+                    metadata={
+                        'entry_cost': position.entry_cost,
+                        'exit_value': position.exit_value,
+                        'exit_reason': exit_reason,
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send position closed notification: {e}")
 
     def _check_daily_reset(self, current_time: datetime):
         """

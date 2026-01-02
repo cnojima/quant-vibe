@@ -259,6 +259,40 @@ class TimescaleStore:
                 )
             conn.commit()
 
+    def _coerce_greek_value(self, value: Optional[float], field_name: str, option_ticker: str) -> Optional[float]:
+        """
+        Coerce Greek values to fit database constraints (numeric(8,6): -99.999999 to 99.999999).
+
+        Args:
+            value: The value to coerce
+            field_name: Name of the field (for logging)
+            option_ticker: Option ticker (for logging)
+
+        Returns:
+            Coerced value or None
+        """
+        if value is None:
+            return None
+
+        # Database constraint: numeric(8,6) allows values from -99.999999 to 99.999999
+        # Total 8 digits, 6 after decimal point = max 2 digits before decimal
+        MIN_VALUE = -99.999999
+        MAX_VALUE = 99.999999
+
+        if value < MIN_VALUE or value > MAX_VALUE:
+            # Log the overflow with details
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Greek value overflow - Field: {field_name}, "
+                f"Value: {value}, Ticker: {option_ticker}, "
+                f"Coercing to range [{MIN_VALUE}, {MAX_VALUE}]"
+            )
+            # Coerce to valid range
+            return max(MIN_VALUE, min(MAX_VALUE, value))
+
+        return value
+
     def bulk_insert_option_bars(self, bars: List[Dict[str, Any]], batch_size: int = 1000) -> int:
         """
         Bulk insert options bars for efficient data loading.
@@ -310,6 +344,14 @@ class TimescaleStore:
             # Normalize contract symbol to canonical format
             option_ticker = self.normalize_contract_symbol(bar["option_ticker"])
 
+            # Coerce Greek values to fit database constraints
+            implied_volatility = self._coerce_greek_value(bar.get("implied_volatility"), "implied_volatility", option_ticker)
+            delta = self._coerce_greek_value(bar.get("delta"), "delta", option_ticker)
+            gamma = self._coerce_greek_value(bar.get("gamma"), "gamma", option_ticker)
+            theta = self._coerce_greek_value(bar.get("theta"), "theta", option_ticker)
+            vega = self._coerce_greek_value(bar.get("vega"), "vega", option_ticker)
+            rho = self._coerce_greek_value(bar.get("rho"), "rho", option_ticker)
+
             rows.append(
                 (
                     bar["timestamp"],
@@ -329,12 +371,12 @@ class TimescaleStore:
                     bar.get("strike_price"),
                     bar.get("contract_type"),
                     bar.get("expiration_date"),
-                    bar.get("implied_volatility"),
-                    bar.get("delta"),
-                    bar.get("gamma"),
-                    bar.get("theta"),
-                    bar.get("vega"),
-                    bar.get("rho"),
+                    implied_volatility,
+                    delta,
+                    gamma,
+                    theta,
+                    vega,
+                    rho,
                     bar.get("data_source", "combined"),
                 )
             )
