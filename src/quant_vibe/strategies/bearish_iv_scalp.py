@@ -20,7 +20,7 @@ from .options_base import (
     OptionType,
     SpreadType
 )
-from live_trading_service.utils import generate_position_id
+from quant_vibe.utils import generate_position_id
 
 
 class BearishIVScalpStrategy(OptionsStrategy):
