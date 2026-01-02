@@ -152,7 +152,7 @@ class LiveMarketDataProvider:
 
         # Enrich missing columns from contract_symbol if present
         if not all_bars.empty and 'contract_symbol' in all_bars.columns:
-            from quant_vibe.data.schwab_utils import (
+            from quant_vibe.utils.symbol_utils import (
                 parse_expiration_from_ticker,
                 parse_strike_from_ticker,
                 parse_contract_type_from_ticker,
