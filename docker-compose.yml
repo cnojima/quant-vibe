@@ -134,7 +134,7 @@ services:
       - ./tokens:/app/tokens
     networks:
       - quant-vibe-network
-    command: ["python", "scripts/stream_spxw_schwabdev.py"]
+    command: ["python", "scripts/run_streaming.py"]
 
   live_trading:
     build:

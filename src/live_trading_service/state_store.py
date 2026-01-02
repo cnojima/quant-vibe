@@ -181,13 +181,17 @@ class StateStore:
             state: Engine state (from TradingState)
             metadata: Additional metadata
         """
-        self.cursor.execute("""
-            INSERT INTO live_engine_state (timestamp, state, metadata)
-            VALUES (NOW(), %s, %s)
-            ON CONFLICT (timestamp) DO UPDATE
-            SET state = EXCLUDED.state, metadata = EXCLUDED.metadata
-        """, (state, json.dumps(metadata) if metadata else None))
-        self.conn.commit()
+        try:
+            self.cursor.execute("""
+                INSERT INTO live_engine_state (timestamp, state, metadata)
+                VALUES (NOW(), %s, %s)
+                ON CONFLICT (timestamp) DO UPDATE
+                SET state = EXCLUDED.state, metadata = EXCLUDED.metadata
+            """, (state, json.dumps(metadata) if metadata else None))
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise
 
     def get_latest_engine_state(self) -> Optional[Dict]:
         """Get the most recent engine state."""
@@ -211,42 +215,46 @@ class StateStore:
                 - position_id, strategy_name, spread_type, entry_time,
                   entry_cost, underlying_price_at_entry, legs, status, etc.
         """
-        self.cursor.execute("""
-            INSERT INTO live_positions (
-                position_id, strategy_name, spread_type, entry_time,
-                entry_cost, underlying_price_at_entry, status,
-                current_value, exit_time, exit_value, exit_reason,
-                legs, metadata
-            ) VALUES (
-                %(position_id)s, %(strategy_name)s, %(spread_type)s, %(entry_time)s,
-                %(entry_cost)s, %(underlying_price_at_entry)s, %(status)s,
-                %(current_value)s, %(exit_time)s, %(exit_value)s, %(exit_reason)s,
-                %(legs)s, %(metadata)s
-            )
-            ON CONFLICT (position_id) DO UPDATE SET
-                status = EXCLUDED.status,
-                current_value = EXCLUDED.current_value,
-                exit_time = EXCLUDED.exit_time,
-                exit_value = EXCLUDED.exit_value,
-                exit_reason = EXCLUDED.exit_reason,
-                metadata = EXCLUDED.metadata,
-                updated_at = NOW()
-        """, {
-            'position_id': position_data['position_id'],
-            'strategy_name': position_data['strategy_name'],
-            'spread_type': position_data['spread_type'],
-            'entry_time': position_data['entry_time'],
-            'entry_cost': position_data['entry_cost'],
-            'underlying_price_at_entry': position_data['underlying_price_at_entry'],
-            'status': position_data.get('status', 'open'),
-            'current_value': position_data.get('current_value'),
-            'exit_time': position_data.get('exit_time'),
-            'exit_value': position_data.get('exit_value'),
-            'exit_reason': position_data.get('exit_reason'),
-            'legs': json.dumps(position_data['legs']),
-            'metadata': json.dumps(position_data.get('metadata', {}))
-        })
-        self.conn.commit()
+        try:
+            self.cursor.execute("""
+                INSERT INTO live_positions (
+                    position_id, strategy_name, spread_type, entry_time,
+                    entry_cost, underlying_price_at_entry, status,
+                    current_value, exit_time, exit_value, exit_reason,
+                    legs, metadata
+                ) VALUES (
+                    %(position_id)s, %(strategy_name)s, %(spread_type)s, %(entry_time)s,
+                    %(entry_cost)s, %(underlying_price_at_entry)s, %(status)s,
+                    %(current_value)s, %(exit_time)s, %(exit_value)s, %(exit_reason)s,
+                    %(legs)s, %(metadata)s
+                )
+                ON CONFLICT (position_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    current_value = EXCLUDED.current_value,
+                    exit_time = EXCLUDED.exit_time,
+                    exit_value = EXCLUDED.exit_value,
+                    exit_reason = EXCLUDED.exit_reason,
+                    metadata = EXCLUDED.metadata,
+                    updated_at = NOW()
+            """, {
+                'position_id': position_data['position_id'],
+                'strategy_name': position_data['strategy_name'],
+                'spread_type': position_data['spread_type'],
+                'entry_time': position_data['entry_time'],
+                'entry_cost': position_data['entry_cost'],
+                'underlying_price_at_entry': position_data['underlying_price_at_entry'],
+                'status': position_data.get('status', 'open'),
+                'current_value': position_data.get('current_value'),
+                'exit_time': position_data.get('exit_time'),
+                'exit_value': position_data.get('exit_value'),
+                'exit_reason': position_data.get('exit_reason'),
+                'legs': json.dumps(position_data['legs']),
+                'metadata': json.dumps(position_data.get('metadata', {}))
+            })
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise  # Re-raise to preserve original error context
 
     def get_open_positions(self, strategy_name: Optional[str] = None) -> List[Dict]:
         """
@@ -283,16 +291,20 @@ class StateStore:
 
     def close_position(self, position_id: str, exit_value: float, exit_reason: str):
         """Mark a position as closed."""
-        self.cursor.execute("""
-            UPDATE live_positions
-            SET status = 'closed',
-                exit_time = NOW(),
-                exit_value = %s,
-                exit_reason = %s,
-                updated_at = NOW()
-            WHERE position_id = %s
-        """, (exit_value, exit_reason, position_id))
-        self.conn.commit()
+        try:
+            self.cursor.execute("""
+                UPDATE live_positions
+                SET status = 'closed',
+                    exit_time = NOW(),
+                    exit_value = %s,
+                    exit_reason = %s,
+                    updated_at = NOW()
+                WHERE position_id = %s
+            """, (exit_value, exit_reason, position_id))
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise
 
     def get_trades_for_date(self, trade_date) -> List[Dict]:
         """
@@ -344,40 +356,44 @@ class StateStore:
         Args:
             order_data: Order data dict
         """
-        self.cursor.execute("""
-            INSERT INTO live_orders (
-                order_id, position_id, strategy_name, order_type, side,
-                quantity, symbol, status, submitted_time, expected_price,
-                broker_order_id, metadata
-            ) VALUES (
-                %(order_id)s, %(position_id)s, %(strategy_name)s, %(order_type)s,
-                %(side)s, %(quantity)s, %(symbol)s, %(status)s,
-                %(submitted_time)s, %(expected_price)s,
-                %(broker_order_id)s, %(metadata)s
-            )
-            ON CONFLICT (order_id) DO UPDATE SET
-                status = EXCLUDED.status,
-                filled_time = COALESCE(EXCLUDED.filled_time, live_orders.filled_time),
-                filled_price = COALESCE(EXCLUDED.filled_price, live_orders.filled_price),
-                filled_quantity = COALESCE(EXCLUDED.filled_quantity, live_orders.filled_quantity),
-                error_message = COALESCE(EXCLUDED.error_message, live_orders.error_message),
-                metadata = EXCLUDED.metadata,
-                updated_at = NOW()
-        """, {
-            'order_id': order_data['order_id'],
-            'position_id': order_data.get('position_id'),
-            'strategy_name': order_data['strategy_name'],
-            'order_type': order_data['order_type'],
-            'side': order_data['side'],
-            'quantity': order_data['quantity'],
-            'symbol': order_data['symbol'],
-            'status': order_data.get('status', 'pending'),
-            'submitted_time': order_data.get('submitted_time', datetime.now()),
-            'expected_price': order_data.get('expected_price'),
-            'broker_order_id': order_data.get('broker_order_id'),
-            'metadata': json.dumps(order_data.get('metadata', {}))
-        })
-        self.conn.commit()
+        try:
+            self.cursor.execute("""
+                INSERT INTO live_orders (
+                    order_id, position_id, strategy_name, order_type, side,
+                    quantity, symbol, status, submitted_time, expected_price,
+                    broker_order_id, metadata
+                ) VALUES (
+                    %(order_id)s, %(position_id)s, %(strategy_name)s, %(order_type)s,
+                    %(side)s, %(quantity)s, %(symbol)s, %(status)s,
+                    %(submitted_time)s, %(expected_price)s,
+                    %(broker_order_id)s, %(metadata)s
+                )
+                ON CONFLICT (order_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    filled_time = COALESCE(EXCLUDED.filled_time, live_orders.filled_time),
+                    filled_price = COALESCE(EXCLUDED.filled_price, live_orders.filled_price),
+                    filled_quantity = COALESCE(EXCLUDED.filled_quantity, live_orders.filled_quantity),
+                    error_message = COALESCE(EXCLUDED.error_message, live_orders.error_message),
+                    metadata = EXCLUDED.metadata,
+                    updated_at = NOW()
+            """, {
+                'order_id': order_data['order_id'],
+                'position_id': order_data.get('position_id'),
+                'strategy_name': order_data['strategy_name'],
+                'order_type': order_data['order_type'],
+                'side': order_data['side'],
+                'quantity': order_data['quantity'],
+                'symbol': order_data['symbol'],
+                'status': order_data.get('status', 'pending'),
+                'submitted_time': order_data.get('submitted_time', datetime.now()),
+                'expected_price': order_data.get('expected_price'),
+                'broker_order_id': order_data.get('broker_order_id'),
+                'metadata': json.dumps(order_data.get('metadata', {}))
+            })
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise
 
     def update_order_status(
         self,
@@ -388,18 +404,22 @@ class StateStore:
         error_message: Optional[str] = None
     ):
         """Update order status."""
-        self.cursor.execute("""
-            UPDATE live_orders
-            SET status = %s,
-                filled_time = CASE WHEN %s IN ('filled', 'partially_filled')
-                              THEN NOW() ELSE filled_time END,
-                filled_price = COALESCE(%s, filled_price),
-                filled_quantity = COALESCE(%s, filled_quantity),
-                error_message = COALESCE(%s, error_message),
-                updated_at = NOW()
-            WHERE order_id = %s
-        """, (status, status, filled_price, filled_quantity, error_message, order_id))
-        self.conn.commit()
+        try:
+            self.cursor.execute("""
+                UPDATE live_orders
+                SET status = %s,
+                    filled_time = CASE WHEN %s IN ('filled', 'partially_filled')
+                                  THEN NOW() ELSE filled_time END,
+                    filled_price = COALESCE(%s, filled_price),
+                    filled_quantity = COALESCE(%s, filled_quantity),
+                    error_message = COALESCE(%s, error_message),
+                    updated_at = NOW()
+                WHERE order_id = %s
+            """, (status, status, filled_price, filled_quantity, error_message, order_id))
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise
 
     # ========================================================================
     # Strategy State
@@ -407,13 +427,17 @@ class StateStore:
 
     def save_strategy_state(self, strategy_name: str, state: Dict):
         """Save strategy-specific state."""
-        self.cursor.execute("""
-            INSERT INTO live_strategy_state (strategy_name, state, updated_at)
-            VALUES (%s, %s, NOW())
-            ON CONFLICT (strategy_name) DO UPDATE
-            SET state = EXCLUDED.state, updated_at = NOW()
-        """, (strategy_name, json.dumps(state)))
-        self.conn.commit()
+        try:
+            self.cursor.execute("""
+                INSERT INTO live_strategy_state (strategy_name, state, updated_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (strategy_name) DO UPDATE
+                SET state = EXCLUDED.state, updated_at = NOW()
+            """, (strategy_name, json.dumps(state)))
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise
 
     def get_strategy_state(self, strategy_name: str) -> Optional[Dict]:
         """Get strategy state."""
@@ -426,12 +450,16 @@ class StateStore:
 
     def reset_strategy_state(self, strategy_name: str):
         """Reset strategy state (for daily reset)."""
-        self.cursor.execute("""
-            UPDATE live_strategy_state
-            SET state = '{}', last_reset = NOW(), updated_at = NOW()
-            WHERE strategy_name = %s
-        """, (strategy_name,))
-        self.conn.commit()
+        try:
+            self.cursor.execute("""
+                UPDATE live_strategy_state
+                SET state = '{}', last_reset = NOW(), updated_at = NOW()
+                WHERE strategy_name = %s
+            """, (strategy_name,))
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise
 
     # ========================================================================
     # Events / Audit Log
@@ -459,18 +487,22 @@ class StateStore:
             order_id: Associated order
             details: Additional details as dict
         """
-        self.cursor.execute("""
-            INSERT INTO live_events (
-                timestamp, event_type, strategy_name, position_id, order_id,
-                severity, message, details
-            ) VALUES (
-                NOW(), %s, %s, %s, %s, %s, %s, %s
-            )
-        """, (
-            event_type, strategy_name, position_id, order_id,
-            severity, message, json.dumps(details) if details else None
-        ))
-        self.conn.commit()
+        try:
+            self.cursor.execute("""
+                INSERT INTO live_events (
+                    timestamp, event_type, strategy_name, position_id, order_id,
+                    severity, message, details
+                ) VALUES (
+                    NOW(), %s, %s, %s, %s, %s, %s, %s
+                )
+            """, (
+                event_type, strategy_name, position_id, order_id,
+                severity, message, json.dumps(details) if details else None
+            ))
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise  # Re-raise to preserve original error context
 
     def get_recent_events(
         self,

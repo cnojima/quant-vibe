@@ -54,6 +54,9 @@ class StrategyExecutor:
         # Track last daily reset time
         self.last_reset_date: Optional[datetime] = None
 
+        # Track latest options data for exit orders
+        self.latest_options_data: Dict[str, Dict] = {}
+
         # Strategy performance tracking
         self.strategy_stats: Dict[str, Dict[str, Any]] = {
             name: {
@@ -107,6 +110,16 @@ class StrategyExecutor:
             return
 
         self.last_bar_time = current_time
+
+        # Update latest options data for exit orders
+        # Convert DataFrame to dict format {contract_symbol: {bid, ask, close, ...}}
+        if not options_data.empty:
+            options_dict = {}
+            for _, row in options_data.iterrows():
+                symbol = row.get('contract_symbol')
+                if symbol:
+                    options_dict[symbol] = row.to_dict()
+            self.latest_options_data = options_dict
 
         # Check for daily reset
         self._check_daily_reset(current_time)
@@ -318,16 +331,17 @@ class StrategyExecutor:
         logger.info(f"[{strategy_name}] Exit signal for {position.position_id}: {exit_reason}")
 
         # Submit exit order
-        order_result = self.order_manager.submit_exit_order(
+        success, message, order = self.order_manager.submit_position_exit(
             position=position,
+            options_data=self.latest_options_data,
             strategy_name=strategy_name,
         )
 
-        if order_result is None:
-            logger.error(f"[{strategy_name}] Exit order submission failed")
+        if not success or order is None:
+            logger.error(f"[{strategy_name}] Exit order submission failed: {message}")
             self.state_store.log_event(
                 event_type="exit_order_failed",
-                message=f"Exit order failed for {position.position_id}",
+                message=f"Exit order failed for {position.position_id}: {message}",
                 severity="error",
                 strategy_name=strategy_name,
                 position_id=position.position_id,
@@ -335,7 +349,7 @@ class StrategyExecutor:
             return
 
         # Update position with exit details
-        position.exit_value = order_result['filled_price']
+        position.exit_value = order.filled_total_price
         position.exit_time = current_time
         position.exit_reason = exit_reason
 

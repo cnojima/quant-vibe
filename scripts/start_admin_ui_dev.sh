@@ -45,17 +45,6 @@ if [ ! -f "$PROJECT_ROOT/.env" ]; then
     exit 1
 fi
 
-echo ""
-echo -e "${GREEN}✅ Dependencies ready${NC}"
-echo ""
-echo "Starting services..."
-echo ""
-echo "  Backend:  http://localhost:8000 (FastAPI + Uvicorn)"
-echo "  Frontend: http://localhost:5173 (React + Vite)"
-echo ""
-echo -e "${YELLOW}Press Ctrl+C to stop both services${NC}"
-echo ""
-
 # Function to cleanup on exit
 cleanup() {
     echo ""

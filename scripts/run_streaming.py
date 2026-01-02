@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """Stream SPXW options data using schwabdev and store in TimescaleDB.
 
 This script is a simple entry point for the SPXW Options Streaming Service.
