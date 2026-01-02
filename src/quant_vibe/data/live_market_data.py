@@ -6,6 +6,7 @@ streaming data into the DataFrame format expected by strategy executors.
 """
 
 import pandas as pd
+import logging
 from datetime import datetime
 from typing import Optional, Dict, List, TYPE_CHECKING
 from collections import deque, defaultdict
@@ -34,6 +35,7 @@ class LiveMarketDataProvider:
             data_feed: RealtimeDataFeed instance with streaming data
         """
         self.data_feed = data_feed
+        self.logger = logging.getLogger(__name__)
 
         # Track underlying bars separately for easy access
         # ticker -> deque of bars
@@ -132,6 +134,7 @@ class LiveMarketDataProvider:
         all_bars = self.data_feed.get_bars(symbol=None)
 
         if all_bars.empty:
+            self.logger.debug("No bars available from data feed")
             # Return empty DataFrame with expected columns
             return pd.DataFrame(columns=[
                 'timestamp', 'contract_symbol', 'underlying_ticker',
@@ -161,14 +164,17 @@ class LiveMarketDataProvider:
             # Add missing contract_type
             if 'contract_type' not in all_bars.columns or all_bars['contract_type'].isna().any():
                 if 'contract_type' not in all_bars.columns:
+                    self.logger.debug("contract_type column missing, enriching from ticker")
                     all_bars['contract_type'] = None
 
                 # Fill missing contract_type from symbol
                 mask = all_bars['contract_type'].isna()
                 if mask.any():
+                    num_enriched = mask.sum()
                     all_bars.loc[mask, 'contract_type'] = all_bars.loc[mask, 'contract_symbol'].apply(
                         lambda x: parse_contract_type_from_ticker(x) if pd.notna(x) else None
                     )
+                    self.logger.debug(f"Enriched contract_type for {num_enriched} rows")
 
             # Add missing strike_price
             if 'strike_price' not in all_bars.columns or all_bars['strike_price'].isna().any():
@@ -209,7 +215,20 @@ class LiveMarketDataProvider:
             # Get last bar for each symbol
             snapshot = all_bars.groupby('contract_symbol', as_index=False).last()
         else:
-            snapshot = all_bars
+            # If no data, return empty DataFrame with required columns
+            if all_bars.empty:
+                self.logger.debug("No options data after filtering (all_bars empty)")
+            else:
+                self.logger.warning(f"No contract_symbol column in data. Columns: {list(all_bars.columns)}")
+
+            snapshot = pd.DataFrame(columns=[
+                'timestamp', 'contract_symbol', 'underlying_ticker',
+                'strike_price', 'contract_type', 'expiration_date',
+                'open', 'high', 'low', 'close', 'volume', 'vwap',
+                'bid', 'ask', 'mark', 'bid_size', 'ask_size',
+                'delta', 'gamma', 'theta', 'vega', 'rho',
+                'implied_volatility', 'transactions'
+            ])
 
         # Calculate 'mark' price (midpoint of bid/ask) if not present
         if not snapshot.empty and 'mark' not in snapshot.columns:
