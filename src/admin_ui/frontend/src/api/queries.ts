@@ -180,10 +180,10 @@ export function useLiveStats(startTime?: string, endTime?: string) {
   return useQuery({
     queryKey: ['live-stats', startTime, endTime],
     queryFn: async () => {
-      const response = await apiClient.get<TradingStats>('/live/stats', {
+      const response = await apiClient.get<{stats: TradingStats; time_range: {start: string | null; end: string | null}}>('/live/stats', {
         params: { start_time: startTime, end_time: endTime },
       });
-      return response.data;
+      return response.data.stats;
     },
   });
 }

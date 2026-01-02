@@ -357,10 +357,10 @@ async def fetch_trading_stats(
         row = await conn.fetchrow(query, *params)
         if row:
             stats = dict(row)
-            # Calculate win rate
+            # Calculate win rate as ratio (0-1)
             total = stats.get("total_trades", 0)
             winning = stats.get("winning_trades", 0)
-            stats["win_rate"] = (winning / total * 100) if total > 0 else 0.0
+            stats["win_rate"] = (winning / total) if total > 0 else 0.0
             return stats
         return {}
 
