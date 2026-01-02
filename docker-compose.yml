@@ -244,6 +244,7 @@ services:
       dockerfile: docker/Dockerfile.nginx
     container_name: quant-vibe-admin-ui-frontend
     restart: unless-stopped
+    user: root  # Required to read Let's Encrypt certificates
     ports:
       - "80:80"        # HTTP (redirects to HTTPS)
       - "443:443"      # HTTPS for main UI
