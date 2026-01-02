@@ -344,10 +344,11 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         # Update position value
         self.update_position_value(position, options_data, underlying_price)
         print(f"NBP    Position current value: ${position.current_value:.2f}")
-        print(f"NBP    Position P&L: ${position.current_pnl:.2f}")
-        if position.current_value != 0:
-            pnl_pct = (position.current_pnl / abs(position.entry_cost)) * 100
-            print(f"NBP    P&L %: {pnl_pct:.2f}%")
+        if position.pnl is not None:
+            print(f"NBP    Position P&L: ${position.pnl:.2f}")
+            if position.current_value != 0:
+                pnl_pct = (position.pnl / abs(position.entry_cost)) * 100
+                print(f"NBP    P&L %: {pnl_pct:.2f}%")
 
         # Check profit target
         if self.check_profit_target(position):

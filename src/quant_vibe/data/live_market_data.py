@@ -253,9 +253,6 @@ class LiveMarketDataProvider:
                 has_ask_only = snapshot['bid'].isna() & snapshot['ask'].notna()
                 snapshot.loc[mask & has_ask_only, 'mark'] = snapshot.loc[mask & has_ask_only, 'ask']
 
-                num_calculated = mask.sum()
-                # print(f"DEBUG [get_current_options_snapshot] Calculated mark for {num_calculated} options")
-
         # Ensure timestamp is datetime
         if not snapshot.empty and 'timestamp' in snapshot.columns:
             if not pd.api.types.is_datetime64_any_dtype(snapshot['timestamp']):
