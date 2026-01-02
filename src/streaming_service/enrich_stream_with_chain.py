@@ -59,6 +59,17 @@ class OptionContractEnricher:
 
         try:
             response = self.client.option_chains(underlying, strikeCount=strike_count)
+
+            # Debug response before attempting JSON parse
+            if response.status_code != 200:
+                print(f"   ❌ API returned status {response.status_code}")
+                print(f"   Response text: {response.text[:500]}")
+                return 0
+
+            if not response.text or response.text.strip() == "":
+                print(f"   ❌ API returned empty response")
+                return 0
+
             chain_data = response.json()
 
             contracts_added = 0
