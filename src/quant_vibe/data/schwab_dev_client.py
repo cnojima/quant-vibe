@@ -13,11 +13,11 @@ Setup Instructions:
 2. Create an app and note:
    - API Key (Consumer Key)
    - App Secret (Consumer Secret)
-   - Callback/Redirect URL (e.g., https://127.0.0.1:8182/)
+   - Callback/Redirect URL (e.g., https://quantvibe.net:53430/)
 3. Add to .env:
    SCHWAB_API_KEY=your_api_key
    SCHWAB_API_SECRET=your_app_secret
-   SCHWAB_CALLBACK_URL=https://127.0.0.1:8182/
+   SCHWAB_CALLBACK_URL=https://quantvibe.net:53430/
    SCHWAB_ACCOUNT_NUMBER=your_account_number
 """
 
@@ -60,7 +60,7 @@ class SchwabDevClient:
         """
         self.api_key = api_key or os.getenv("SCHWAB_API_KEY")
         self.app_secret = app_secret or os.getenv("SCHWAB_API_SECRET")
-        self.callback_url = callback_url or os.getenv("SCHWAB_CALLBACK_URL", "https://127.0.0.1:8182/")
+        self.callback_url = callback_url or os.getenv("SCHWAB_CALLBACK_URL", "https://quantvibe.net:53430/")
         self.tokens_db = tokens_db or os.getenv("SCHWAB_TOKENS_DB", "./tokens/schwabdev_tokens.db")
         # Don't use plain account number from env - we'll fetch the encrypted hash
         self.account_number = None
@@ -479,7 +479,7 @@ if __name__ == "__main__":
         print("\nAdd to .env:")
         print("  SCHWAB_API_KEY=your_api_key")
         print("  SCHWAB_API_SECRET=your_app_secret")
-        print("  SCHWAB_CALLBACK_URL=https://127.0.0.1:8182/")
+        print("  SCHWAB_CALLBACK_URL=https://quantvibe.net:53430/")
     except Exception as e:
         print(f"\n❌ Error: {e}")
         print("\nTroubleshooting:")

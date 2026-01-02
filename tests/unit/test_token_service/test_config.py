@@ -105,7 +105,7 @@ class TestTokenServiceConfig:
         """Test from_env uses defaults when env vars not set."""
         config = TokenServiceConfig.from_env()
 
-        assert config.schwab_callback_url == "https://127.0.0.1:8182/"
+        assert config.schwab_callback_url == "https://quantvibe.net:53430/"
         assert config.tokens_db_path == "./tokens/schwabdev_tokens.db"
         assert config.refresh_interval_minutes == 14
         assert config.port == 8100

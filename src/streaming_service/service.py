@@ -21,7 +21,6 @@ from quant_vibe.config.logging_config import setup_normalized_logging
 from quant_vibe.messaging import RedisMessageBroker, Topic
 from quant_vibe.utils.retry import retry_with_backoff
 from streaming_service.config import StreamingConfig
-from streaming_service.token_manager import TokenManager  # Legacy - for fallback
 from streaming_service.aggregator import BarAggregator
 from streaming_service.underlying_aggregator import UnderlyingBarAggregator
 from streaming_service.enrich_stream_with_chain import OptionContractEnricher
@@ -78,32 +77,36 @@ class StreamingService:
         self.logger.info(f"  Aggregate Interval: {self.config.aggregate_interval_seconds}s")
         self.logger.info(f"  Token Refresh: Every {self.config.token_refresh_minutes} minutes")
 
-        # Initialize token management
+        # Initialize token service client
         self.token_service_client: Optional[TokenServiceClient] = None
-        self.token_manager: Optional[TokenManager] = None
 
-        if self.config.use_token_service and TOKEN_SERVICE_AVAILABLE and self.config.token_service_url:
-            # Use centralized token service
-            self.logger.info(f"  Token Mode: Centralized (via {self.config.token_service_url})")
-            try:
-                self.token_service_client = TokenServiceClient(
-                    base_url=self.config.token_service_url,
-                    logger=self.logger
-                )
-                # Test connection
-                health = self.token_service_client.health_check()
-                if health.get("status") == "healthy":
-                    self.logger.info("  ✓ Token service connected")
-                else:
-                    self.logger.warning(f"  ⚠️  Token service unhealthy: {health}")
-                    self.logger.warning("  Falling back to legacy token management")
-                    self.token_service_client = None
-            except Exception as e:
-                self.logger.warning(f"  ⚠️  Failed to connect to token service: {e}")
-                self.logger.warning("  Falling back to legacy token management")
-                self.token_service_client = None
-        else:
-            self.logger.info("  Token Mode: Legacy (local token database)")
+        if not TOKEN_SERVICE_AVAILABLE:
+            self.logger.error("  ✗ Token service client not available")
+            self.logger.error("  Please ensure token_service package is installed")
+            raise RuntimeError("Token service client not available")
+
+        if not self.config.token_service_url:
+            self.logger.error("  ✗ Token service URL not configured")
+            self.logger.error("  Set TOKEN_SERVICE_URL environment variable")
+            raise RuntimeError("Token service URL not configured")
+
+        # Use centralized token service
+        self.logger.info(f"  Token Mode: Centralized (via {self.config.token_service_url})")
+        try:
+            self.token_service_client = TokenServiceClient(
+                base_url=self.config.token_service_url,
+                logger=self.logger
+            )
+            # Test connection
+            health = self.token_service_client.health_check()
+            if health.get("status") == "healthy":
+                self.logger.info("  ✓ Token service connected")
+            else:
+                self.logger.error(f"  ✗ Token service unhealthy: {health}")
+                raise RuntimeError(f"Token service unhealthy: {health}")
+        except Exception as e:
+            self.logger.error(f"  ✗ Failed to connect to token service: {e}")
+            raise RuntimeError(f"Failed to connect to token service: {e}")
 
         # Initialize Schwab client
         self.schwab_client = schwabdev.Client(
@@ -115,12 +118,6 @@ class StreamingService:
         self.streamer = schwabdev.Stream(self.schwab_client)
         self.logger.info("  ✓ Schwabdev client initialized")
 
-        # Initialize legacy token manager if not using token service
-        if not self.token_service_client:
-            self.token_manager = TokenManager(
-                self.schwab_client,
-                refresh_interval_minutes=self.config.token_refresh_minutes
-            )
         self.aggregator = BarAggregator(
             aggregate_interval_seconds=self.config.aggregate_interval_seconds
         )
@@ -145,10 +142,7 @@ class StreamingService:
                 self.logger.warning("  ⚠️  Continuing without Redis pub/sub")
                 self.message_broker = None
 
-        if self.token_service_client:
-            self.logger.info("  ✓ Token service client initialized")
-        elif self.token_manager:
-            self.logger.info("  ✓ Legacy token manager initialized")
+        self.logger.info("  ✓ Token service client initialized")
         self.logger.info("  ✓ Bar aggregator initialized")
         self.logger.info("  ✓ Underlying bar aggregator initialized")
         self.logger.info("  ✓ TimescaleDB connected")
@@ -525,30 +519,21 @@ class StreamingService:
         self.logger.info(f"Aggregate Interval: {self.config.aggregate_interval_seconds}s")
         self.logger.info("="*70)
 
-        # Refresh token at startup
-        self.logger.info("Refreshing authentication token...")
-        refresh_success = False
+        # Verify token availability (token service handles refresh)
+        self.logger.info("Verifying authentication token...")
 
-        if self.token_service_client:
-            # Use token service
-            try:
-                if self.token_service_client.refresh_token():
-                    self.logger.info("✓ Token refreshed via token service")
-                    refresh_success = True
-                else:
-                    self.logger.warning("⚠️  Token service refresh returned false, trying local refresh")
-            except Exception as e:
-                self.logger.warning(f"⚠️  Token service refresh failed: {e}, trying local refresh")
-
-        # Fallback to legacy token manager
-        if not refresh_success and self.token_manager:
-            if self.token_manager.refresh():
-                self.logger.info("✓ Token refreshed via legacy token manager")
-                refresh_success = True
-
-        if not refresh_success:
-            self.logger.error("❌ Failed to refresh token at startup!")
-            self.logger.error("Please check your authentication credentials and token service/database.")
+        try:
+            status = self.token_service_client.get_token_status()
+            if status.get("has_token"):
+                self.logger.info("✓ Token service has valid token")
+            else:
+                self.logger.error("❌ Token service has no token!")
+                self.logger.error("Please authenticate using: python scripts/schwab_auth.py")
+                self.logger.error("Then restart the token service: docker-compose restart token_service")
+                return
+        except Exception as e:
+            self.logger.error(f"❌ Failed to check token service status: {e}")
+            self.logger.error("Please ensure token service is running: docker-compose up -d token_service")
             return
 
         # Get contracts to stream
@@ -647,22 +632,15 @@ class StreamingService:
                 if heartbeat_counter % 2 != 0:
                     continue
 
-                # Check if token refresh needed
+                # Check token service status
                 token_age = 0.0
-                if self.token_service_client:
-                    # Check token service status
-                    try:
-                        status = self.token_service_client.get_token_status()
-                        if status.get("has_token"):
-                            token_age = status.get("access_token_age_seconds", 0) / 60.0
-                            # Token service handles auto-refresh, so we don't need to manually refresh
-                    except Exception as e:
-                        self.logger.warning(f"Failed to get token status from service: {e}")
-                elif self.token_manager:
-                    # Legacy token manager - manual refresh needed
-                    if self.token_manager.needs_refresh():
-                        self.token_manager.refresh()
-                    token_age = self.token_manager.get_token_age_minutes()
+                try:
+                    status = self.token_service_client.get_token_status()
+                    if status.get("has_token"):
+                        token_age = status.get("access_token_age_seconds", 0) / 60.0
+                        # Token service handles auto-refresh, so we don't need to manually refresh
+                except Exception as e:
+                    self.logger.warning(f"Failed to get token status from service: {e}")
 
                 # Status update
                 enricher_stats = self.enricher.get_cache_stats()

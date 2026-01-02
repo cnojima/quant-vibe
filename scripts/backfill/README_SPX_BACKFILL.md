@@ -184,7 +184,7 @@ The script automatically runs `backfill_stream_greeks.py` after inserting data, 
 ```bash
 SCHWAB_API_KEY=your_api_key
 SCHWAB_API_SECRET=your_api_secret
-SCHWAB_CALLBACK_URL=https://127.0.0.1:8182/
+SCHWAB_CALLBACK_URL=https://quantvibe.net:53430/
 SCHWAB_TOKENS_DB=./tokens/schwabdev_tokens.db
 ```
 
@@ -303,7 +303,7 @@ MASSIVE_API_KEY=your_massive_api_key
 # Schwab API (for Greeks enrichment)
 SCHWAB_API_KEY=your_schwab_api_key
 SCHWAB_API_SECRET=your_schwab_secret
-SCHWAB_CALLBACK_URL=https://127.0.0.1:8182/
+SCHWAB_CALLBACK_URL=https://quantvibe.net:53430/
 SCHWAB_TOKENS_DB=./tokens/schwabdev_tokens.db
 
 # TimescaleDB

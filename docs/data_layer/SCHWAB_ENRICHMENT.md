@@ -28,7 +28,7 @@ Add to your `.env` file:
 # Schwab API Configuration
 SCHWAB_API_KEY=your_api_key_here
 SCHWAB_API_SECRET=your_app_secret_here
-SCHWAB_CALLBACK_URL=https://127.0.0.1:8182/
+SCHWAB_CALLBACK_URL=https://quantvibe.net:53430/
 SCHWAB_TOKEN_PATH=./tokens/schwab_token.json
 ```
 

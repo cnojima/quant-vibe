@@ -77,7 +77,7 @@ class TokenServiceConfig:
             schwab_api_secret=api_secret,
             schwab_callback_url=os.getenv(
                 "SCHWAB_CALLBACK_URL",
-                "https://127.0.0.1:8182/"
+                "https://quantvibe.net:53430/"
             ),
             tokens_db_path=os.getenv(
                 "SCHWAB_TOKENS_DB",
