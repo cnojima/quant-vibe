@@ -241,6 +241,26 @@ class RedisDataFeed:
         if needs_enrichment and self.bars_received == 0:
             self.logger.info(f"Enriched bar now has: expiration_date={bar.get('expiration_date')}, contract_type={bar.get('contract_type')}")
 
+        # Calculate mark price if not present (bid/ask midpoint)
+        if 'mark' not in bar or pd.isna(bar.get('mark')):
+            bid = bar.get('bid')
+            ask = bar.get('ask')
+            if bid and ask and not pd.isna(bid) and not pd.isna(ask):
+                bar['mark'] = (bid + ask) / 2
+                if self.bars_received < 3:  # Log first few
+                    self.logger.info(f"✓ Calculated mark price: {symbol} -> ${bar['mark']:.2f} (bid={bid}, ask={ask})")
+            elif bid and not pd.isna(bid):
+                bar['mark'] = bid
+                if self.bars_received < 3:
+                    self.logger.info(f"✓ Using bid as mark: {symbol} -> ${bar['mark']:.2f}")
+            elif ask and not pd.isna(ask):
+                bar['mark'] = ask
+                if self.bars_received < 3:
+                    self.logger.info(f"✓ Using ask as mark: {symbol} -> ${bar['mark']:.2f}")
+            else:
+                if self.bars_received < 3:
+                    self.logger.warning(f"Cannot calculate mark price for {symbol}: bid={bid}, ask={ask}")
+
         # Add to deque
         self.option_bars[symbol].append(bar)
         self.bars_received += 1
