@@ -8,7 +8,7 @@ engine:
 strategies:
   enabled:
   - name: bullish_vertical_put
-    enabled: false
+    enabled: true
     params:
       max_trades_daily: 1
       spread_width: 10
@@ -118,6 +118,15 @@ strategies:
       bb_period: 20
       bb_std: 2
       bb_threshold: 0
+  - name: naive_bullish_put
+    enabled: true
+    params:
+      min_dte: 0
+      max_dte: 45
+      max_trades_daily: 1
+      spread_width: 20.0
+      profit_target: 0.5
+      num_spreads: 10
 data_feed:
   window_size: 100
   aggregate_interval_seconds: 60
