@@ -29,25 +29,21 @@ FROM nginx:1.25-alpine
 # Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
 
-# Create SSL directory for OAuth callback certificates
-RUN mkdir -p /etc/nginx/ssl
-
 # Copy custom nginx config
 COPY src/admin_ui/frontend/nginx.conf /etc/nginx/conf.d/
 
-# Copy SSL certificates (if they exist)
-# These are used for OAuth callback HTTPS on port 53430
-COPY src/admin_ui/frontend/ssl/* /etc/nginx/ssl/
-
 # Copy built assets from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Note: SSL certificates are mounted from host via docker-compose volumes
+# - Let's Encrypt certs: /etc/letsencrypt (mounted from host)
 
 # Add healthcheck (use 127.0.0.1 to force IPv4)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --quiet --tries=1 --spider http://127.0.0.1/health || exit 1
 
 # Expose ports
-EXPOSE 80 53430
+EXPOSE 80 443 53430
 
 # Start nginx
 CMD ["nginx", "-g", "daemon off;"]
