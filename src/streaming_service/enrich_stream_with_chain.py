@@ -120,6 +120,8 @@ class OptionContractEnricher:
 
         except Exception as e:
             print(f"   ❌ Error refreshing chain: {e}")
+            print(f"   Response status code: {response.status_code if 'response' in locals() else 'N/A'}")
+            print(f"   Response text (first 500 chars): {response.text[:500] if 'response' in locals() and hasattr(response, 'text') else 'N/A'}")
             import traceback
             traceback.print_exc()
             return 0
