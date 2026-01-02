@@ -160,7 +160,7 @@ class StateStore:
         # Table for events/audit log
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS live_events (
-                id SERIAL PRIMARY KEY,
+                id SERIAL,
                 timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 event_type TEXT NOT NULL,
                 strategy_name TEXT,
@@ -168,7 +168,8 @@ class StateStore:
                 order_id TEXT,
                 severity TEXT NOT NULL DEFAULT 'info',
                 message TEXT NOT NULL,
-                details JSONB
+                details JSONB,
+                PRIMARY KEY (timestamp, id)
             );
         """)
         self.conn.commit()
@@ -178,6 +179,7 @@ class StateStore:
         try:
             self.cursor.execute("""
                 SELECT create_hypertable('live_events', 'timestamp',
+                    migrate_data => TRUE,
                     if_not_exists => TRUE);
             """)
             self.conn.commit()
