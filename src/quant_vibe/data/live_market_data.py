@@ -230,10 +230,31 @@ class LiveMarketDataProvider:
                 'implied_volatility', 'transactions'
             ])
 
-        # Calculate 'mark' price (midpoint of bid/ask) if not present
-        if not snapshot.empty and 'mark' not in snapshot.columns:
-            if 'bid' in snapshot.columns and 'ask' in snapshot.columns:
-                snapshot['mark'] = (snapshot['bid'] + snapshot['ask']) / 2.0
+        # Calculate 'mark' price (midpoint of bid/ask) if not present or has NaN values
+        if not snapshot.empty and 'bid' in snapshot.columns and 'ask' in snapshot.columns:
+            # Create mark column if it doesn't exist
+            if 'mark' not in snapshot.columns:
+                snapshot['mark'] = None
+
+            # Calculate mark for rows where it's missing or NaN
+            mask = snapshot['mark'].isna()
+            if mask.any():
+                # Calculate from bid/ask where both are available
+                has_both = snapshot['bid'].notna() & snapshot['ask'].notna()
+                snapshot.loc[mask & has_both, 'mark'] = (
+                    (snapshot.loc[mask & has_both, 'bid'] + snapshot.loc[mask & has_both, 'ask']) / 2.0
+                )
+
+                # Fallback to bid if no ask
+                has_bid_only = snapshot['bid'].notna() & snapshot['ask'].isna()
+                snapshot.loc[mask & has_bid_only, 'mark'] = snapshot.loc[mask & has_bid_only, 'bid']
+
+                # Fallback to ask if no bid
+                has_ask_only = snapshot['bid'].isna() & snapshot['ask'].notna()
+                snapshot.loc[mask & has_ask_only, 'mark'] = snapshot.loc[mask & has_ask_only, 'ask']
+
+                num_calculated = mask.sum()
+                print(f"DEBUG [get_current_options_snapshot] Calculated mark for {num_calculated} options")
 
         # Ensure timestamp is datetime
         if not snapshot.empty and 'timestamp' in snapshot.columns:
