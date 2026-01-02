@@ -254,7 +254,7 @@ class LiveMarketDataProvider:
                 snapshot.loc[mask & has_ask_only, 'mark'] = snapshot.loc[mask & has_ask_only, 'ask']
 
                 num_calculated = mask.sum()
-                print(f"DEBUG [get_current_options_snapshot] Calculated mark for {num_calculated} options")
+                # print(f"DEBUG [get_current_options_snapshot] Calculated mark for {num_calculated} options")
 
         # Ensure timestamp is datetime
         if not snapshot.empty and 'timestamp' in snapshot.columns:
