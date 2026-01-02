@@ -261,10 +261,6 @@ class LiveMarketDataProvider:
         # Check if we have direct underlying price tracking
         underlying_prices = self.data_feed.underlying_prices.get(ticker)
 
-        print(f"DEBUG [_build_underlying_bars_from_options] ticker={ticker}")
-        print(f"DEBUG   underlying_prices dict keys: {list(self.data_feed.underlying_prices.keys())}")
-        print(f"DEBUG   underlying_prices[{ticker}]: {underlying_prices}")
-
         if underlying_prices:
             # We have direct price data - build bars from it
             # For now, return simple bars with the current price
