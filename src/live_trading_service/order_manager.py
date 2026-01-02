@@ -266,6 +266,8 @@ class OrderManager:
 
         Positive = debit (we pay)
         Negative = credit (we receive)
+
+        NOTE: Result includes × 100 multiplier to match position.current_value convention.
         """
         total = 0.0
 
@@ -282,7 +284,8 @@ class OrderManager:
             else:  # Selling
                 price = quote.get('bid', quote.get('close', 0))
 
-            total += price * abs(leg.quantity) * (1 if leg.quantity > 0 else -1)
+            # Apply × 100 multiplier for options contracts
+            total += price * abs(leg.quantity) * 100 * (1 if leg.quantity > 0 else -1)
 
         return total
 
@@ -291,7 +294,23 @@ class OrderManager:
         legs: List[OptionLeg],
         options_data: Dict[str, Dict]
     ) -> float:
-        """Calculate expected exit price (reverse of entry)."""
+        """
+        Calculate expected exit value (position value when closing).
+
+        This represents the VALUE of the position at exit, NOT the cash flow.
+        Uses the same convention as position.current_value for P&L calculation:
+        P&L = exit_value - entry_cost
+
+        For long positions (bought):
+        - exit_value = positive (position value = price per contract × quantity × 100)
+        - If profitable: exit_value > entry_cost
+
+        For short positions (sold):
+        - exit_value = negative (position liability = -(price per contract × quantity × 100))
+        - If profitable: exit_value > entry_cost (less negative = profit)
+
+        NOTE: Result includes × 100 multiplier to match position.current_value convention.
+        """
         total = 0.0
 
         for leg in legs:
@@ -301,14 +320,16 @@ class OrderManager:
                 self.logger.warning(f"No quote data for {leg.contract_symbol}")
                 continue
 
-            # Reverse: selling becomes buying, buying becomes selling
-            if leg.quantity > 0:  # Originally bought, now selling
+            # Get exit price (we reverse the side)
+            if leg.quantity > 0:  # Originally bought, now selling at bid
                 price = quote.get('bid', quote.get('close', 0))
-            else:  # Originally sold, now buying back
+            else:  # Originally sold, now buying back at ask
                 price = quote.get('ask', quote.get('close', 0))
 
-            # Reverse sign for exit
-            total += price * abs(leg.quantity) * (-1 if leg.quantity > 0 else 1)
+            # Calculate position value (same sign convention as entry_cost and current_value)
+            # For long (positive quantity): positive value
+            # For short (negative quantity): negative value
+            total += price * leg.quantity * 100
 
         return total
 
