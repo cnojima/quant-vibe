@@ -59,14 +59,12 @@ class NaiveBullishPutStrategy(OptionsStrategy):
 
         # State tracking
         self.market_open_time: Optional[datetime] = None
-        self.has_entered_today: bool = False
         self.current_day: Optional[datetime] = None
 
     def reset_daily_state(self):
         """Reset state for a new trading day."""
         super().reset_daily_state()
         self.market_open_time = None
-        self.has_entered_today = False
 
     def analyze_market(
         self,
@@ -131,7 +129,6 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         """
         print(f"\nNBP 🚦 [SHOULD_ENTER] Called at {current_time}")
         print(f"NBP    Active position: {self.active_position is not None}")
-        print(f"NBP    Has entered today: {self.has_entered_today}")
         print(f"NBP    Can enter new position: {self.can_enter_new_position()}")
         print(f"NBP    Daily trades: {self.trades_today}/{self.max_trades_daily}")
 
@@ -140,11 +137,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
             print(f"NBP ❌ [SHOULD_ENTER] Already have active position")
             return False
 
-        # Don't enter if we've already traded today
-        if self.has_entered_today:
-            print(f"NBP ❌ [SHOULD_ENTER] Already entered today")
-            return False
-
+        # Check daily trade limit (handled by parent class)
         if not self.can_enter_new_position():
             print(f"NBP ❌ [SHOULD_ENTER] Cannot enter new position (daily limit reached)")
             return False
@@ -317,8 +310,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
 
         print(f"NBP ✅ [CONSTRUCT_SPREAD] Position created: {position_id}")
 
-        # Mark that we've entered today
-        self.has_entered_today = True
+        # Increment trade counter
         self.increment_daily_trade_count()
         print(f"NBP    Daily trades now: {self.trades_today}/{self.max_trades_daily}")
 
