@@ -95,6 +95,7 @@ class StrategyRegistry:
         'coin_toss_limit': 'Refined coin toss with limit orders: buy at $1, sell at $2 for 100% profit (educational/experimental only)',
         'bollinger_band': 'Uses Bollinger Bands for direction (calls at lower band, puts at upper band) with market orders (educational/experimental)',
         'bollinger_band_limit': 'Uses Bollinger Bands for direction (calls at lower band, puts at upper band) with limit orders: buy at $1, sell at $2 (educational/experimental)',
+        'naive_bullish_put': 'Simple vertical put spread - opens at market open for UI testing (educational/experimental)',
     }
 
     @classmethod

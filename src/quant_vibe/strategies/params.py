@@ -468,6 +468,29 @@ class BollingerBandLimitParams(BaseStrategyParams):
     )
 
 
+class NaiveBullishPutParams(BaseStrategyParams):
+    """Parameters for Naive Bullish Put strategy."""
+
+    spread_width: float = Field(
+        default=20.0,
+        ge=1.0,
+        le=100.0,
+        description="Width of vertical spread in dollars"
+    )
+    profit_target: float = Field(
+        default=0.5,
+        ge=0.1,
+        le=2.0,
+        description="Profit target as percentage (0.5 = 50%)"
+    )
+    num_spreads: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Number of spreads to open per signal"
+    )
+
+
 # Registry mapping strategy names to their parameter models
 STRATEGY_PARAMS_MAP = {
     'bullish_vertical_put': BullishVerticalPutParams,
@@ -477,6 +500,7 @@ STRATEGY_PARAMS_MAP = {
     'coin_toss_limit': CoinTossLimitParams,
     'bollinger_band': BollingerBandParams,
     'bollinger_band_limit': BollingerBandLimitParams,
+    'naive_bullish_put': NaiveBullishPutParams,
 }
 
 
