@@ -211,7 +211,7 @@ class PositionManager:
         self,
         position_id: str,
         exit_reason: str,
-        exit_price: float
+        exit_value: float
     ) -> bool:
         """
         Close a position.
@@ -219,7 +219,7 @@ class PositionManager:
         Args:
             position_id: Position to close
             exit_reason: Reason for closing
-            exit_price: Actual exit fill price
+            exit_value: Actual exit fill price
 
         Returns:
             True if closed successfully
@@ -232,11 +232,11 @@ class PositionManager:
         try:
             # Update position
             position.exit_time = datetime.now()
-            position.exit_value = exit_price
+            position.exit_value = exit_value
             position.exit_reason = exit_reason
 
             # Calculate P&L
-            pnl = exit_price - position.entry_cost
+            pnl = exit_value - position.entry_cost
 
             # Update daily stats
             self.daily_stats['closed_today'] += 1
@@ -262,7 +262,7 @@ class PositionManager:
             if self.state_store:
                 self.state_store.close_position(
                     position_id=position_id,
-                    exit_value=exit_price,
+                    exit_value=exit_value,
                     exit_reason=exit_reason
                 )
 
