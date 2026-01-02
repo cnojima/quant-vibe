@@ -150,6 +150,50 @@ class LiveMarketDataProvider:
         if not all_bars.empty and 'option_ticker' in all_bars.columns:
             all_bars = all_bars.rename(columns={'option_ticker': 'contract_symbol'})
 
+        # Enrich missing columns from contract_symbol if present
+        if not all_bars.empty and 'contract_symbol' in all_bars.columns:
+            from quant_vibe.data.schwab_utils import (
+                parse_expiration_from_ticker,
+                parse_strike_from_ticker,
+                parse_contract_type_from_ticker,
+            )
+
+            # Add missing contract_type
+            if 'contract_type' not in all_bars.columns or all_bars['contract_type'].isna().any():
+                if 'contract_type' not in all_bars.columns:
+                    all_bars['contract_type'] = None
+
+                # Fill missing contract_type from symbol
+                mask = all_bars['contract_type'].isna()
+                if mask.any():
+                    all_bars.loc[mask, 'contract_type'] = all_bars.loc[mask, 'contract_symbol'].apply(
+                        lambda x: parse_contract_type_from_ticker(x) if pd.notna(x) else None
+                    )
+
+            # Add missing strike_price
+            if 'strike_price' not in all_bars.columns or all_bars['strike_price'].isna().any():
+                if 'strike_price' not in all_bars.columns:
+                    all_bars['strike_price'] = None
+
+                # Fill missing strike_price from symbol
+                mask = all_bars['strike_price'].isna()
+                if mask.any():
+                    all_bars.loc[mask, 'strike_price'] = all_bars.loc[mask, 'contract_symbol'].apply(
+                        lambda x: parse_strike_from_ticker(x) if pd.notna(x) else None
+                    )
+
+            # Add missing expiration_date
+            if 'expiration_date' not in all_bars.columns or all_bars['expiration_date'].isna().any():
+                if 'expiration_date' not in all_bars.columns:
+                    all_bars['expiration_date'] = None
+
+                # Fill missing expiration_date from symbol
+                mask = all_bars['expiration_date'].isna()
+                if mask.any():
+                    all_bars.loc[mask, 'expiration_date'] = all_bars.loc[mask, 'contract_symbol'].apply(
+                        lambda x: pd.Timestamp(parse_expiration_from_ticker(x)) if pd.notna(x) and parse_expiration_from_ticker(x) else None
+                    )
+
         # Filter out underlying bars (keep only options bars)
         # Options bars should have expiration_date, strike_price, and contract_type
         if not all_bars.empty:
