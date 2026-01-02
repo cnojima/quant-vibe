@@ -262,15 +262,37 @@ class RedisDataFeed:
             print(f"DEBUG   No symbol in bar, skipping")
             return
 
-        # Add to deque
-        self.underlying_bars[symbol].append(bar)
+        # Normalize symbol (remove $ prefix if present)
+        normalized_symbol = symbol.lstrip('$')
+        if normalized_symbol != symbol:
+            print(f"DEBUG   Normalized symbol: '{symbol}' -> '{normalized_symbol}'")
+
+        # Add to deque (use normalized symbol)
+        self.underlying_bars[normalized_symbol].append(bar)
+
+        # Extract price from bar (prioritize close, fallback to bid/ask mid)
+        close_price = bar.get('close')
+        if not close_price:
+            # Try to calculate from bid/ask
+            bid = bar.get('bid')
+            ask = bar.get('ask')
+            if bid and ask:
+                close_price = (bid + ask) / 2
+                print(f"DEBUG   Using bid/ask mid: ({bid} + {ask}) / 2 = {close_price:.2f}")
+            elif bid:
+                close_price = bid
+                print(f"DEBUG   Using bid price: {bid:.2f}")
+            elif ask:
+                close_price = ask
+                print(f"DEBUG   Using ask price: {ask:.2f}")
 
         # Update current price
-        close_price = bar.get('close')
         if close_price:
-            self.underlying_prices[symbol] = close_price
-            print(f"DEBUG   Updated underlying_prices['{symbol}'] = ${close_price:.2f}")
+            self.underlying_prices[normalized_symbol] = close_price
+            print(f"DEBUG   Updated underlying_prices['{normalized_symbol}'] = ${close_price:.2f}")
             print(f"DEBUG   All underlying_prices keys: {list(self.underlying_prices.keys())}")
+        else:
+            print(f"DEBUG   No price available in bar (close, bid, ask all None)")
 
         self.bars_received += 1
 
