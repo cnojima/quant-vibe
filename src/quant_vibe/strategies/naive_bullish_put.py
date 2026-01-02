@@ -20,13 +20,14 @@ class NaiveBullishPutStrategy(OptionsStrategy):
     Naive Bullish Vertical Put Spread Strategy.
 
     Simple strategy for UI testing:
-    - Opens a vertical put spread at market open (9:30 AM ET)
-    - Uses $20 spread width
-    - Targets 50% profit
+    - Opens a vertical put spread immediately when started during market hours
+    - Uses $20 spread width (configurable)
+    - Targets 50% profit (configurable)
     - Exits at end of day or profit target
+    - Limited to configured number of trades per day
 
     This is a simplified version to test how multi-leg spreads
-    appear in the Admin UI.
+    appear in the Admin UI and live trading monitor.
     """
 
     def __init__(
@@ -73,7 +74,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         options_data: pd.DataFrame,
         current_time: datetime
     ) -> Dict:
-        """Simple market analysis - just track if market is open."""
+        """Simple market analysis - always ready to trade during market hours."""
         print(f"\nNBP 🔍 [ANALYZE_MARKET] Called at {current_time}")
 
         analysis = {
@@ -96,32 +97,25 @@ class NaiveBullishPutStrategy(OptionsStrategy):
             self.reset_daily_state()
             self.current_day = current_day
 
-        # Determine market open time (9:30 AM ET)
-        if self.market_open_time is None:
-            et_tz = pytz.timezone('America/New_York')
-            market_date = current_time.date()
-
-            if hasattr(current_time, 'tz') and current_time.tz is not None:
-                market_open_et = et_tz.localize(
-                    datetime.combine(market_date, datetime.strptime("09:30", "%H:%M").time())
-                )
-                self.market_open_time = market_open_et.astimezone(pytz.UTC)
-            else:
-                self.market_open_time = datetime.combine(
-                    market_date,
-                    datetime.strptime("09:30", "%H:%M").time()
-                )
-            print(f"NBP ⏰ [ANALYZE_MARKET] Market open time set to: {self.market_open_time}")
-
-        # Check if market just opened (within 5 minutes)
-        time_since_open = (current_time - self.market_open_time).total_seconds() / 60
-        print(f"NBP ⏱️  [ANALYZE_MARKET] Time since market open: {time_since_open:.2f} minutes")
-
-        if 0 <= time_since_open <= 5:
-            analysis['market_open'] = True
-            print(f"NBP ✅ [ANALYZE_MARKET] Market IS OPEN (within 5 min window)")
+        # Convert to ET to check market hours
+        et_tz = pytz.timezone('America/New_York')
+        if hasattr(current_time, 'tz') and current_time.tz is not None:
+            current_time_et = current_time.astimezone(et_tz)
         else:
-            print(f"NBP ❌ [ANALYZE_MARKET] Market NOT open (outside 5 min window)")
+            current_time_et = pytz.UTC.localize(current_time).astimezone(et_tz)
+
+        # Market hours: 9:30 AM - 4:00 PM ET
+        market_hour = current_time_et.hour
+        market_minute = current_time_et.minute
+
+        print(f"NBP ⏰ [ANALYZE_MARKET] Current time ET: {current_time_et.strftime('%H:%M:%S')}")
+
+        # Check if within market hours (9:30 AM - 4:00 PM ET)
+        if (market_hour > 9 or (market_hour == 9 and market_minute >= 30)) and market_hour < 16:
+            analysis['market_open'] = True
+            print(f"NBP ✅ [ANALYZE_MARKET] Market IS OPEN (within market hours)")
+        else:
+            print(f"NBP ❌ [ANALYZE_MARKET] Market NOT open (outside market hours)")
 
         return analysis
 
@@ -133,7 +127,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         market_analysis: Dict
     ) -> bool:
         """
-        Enter at market open if we haven't traded today.
+        Enter immediately during market hours if we haven't traded today.
         """
         print(f"\nNBP 🚦 [SHOULD_ENTER] Called at {current_time}")
         print(f"NBP    Active position: {self.active_position is not None}")
