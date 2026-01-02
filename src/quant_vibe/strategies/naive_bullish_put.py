@@ -139,7 +139,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         print(f"NBP    Active position: {self.active_position is not None}")
         print(f"NBP    Has entered today: {self.has_entered_today}")
         print(f"NBP    Can enter new position: {self.can_enter_new_position()}")
-        print(f"NBP    Daily trades: {self.daily_trade_count}/{self.max_trades_daily}")
+        print(f"NBP    Daily trades: {self.trades_today}/{self.max_trades_daily}")
 
         # Don't enter if we have an active position
         if self.active_position is not None:
@@ -321,7 +321,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         # Mark that we've entered today
         self.has_entered_today = True
         self.increment_daily_trade_count()
-        print(f"NBP    Daily trades now: {self.daily_trade_count}/{self.max_trades_daily}")
+        print(f"NBP    Daily trades now: {self.trades_today}/{self.max_trades_daily}")
 
         return position
 
