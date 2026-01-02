@@ -82,14 +82,6 @@ class NaiveBullishPutStrategy(OptionsStrategy):
             'current_price': 0.0,
         }
 
-        if underlying_data.empty:
-            print(f"NBP ⚠️  [ANALYZE_MARKET] No underlying data available")
-            return analysis
-
-        current_price = underlying_data['close'].iloc[-1]
-        analysis['current_price'] = current_price
-        print(f"NBP 💰 [ANALYZE_MARKET] Current price: ${current_price:.2f}")
-
         # Check if new trading day
         current_day = current_time.date()
         if self.current_day is None or current_day != self.current_day:
@@ -116,6 +108,14 @@ class NaiveBullishPutStrategy(OptionsStrategy):
             print(f"NBP ✅ [ANALYZE_MARKET] Market IS OPEN (within market hours)")
         else:
             print(f"NBP ❌ [ANALYZE_MARKET] Market NOT open (outside market hours)")
+
+        # Get current price if available
+        if underlying_data.empty:
+            print(f"NBP ⚠️  [ANALYZE_MARKET] No underlying data available")
+        else:
+            current_price = underlying_data['close'].iloc[-1]
+            analysis['current_price'] = current_price
+            print(f"NBP 💰 [ANALYZE_MARKET] Current price: ${current_price:.2f}")
 
         return analysis
 
