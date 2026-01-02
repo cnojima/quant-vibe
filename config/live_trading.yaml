@@ -18,8 +18,8 @@ strategies:
       profit_target_max: 1
       trailing_stop_pct: 0.05
       min_dte: 0
-      max_dte: 45
-      num_spreads: 1
+      max_dte: 2
+      num_spreads: 10
       min_volume: 50
       min_bid_ask_spread_pct: 10
   - name: bullish_vertical_call
@@ -32,9 +32,9 @@ strategies:
       profit_target_min: 0.5
       profit_target_max: 1
       trailing_stop_pct: 0.05
-      min_dte: 7
-      max_dte: 45
-      num_spreads: 1
+      min_dte: 0
+      max_dte: 2
+      num_spreads: 10
   - name: bearish_iv_scalp
     enabled: true
     params:
@@ -98,8 +98,8 @@ strategies:
       profit_target_pct: 1
       stop_loss_pct: 0.5
       bb_period: 20
-      bb_std: 2.0
-      bb_threshold: 0.0
+      bb_std: 2
+      bb_threshold: 0
   - name: bollinger_band_limit
     enabled: true
     params:
@@ -116,8 +116,8 @@ strategies:
       stop_loss_pct: 0.5
       order_expiry_minutes: 60
       bb_period: 20
-      bb_std: 2.0
-      bb_threshold: 0.0
+      bb_std: 2
+      bb_threshold: 0
 data_feed:
   window_size: 100
   aggregate_interval_seconds: 60
