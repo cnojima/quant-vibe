@@ -104,10 +104,10 @@ strategies:
       profit_target_pct: 1
       stop_loss_pct: 0.5
       bb_period: 20
-      bb_std: 2.0
-      bb_threshold: 0.0
+      bb_std: 2
+      bb_threshold: 0
   - name: bollinger_band_limit
-    enabled: false
+    enabled: true
     params:
       target_contract_price: 2
       limit_buy_price: 1
@@ -122,8 +122,8 @@ strategies:
       stop_loss_pct: 0.5
       order_expiry_minutes: 60
       bb_period: 20
-      bb_std: 2.0
-      bb_threshold: 0.0
+      bb_std: 2
+      bb_threshold: 0
 data_source:
   underlying_ticker: SPX
   db_profile: auto
