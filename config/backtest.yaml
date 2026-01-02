@@ -133,6 +133,17 @@ strategies:
       spread_width: 20
       profit_target: 0.5
       num_spreads: 10
+  - name: hail_mary
+    enabled: true
+    params:
+      strike_otm_min_pct: 0.05      # 5% OTM minimum
+      strike_otm_max_pct: 0.10      # 10% OTM maximum
+      entry_time_before_close: 15   # Enter 15 min before close
+      num_contracts: 10             # Buy 10 contracts
+      trailing_stop_pct: 0.05       # 5% trailing stop
+      min_volume: 50                # Liquidity filter
+      max_bid_ask_spread_pct: 15.0  # Max 15% spread
+      max_trades_daily: 1           # Once per day
 data_source:
   underlying_ticker: SPX
   db_profile: auto
