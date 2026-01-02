@@ -101,15 +101,20 @@ class StrategyExecutor:
             options_data: Options chain data (current snapshot)
             current_time: Current timestamp
         """
+        logger.debug(f"on_bar() called: time={current_time}, enabled={self.enabled}, underlying_bars={len(underlying_data)}, options_contracts={len(options_data)}")
+
         # Skip if disabled
         if not self.enabled:
+            logger.debug("Skipping: strategy execution disabled")
             return
 
         # Skip if this is the same bar we already processed
         if self.last_bar_time == current_time:
+            logger.debug(f"Skipping: already processed bar at {current_time}")
             return
 
         self.last_bar_time = current_time
+        logger.debug(f"Processing new bar at {current_time}")
 
         # Update latest options data for exit orders
         # Convert DataFrame to dict format {contract_symbol: {bid, ask, close, ...}}
@@ -164,12 +169,15 @@ class StrategyExecutor:
             options_data: Options chain data
             current_time: Current timestamp
         """
+        logger.debug(f"Executing strategy: {strategy_name}, has_position={strategy.active_position is not None}")
+
         # Step 1: Analyze market
         market_analysis = strategy.analyze_market(
             underlying_data=underlying_data,
             options_data=options_data,
             current_time=current_time,
         )
+        logger.debug(f"{strategy_name} market analysis: {market_analysis}")
 
         # Step 2: Check for entry signals
         if strategy.active_position is None:
@@ -179,6 +187,7 @@ class StrategyExecutor:
                 current_time=current_time,
                 market_analysis=market_analysis,
             )
+            logger.debug(f"{strategy_name} entry check: should_enter={should_enter}")
 
             if should_enter:
                 self._handle_entry(
@@ -198,6 +207,7 @@ class StrategyExecutor:
                 options_data=options_data,
                 current_time=current_time,
             )
+            logger.debug(f"{strategy_name} exit check: should_exit={should_exit}, reason={exit_reason}")
 
             if should_exit:
                 self._handle_exit(

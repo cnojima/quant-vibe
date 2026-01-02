@@ -152,8 +152,11 @@ class OrderManager:
         Returns:
             Tuple of (success, message, order)
         """
+        self.logger.debug(f"submit_position_entry() called: strategy={strategy_name}, position={position.position_id}, paper_trading={self.paper_trading}")
+
         # Create order
         order = self._create_order_from_position(position, strategy_name, is_opening=True)
+        self.logger.debug(f"Created order: {order.order_id}, legs={len(position.legs)}")
 
         # Calculate expected price from position legs
         expected_price = self._calculate_expected_price(position.legs, options_data)
@@ -161,14 +164,19 @@ class OrderManager:
 
         if self.paper_trading:
             # Simulated mode
+            self.logger.debug(f"Simulating fill for order {order.order_id}")
             success, message = self._simulate_fill(order, options_data)
         else:
             # Live mode
+            self.logger.debug(f"Submitting order {order.order_id} to Schwab API")
             success, message = self._submit_to_schwab(order)
+
+        self.logger.debug(f"Order submission result: success={success}, message={message}")
 
         if success:
             self.active_orders[order.order_id] = order
             self._persist_order(order)
+            self.logger.debug(f"Order {order.order_id} added to active orders")
 
         return success, message, order if success else None
 
@@ -189,8 +197,11 @@ class OrderManager:
         Returns:
             Tuple of (success, message, order)
         """
+        self.logger.debug(f"submit_position_exit() called: strategy={strategy_name}, position={position.position_id}")
+
         # Create closing order (reverse sides)
         order = self._create_order_from_position(position, strategy_name, is_opening=False)
+        self.logger.debug(f"Created exit order: {order.order_id}")
 
         # Calculate expected exit price
         expected_price = self._calculate_exit_price(position.legs, options_data)

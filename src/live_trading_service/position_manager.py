@@ -66,6 +66,8 @@ class PositionManager:
         Returns:
             True if added successfully
         """
+        self.logger.debug(f"add_position() called: position_id={position.position_id}, strategy={strategy_name}, fill_price=${fill_price:.2f}")
+
         try:
             # Update position with actual fill
             position.entry_cost = fill_price
@@ -74,6 +76,7 @@ class PositionManager:
             # Track position
             self.open_positions[position.position_id] = position
             self.positions_by_strategy[strategy_name].append(position.position_id)
+            self.logger.debug(f"Position tracked: {len(self.open_positions)} total open positions")
 
             # Update capital
             self.total_capital_deployed += abs(fill_price)
@@ -106,6 +109,8 @@ class PositionManager:
         Args:
             options_data: Current options data {symbol: {bid, ask, close, ...}}
         """
+        self.logger.debug(f"update_position_values() called: {len(self.open_positions)} positions, {len(options_data)} option quotes")
+
         for position in self.open_positions.values():
             try:
                 new_value = self._calculate_position_value(position, options_data)
