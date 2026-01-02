@@ -163,7 +163,12 @@ class NaiveBullishPutStrategy(OptionsStrategy):
 
         print(f"NBP    Options data rows: {len(options_data)}")
 
+        # Check if we have current price
         current_price = market_analysis.get('current_price', 0)
+        if current_price == 0:
+            print(f"NBP ❌ [SHOULD_ENTER] No current price available (underlying data missing)")
+            return False
+
         print(f"\nNBP 🎯 [SHOULD_ENTER] ✅ ENTRY SIGNAL - Market Open")
         print(f"NBP    Current Price: ${current_price:.2f}")
 

@@ -261,12 +261,18 @@ class LiveMarketDataProvider:
         # Check if we have direct underlying price tracking
         underlying_prices = self.data_feed.underlying_prices.get(ticker)
 
+        print(f"DEBUG [_build_underlying_bars_from_options] ticker={ticker}")
+        print(f"DEBUG   underlying_prices dict keys: {list(self.data_feed.underlying_prices.keys())}")
+        print(f"DEBUG   underlying_prices[{ticker}]: {underlying_prices}")
+
         if underlying_prices:
             # We have direct price data - build bars from it
             # For now, return simple bars with the current price
             # In the future, we could aggregate these into proper OHLCV bars
             current_price = underlying_prices
             current_time = self.data_feed.last_update_time or datetime.now()
+
+            print(f"DEBUG   Using direct price data: ${current_price:.2f} at {current_time}")
 
             return [{
                 'timestamp': current_time,
@@ -279,9 +285,12 @@ class LiveMarketDataProvider:
             }]
 
         # Fallback: Get all options bars and extract underlying price
+        print(f"DEBUG   No direct price data, falling back to options data")
         options_df = self.data_feed.get_bars(symbol=None)
+        print(f"DEBUG   Options bars available: {len(options_df)}")
 
         if options_df.empty:
+            print(f"DEBUG   No options data available - returning empty")
             return []
 
         # Group by timestamp and take median underlying price
