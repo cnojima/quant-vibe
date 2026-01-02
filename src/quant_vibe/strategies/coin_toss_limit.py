@@ -25,6 +25,7 @@ from quant_vibe.strategies.options_base import (
     OptionType,
     SpreadType,
 )
+from live_trading_service.utils import generate_position_id
 
 
 class OrderStatus(Enum):
@@ -526,8 +527,11 @@ class CoinTossLimitStrategy(OptionsStrategy):
             OptionsPosition
         """
         # Create position
-        date_str = current_time.strftime("%Y-%m-%d")
-        position_id = f"COINLIMIT_{date_str}_{filled_order.order_id}"
+        position_id = generate_position_id(
+            strategy_prefix="COINLIMIT",
+            current_time=current_time,
+            counter=self.trades_today + 1
+        )
 
         leg = OptionLeg(
             contract_symbol=filled_order.contract_symbol,

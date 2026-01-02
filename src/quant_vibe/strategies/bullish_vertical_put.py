@@ -12,6 +12,7 @@ from .options_base import (
     OptionType,
     SpreadType
 )
+from live_trading_service.utils import generate_position_id
 
 
 class BullishVerticalPutStrategy(OptionsStrategy):
@@ -530,7 +531,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         # Create position
         # For credit spreads: entry_cost is negative (we receive credit)
         position = OptionsPosition(
-            position_id=f"BVP_{current_time.strftime('%Y%m%d_%H%M%S')}",
+            position_id=generate_position_id("BVP", current_time),
             spread_type=SpreadType.VERTICAL_PUT,
             legs=legs,
             entry_time=current_time,

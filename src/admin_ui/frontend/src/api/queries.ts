@@ -185,6 +185,7 @@ export function useLiveStats(startTime?: string, endTime?: string) {
       });
       return response.data.stats;
     },
+    refetchInterval: 5000, // Poll every 5 seconds
   });
 }
 

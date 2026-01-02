@@ -251,8 +251,10 @@ class StateStore:
                     exit_time = EXCLUDED.exit_time,
                     exit_value = EXCLUDED.exit_value,
                     exit_reason = EXCLUDED.exit_reason,
+                    legs = EXCLUDED.legs,
                     metadata = EXCLUDED.metadata,
                     updated_at = NOW()
+                WHERE live_positions.status != 'closed' OR EXCLUDED.status = 'closed'
             """, {
                 'position_id': position_data['position_id'],
                 'strategy_name': position_data['strategy_name'],

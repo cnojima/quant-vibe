@@ -343,13 +343,13 @@ async def fetch_trading_stats(
         SELECT
             COUNT(*) as total_trades,
             SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
-            SUM(CASE WHEN realized_pnl <= 0 THEN 1 ELSE 0 END) as losing_trades,
+            SUM(CASE WHEN realized_pnl < 0 THEN 1 ELSE 0 END) as losing_trades,
             SUM(realized_pnl) as total_pnl,
             AVG(realized_pnl) as avg_pnl,
             MAX(realized_pnl) as max_win,
             MIN(realized_pnl) as max_loss,
             AVG(CASE WHEN realized_pnl > 0 THEN realized_pnl END) as avg_win,
-            AVG(CASE WHEN realized_pnl <= 0 THEN realized_pnl END) as avg_loss
+            AVG(CASE WHEN realized_pnl < 0 THEN realized_pnl END) as avg_loss
         FROM pnl_calc
     """
 

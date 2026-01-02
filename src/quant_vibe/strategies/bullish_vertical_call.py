@@ -12,6 +12,7 @@ from .options_base import (
     OptionType,
     SpreadType
 )
+from live_trading_service.utils import generate_position_id
 
 
 class BullishVerticalCallStrategy(OptionsStrategy):
@@ -422,7 +423,7 @@ class BullishVerticalCallStrategy(OptionsStrategy):
 
         # Create position
         position = OptionsPosition(
-            position_id=f"BVC_{current_time.strftime('%Y%m%d_%H%M%S')}",
+            position_id=generate_position_id("BVC", current_time),
             spread_type=SpreadType.VERTICAL_CALL,
             legs=legs,
             entry_time=current_time,

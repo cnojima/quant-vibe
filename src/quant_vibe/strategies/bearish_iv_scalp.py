@@ -20,6 +20,7 @@ from .options_base import (
     OptionType,
     SpreadType
 )
+from live_trading_service.utils import generate_position_id
 
 
 class BearishIVScalpStrategy(OptionsStrategy):
@@ -604,7 +605,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
 
         # Create position
         position = OptionsPosition(
-            position_id=f"BIVS_{current_time.strftime('%Y%m%d_%H%M%S')}",
+            position_id=generate_position_id("BIVS", current_time),
             spread_type=SpreadType.VERTICAL_CALL,
             legs=legs,
             entry_time=current_time,

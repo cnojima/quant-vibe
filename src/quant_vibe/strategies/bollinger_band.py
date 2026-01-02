@@ -25,6 +25,7 @@ from quant_vibe.strategies.options_base import (
     OptionType,
     SpreadType,
 )
+from live_trading_service.utils import generate_position_id
 
 
 class BollingerBandStrategy(OptionsStrategy):
@@ -347,8 +348,11 @@ class BollingerBandStrategy(OptionsStrategy):
         selected = options_filtered.iloc[0]
 
         # Create position ID
-        date_str = current_time.strftime("%Y-%m-%d")
-        position_id = f"BB_{date_str}_{self.trades_today + 1}"
+        position_id = generate_position_id(
+            strategy_prefix="BB",
+            current_time=current_time,
+            counter=self.trades_today + 1
+        )
 
         # Use the ask price as entry price
         # This is a market order - we buy at ask price

@@ -23,6 +23,7 @@ from quant_vibe.strategies.options_base import (
     OptionType,
     SpreadType,
 )
+from live_trading_service.utils import generate_position_id
 
 
 class CoinTossStrategy(OptionsStrategy):
@@ -240,9 +241,12 @@ class CoinTossStrategy(OptionsStrategy):
         # Pick the closest one to target price
         selected = options_filtered.iloc[0]
 
-        # Create position ID
-        date_str = current_time.strftime("%Y-%m-%d")
-        position_id = f"COIN_{date_str}_{self.trades_today + 1}"
+        # Create position ID with timestamp to ensure uniqueness
+        position_id = generate_position_id(
+            strategy_prefix="COIN",
+            current_time=current_time,
+            counter=self.trades_today + 1
+        )
 
         # Use the ask price as entry price
         # This is a "naive" strategy - we just buy at market (ask price)
