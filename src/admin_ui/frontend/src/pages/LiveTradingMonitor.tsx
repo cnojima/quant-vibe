@@ -461,15 +461,15 @@ export function LiveTradingMonitor() {
                   </div>
                   <div>
                     <div className="text-gray-600">Quantity</div>
-                    <div className="font-medium">{position.quantity ?? 0}</div>
+                    <div className="font-medium">{position.legs?.[0]?.quantity ?? 0}</div>
                   </div>
                   <div>
-                    <div className="text-gray-600">Entry Price</div>
-                    <div className="font-medium">{formatCurrency(position.entry_price ?? 0)}</div>
+                    <div className="text-gray-600">Entry Cost</div>
+                    <div className="font-medium">{formatCurrency(position.entry_cost ?? 0)}</div>
                   </div>
                   <div>
-                    <div className="text-gray-600">Current Price</div>
-                    <div className="font-medium">{formatCurrency(position.current_price ?? 0)}</div>
+                    <div className="text-gray-600">Current Value</div>
+                    <div className="font-medium">{formatCurrency(position.current_value ?? 0)}</div>
                   </div>
                 </div>
 
