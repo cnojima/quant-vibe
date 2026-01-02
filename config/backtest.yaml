@@ -137,7 +137,7 @@ strategies:
       min_dte: 0
       max_dte: 0
       max_trades_daily: 10
-      spread_width: 20
+      spread_width: 5
       profit_target: 0.5
       num_spreads: 10
       trailing_stop_pct: 0
