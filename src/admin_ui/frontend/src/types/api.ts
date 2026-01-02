@@ -237,3 +237,23 @@ export interface StrategyToggleRequest {
 export interface StrategyUpdateRequest {
   params: Record<string, any>;
 }
+
+export interface ActiveStrategyStats {
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  total_pnl: number;
+  win_rate: number;
+}
+
+export interface ActiveStrategy {
+  name: string;
+  enabled: boolean;
+  params: Record<string, any>;
+  stats: ActiveStrategyStats;
+}
+
+export interface ActiveStrategiesResponse {
+  strategies: ActiveStrategy[];
+  count: number;
+}

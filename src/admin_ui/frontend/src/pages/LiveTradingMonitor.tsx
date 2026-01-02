@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useLiveStatus, useLivePositions, useLiveOrders, useLiveEvents, useLiveStats, useDailyReport, useRecentDailyReports } from '../api/queries';
+import { useLiveStatus, useLivePositions, useLiveOrders, useLiveEvents, useLiveStats, useDailyReport, useRecentDailyReports, useActiveStrategies } from '../api/queries';
 // import { useWebSocket } from '../hooks/useWebSocket';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
@@ -15,6 +15,7 @@ export function LiveTradingMonitor() {
   const { data: stats} = useLiveStats();
   const { data: todayReport } = useDailyReport();
   const { data: recentReports } = useRecentDailyReports(7);
+  const { data: activeStrategies } = useActiveStrategies();
 
   // WebSocket disabled - using REST API polling instead
   // WebSocket has issues with React StrictMode + Docker networking
@@ -150,6 +151,94 @@ export function LiveTradingMonitor() {
                 {stats.sharpe_ratio ? stats.sharpe_ratio.toFixed(2) : 'N/A'}
               </div>
             </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Active Strategies */}
+      {activeStrategies && activeStrategies.strategies.length > 0 && (
+        <Card className="mb-6">
+          <h3 className="text-lg font-semibold mb-4">Active Trading Strategies ({activeStrategies.count})</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {activeStrategies.strategies.map((strategy) => (
+              <div key={strategy.name} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex-1">
+                    <h4 className="font-semibold text-base text-gray-900 capitalize">
+                      {strategy.name.replace(/_/g, ' ')}
+                    </h4>
+                    <Badge variant="success" className="mt-1">Active</Badge>
+                  </div>
+                </div>
+
+                {/* Strategy Stats */}
+                {strategy.stats.total_trades > 0 && (
+                  <div className="mb-3 pb-3 border-b border-gray-200">
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <div className="text-gray-600">Trades</div>
+                        <div className="font-semibold">{strategy.stats.total_trades}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-600">Win Rate</div>
+                        <div className="font-semibold">
+                          {(strategy.stats.win_rate * 100).toFixed(1)}%
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-600">P&L</div>
+                        <div className={`font-semibold ${strategy.stats.total_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatCurrency(strategy.stats.total_pnl)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-600">W / L</div>
+                        <div className="font-semibold text-xs">
+                          <span className="text-green-600">{strategy.stats.winning_trades}</span>
+                          {' / '}
+                          <span className="text-red-600">{strategy.stats.losing_trades}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Key Parameters */}
+                <div className="text-xs text-gray-600">
+                  <div className="font-medium text-gray-700 mb-1">Key Parameters:</div>
+                  <div className="space-y-0.5">
+                    {strategy.params.max_trades_daily && (
+                      <div className="flex justify-between">
+                        <span>Max Daily Trades:</span>
+                        <span className="font-mono text-gray-900">{strategy.params.max_trades_daily}</span>
+                      </div>
+                    )}
+                    {strategy.params.spread_width && (
+                      <div className="flex justify-between">
+                        <span>Spread Width:</span>
+                        <span className="font-mono text-gray-900">{strategy.params.spread_width}</span>
+                      </div>
+                    )}
+                    {strategy.params.profit_target_min !== undefined && (
+                      <div className="flex justify-between">
+                        <span>Profit Target:</span>
+                        <span className="font-mono text-gray-900">
+                          {(strategy.params.profit_target_min * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    )}
+                    {strategy.params.min_dte !== undefined && strategy.params.max_dte !== undefined && (
+                      <div className="flex justify-between">
+                        <span>DTE Range:</span>
+                        <span className="font-mono text-gray-900">
+                          {strategy.params.min_dte}-{strategy.params.max_dte}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </Card>
       )}

@@ -16,6 +16,7 @@ import type {
   LoginResponse,
   StrategyInfo,
   StrategyListResponse,
+  ActiveStrategiesResponse,
 } from '../types/api';
 
 // Auth queries
@@ -208,6 +209,17 @@ export function useRecentDailyReports(days: number = 7) {
       });
       return response.data.reports;
     },
+  });
+}
+
+export function useActiveStrategies() {
+  return useQuery({
+    queryKey: ['active-strategies'],
+    queryFn: async () => {
+      const response = await apiClient.get<ActiveStrategiesResponse>('/live/strategies/active');
+      return response.data;
+    },
+    refetchInterval: 10000, // Refresh every 10 seconds
   });
 }
 

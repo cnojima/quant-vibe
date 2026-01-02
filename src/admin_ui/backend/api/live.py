@@ -289,3 +289,101 @@ async def get_recent_daily_reports(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch reports: {str(e)}")
+
+
+@router.get("/strategies/active")
+async def get_active_strategies(current_user: User = Depends(get_current_user)):
+    """
+    Get list of active trading strategies from live trading config.
+
+    Args:
+        current_user: Authenticated user
+
+    Returns:
+        List of active strategies with their parameters
+    """
+    try:
+        import yaml
+        from pathlib import Path
+
+        # Load live trading config
+        config_path = Path(__file__).parent.parent.parent.parent.parent / "config" / "live_trading.yaml"
+
+        if not config_path.exists():
+            raise HTTPException(status_code=404, detail="Live trading config not found")
+
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+
+        strategies = config.get("strategies", {}).get("enabled", [])
+        active_strategies = [s for s in strategies if s.get("enabled", False)]
+
+        # Get stats per strategy
+        stats_by_strategy = {}
+        try:
+            state_store = StateStore()
+            try:
+                # Get all closed positions to calculate stats per strategy
+                closed_positions = await timescale.fetch_closed_positions(limit=1000)
+
+                # Group by strategy
+                from collections import defaultdict
+                strategy_stats = defaultdict(lambda: {
+                    "total_trades": 0,
+                    "winning_trades": 0,
+                    "losing_trades": 0,
+                    "total_pnl": 0.0,
+                })
+
+                for pos in closed_positions:
+                    strategy = pos.get("strategy", "unknown")
+                    pnl = pos.get("realized_pnl", 0) or 0
+
+                    strategy_stats[strategy]["total_trades"] += 1
+                    strategy_stats[strategy]["total_pnl"] += pnl
+
+                    if pnl > 0:
+                        strategy_stats[strategy]["winning_trades"] += 1
+                    elif pnl < 0:
+                        strategy_stats[strategy]["losing_trades"] += 1
+
+                # Calculate win rate for each
+                for strat, stats in strategy_stats.items():
+                    if stats["total_trades"] > 0:
+                        stats["win_rate"] = stats["winning_trades"] / stats["total_trades"]
+                    else:
+                        stats["win_rate"] = 0.0
+
+                stats_by_strategy = dict(strategy_stats)
+
+            finally:
+                state_store.close()
+        except Exception as e:
+            # If stats fetch fails, just continue without stats
+            pass
+
+        # Enrich strategies with stats
+        enriched_strategies = []
+        for strat in active_strategies:
+            strat_name = strat.get("name", "unknown")
+            strat_data = {
+                "name": strat_name,
+                "enabled": strat.get("enabled", False),
+                "params": strat.get("params", {}),
+                "stats": stats_by_strategy.get(strat_name, {
+                    "total_trades": 0,
+                    "winning_trades": 0,
+                    "losing_trades": 0,
+                    "total_pnl": 0.0,
+                    "win_rate": 0.0,
+                })
+            }
+            enriched_strategies.append(strat_data)
+
+        return {
+            "strategies": enriched_strategies,
+            "count": len(enriched_strategies),
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch active strategies: {str(e)}")
