@@ -491,6 +491,53 @@ class NaiveBullishPutParams(BaseStrategyParams):
     )
 
 
+class HailMaryParams(BaseStrategyParams):
+    """Parameters for Hail Mary strategy."""
+
+    strike_otm_min_pct: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        description="Minimum percentage OTM for strike selection (0.05 = 5%)"
+    )
+    strike_otm_max_pct: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="Maximum percentage OTM for strike selection (0.10 = 10%)"
+    )
+    entry_time_before_close: int = Field(
+        default=15,
+        ge=1,
+        le=60,
+        description="Minutes before market close to enter position"
+    )
+    num_contracts: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Number of call contracts to buy"
+    )
+    trailing_stop_pct: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        description="Trailing stop percentage (0.05 = 5%)"
+    )
+    min_volume: int = Field(
+        default=50,
+        ge=0,
+        le=100000,
+        description="Minimum volume per contract for liquidity"
+    )
+    max_bid_ask_spread_pct: float = Field(
+        default=15.0,
+        ge=0.0,
+        le=100.0,
+        description="Maximum bid/ask spread percentage"
+    )
+
+
 # Registry mapping strategy names to their parameter models
 STRATEGY_PARAMS_MAP = {
     'bullish_vertical_put': BullishVerticalPutParams,
@@ -501,6 +548,7 @@ STRATEGY_PARAMS_MAP = {
     'bollinger_band': BollingerBandParams,
     'bollinger_band_limit': BollingerBandLimitParams,
     'naive_bullish_put': NaiveBullishPutParams,
+    'hail_mary': HailMaryParams,
 }
 
 
