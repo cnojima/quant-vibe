@@ -13,8 +13,25 @@ from typing import Dict, List, Optional, Any
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
+import numpy as np
 
 load_dotenv()
+
+
+def _json_serialize_safe(obj):
+    """Convert numpy types to native Python types for JSON serialization."""
+    if isinstance(obj, (np.integer, np.int64, np.int32)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float64, np.float32)):
+        return float(obj)
+    elif isinstance(obj, (np.bool_, bool)):
+        return bool(obj)
+    elif isinstance(obj, dict):
+        return {k: _json_serialize_safe(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_json_serialize_safe(i) for i in obj]
+    else:
+        return obj
 
 
 class StateStore:
@@ -488,6 +505,12 @@ class StateStore:
             details: Additional details as dict
         """
         try:
+            # Safely serialize details dict (handles numpy types)
+            details_json = None
+            if details:
+                safe_details = _json_serialize_safe(details)
+                details_json = json.dumps(safe_details)
+
             self.cursor.execute("""
                 INSERT INTO live_events (
                     timestamp, event_type, strategy_name, position_id, order_id,
@@ -497,7 +520,7 @@ class StateStore:
                 )
             """, (
                 event_type, strategy_name, position_id, order_id,
-                severity, message, json.dumps(details) if details else None
+                severity, message, details_json
             ))
             self.conn.commit()
         except Exception as e:

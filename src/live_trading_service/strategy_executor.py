@@ -375,7 +375,7 @@ class StrategyExecutor:
 
         # Calculate P&L
         pnl = position.pnl
-        is_win = pnl > 0 if pnl is not None else False
+        is_win = bool(pnl > 0 if pnl is not None else False)
 
         # Update stats
         self.strategy_stats[strategy_name]['positions_closed'] += 1
@@ -398,7 +398,7 @@ class StrategyExecutor:
                 'exit_value': float(position.exit_value),
                 'pnl': float(pnl) if pnl else 0.0,
                 'pnl_percent': float(position.pnl_percent) if position.pnl_percent else 0.0,
-                'exit_reason': exit_reason,
+                'exit_reason': str(exit_reason),
                 'is_win': is_win,
             }
         )
