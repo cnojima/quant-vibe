@@ -47,7 +47,7 @@ interface LiveTradesChartProps {
   trades?: TradeData[];
 }
 
-export function LiveTradesChart({ data, underlyingData = [], trades = [], initialCapital = 800000 }: LiveTradesChartProps) {
+export function LiveTradesChart({ data, underlyingData = [], trades = [] }: LiveTradesChartProps) {
   const [selectedTradeIndex, setSelectedTradeIndex] = useState<number | null>(null);
 
   const formatCurrency = (value: number) => {
