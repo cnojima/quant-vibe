@@ -281,9 +281,7 @@ class LiveMarketDataProvider:
             }]
 
         # Fallback: Get all options bars and extract underlying price
-        print(f"DEBUG   No direct price data, falling back to options data")
         options_df = self.data_feed.get_bars(symbol=None)
-        print(f"DEBUG   Options bars available: {len(options_df)}")
 
         if options_df.empty:
             print(f"DEBUG   No options data available - returning empty")
