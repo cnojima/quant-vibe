@@ -344,9 +344,10 @@ class CoinTossStrategy(OptionsStrategy):
                 if not pd.isna(bid_price) and bid_price > 0:
                     position.current_value = bid_price * leg.quantity * 100
                     position.legs[0].current_price = bid_price
-                    # Recalculate P&L with actual bid price
-                    pnl = position.current_value - position.entry_cost
-                    pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
+
+            # Calculate final P&L with actual bid price (do this AFTER the override)
+            pnl = position.current_value - position.entry_cost
+            pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
 
             return True, f"Profit target ({position.profit_target*100:.0f}%) reached - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 
@@ -363,8 +364,10 @@ class CoinTossStrategy(OptionsStrategy):
                     if not pd.isna(bid_price) and bid_price > 0:
                         position.current_value = bid_price * leg.quantity * 100
                         position.legs[0].current_price = bid_price
-                        pnl = position.current_value - position.entry_cost
-                        pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
+
+                # Calculate final P&L with actual bid price (do this AFTER the override)
+                pnl = position.current_value - position.entry_cost
+                pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
 
                 return True, f"Stop loss ({abs(position.stop_loss)*100:.0f}%) hit - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 
@@ -384,8 +387,10 @@ class CoinTossStrategy(OptionsStrategy):
                 if not pd.isna(bid_price) and bid_price > 0:
                     position.current_value = bid_price * leg.quantity * 100
                     position.legs[0].current_price = bid_price
-                    pnl = position.current_value - position.entry_cost
-                    pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
+
+            # Calculate final P&L with actual bid price (do this AFTER the override)
+            pnl = position.current_value - position.entry_cost
+            pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
 
             return True, f"End of day exit - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 
@@ -398,8 +403,10 @@ class CoinTossStrategy(OptionsStrategy):
                 if not pd.isna(bid_price) and bid_price > 0:
                     position.current_value = bid_price * leg.quantity * 100
                     position.legs[0].current_price = bid_price
-                    pnl = position.current_value - position.entry_cost
-                    pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
+
+            # Calculate final P&L with actual bid price (do this AFTER the override)
+            pnl = position.current_value - position.entry_cost
+            pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
 
             return True, f"Past expiration - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 

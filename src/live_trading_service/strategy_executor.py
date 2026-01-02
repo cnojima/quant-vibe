@@ -271,6 +271,14 @@ class StrategyExecutor:
             if symbol:
                 options_dict[symbol] = row.to_dict()
 
+        # Pre-register position in database BEFORE submitting order
+        # This ensures foreign key constraint is satisfied when order is persisted
+        self.position_manager.add_position(
+            position=position,
+            strategy_name=strategy_name,
+            fill_price=position.entry_cost,  # Initial value, will be updated after fill
+        )
+
         # Submit order
         success, message, order = self.order_manager.submit_position_entry(
             position=position,
@@ -280,6 +288,12 @@ class StrategyExecutor:
 
         if not success:
             logger.error(f"[{strategy_name}] Order submission failed: {message}")
+            # Remove the position since order failed
+            self.position_manager.close_position(
+                position_id=position.position_id,
+                exit_reason="order_failed",
+                exit_value=0.0
+            )
             self.state_store.log_event(
                 event_type="order_failed",
                 message=f"Order submission failed: {message}",
@@ -288,13 +302,12 @@ class StrategyExecutor:
             )
             return
 
-        # Track position with fill price from order
-        fill_price = order.filled_total_price if order else position.entry_cost
-        self.position_manager.add_position(
-            position=position,
-            strategy_name=strategy_name,
-            fill_price=fill_price,
-        )
+        # Update position with actual fill price from order
+        if order and order.filled_total_price:
+            position.entry_cost = order.filled_total_price
+            position.current_value = order.filled_total_price
+            # Re-persist with updated fill price
+            self.position_manager._persist_position(position, strategy_name)
 
         # Update strategy state
         strategy.active_position = position

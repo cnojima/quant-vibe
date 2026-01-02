@@ -4,11 +4,35 @@ Tracks open positions, calculates real-time P&L, and monitors exit conditions.
 """
 
 import logging
+import numpy as np
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from collections import defaultdict
 
 from quant_vibe.strategies.options_base import OptionsPosition, OptionLeg
+
+
+def _to_native_type(value: Any) -> Any:
+    """Convert numpy types to native Python types for database serialization.
+
+    Args:
+        value: Value to convert (may be numpy type or native Python type)
+
+    Returns:
+        Native Python type (int, float, bool, str, None, etc.)
+    """
+    if value is None:
+        return None
+    elif isinstance(value, (np.integer, np.int64, np.int32, np.int16, np.int8)):
+        return int(value)
+    elif isinstance(value, (np.floating, np.float64, np.float32, np.float16)):
+        return float(value)
+    elif isinstance(value, (np.bool_, bool)):
+        return bool(value)
+    elif isinstance(value, (np.str_, str)):
+        return str(value)
+    else:
+        return value
 
 
 class PositionManager:
@@ -262,7 +286,7 @@ class PositionManager:
             if self.state_store:
                 self.state_store.close_position(
                     position_id=position_id,
-                    exit_value=exit_value,
+                    exit_value=_to_native_type(exit_value),
                     exit_reason=exit_reason
                 )
 
@@ -377,10 +401,10 @@ class PositionManager:
             'strategy_name': strategy_name,
             'spread_type': position.spread_type.value,
             'entry_time': position.entry_time,
-            'entry_cost': position.entry_cost,
-            'underlying_price_at_entry': position.underlying_price_at_entry,
+            'entry_cost': _to_native_type(position.entry_cost),
+            'underlying_price_at_entry': _to_native_type(position.underlying_price_at_entry),
             'status': 'open',
-            'current_value': position.current_value,
+            'current_value': _to_native_type(position.current_value),
             'exit_time': None,
             'exit_value': None,
             'exit_reason': None,
@@ -388,17 +412,17 @@ class PositionManager:
                 {
                     'contract_symbol': leg.contract_symbol,
                     'option_type': leg.option_type.value,
-                    'strike': leg.strike_price,
+                    'strike': _to_native_type(leg.strike_price),
                     'expiration': leg.expiration_date.strftime('%Y-%m-%d') if isinstance(leg.expiration_date, datetime) else str(leg.expiration_date),
-                    'quantity': leg.quantity,
-                    'entry_price': leg.entry_price,
+                    'quantity': _to_native_type(leg.quantity),
+                    'entry_price': _to_native_type(leg.entry_price),
                 }
                 for leg in position.legs
             ],
             'metadata': {
-                'profit_target': position.profit_target,
-                'stop_loss': position.stop_loss,
-                'trailing_stop': position.trailing_stop,
+                'profit_target': _to_native_type(position.profit_target),
+                'stop_loss': _to_native_type(position.stop_loss),
+                'trailing_stop': _to_native_type(position.trailing_stop),
             }
         }
 

@@ -97,29 +97,29 @@ class DailyPerformanceReport:
         else:
             day_trades = pd.DataFrame()
 
-        # Calculate basic metrics
-        total_trades = len(day_trades)
-        actual_pnl = day_trades['pnl'].sum() if total_trades > 0 else 0.0
+        # Calculate basic metrics (convert to native Python types)
+        total_trades = int(len(day_trades))
+        actual_pnl = float(day_trades['pnl'].sum()) if total_trades > 0 else 0.0
 
         # Win/loss analysis
         if total_trades > 0:
             winners = day_trades[day_trades['pnl'] > 0]
             losers = day_trades[day_trades['pnl'] < 0]
 
-            winning_trades = len(winners)
-            losing_trades = len(losers)
-            win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0.0
+            winning_trades = int(len(winners))
+            losing_trades = int(len(losers))
+            win_rate = float((winning_trades / total_trades) * 100) if total_trades > 0 else 0.0
 
-            avg_win = winners['pnl'].mean() if len(winners) > 0 else 0.0
-            avg_loss = losers['pnl'].mean() if len(losers) > 0 else 0.0
-            largest_win = winners['pnl'].max() if len(winners) > 0 else 0.0
-            largest_loss = losers['pnl'].min() if len(losers) > 0 else 0.0
+            avg_win = float(winners['pnl'].mean()) if len(winners) > 0 else 0.0
+            avg_loss = float(losers['pnl'].mean()) if len(losers) > 0 else 0.0
+            largest_win = float(winners['pnl'].max()) if len(winners) > 0 else 0.0
+            largest_loss = float(losers['pnl'].min()) if len(losers) > 0 else 0.0
         else:
             winning_trades = losing_trades = 0
             win_rate = avg_win = avg_loss = largest_win = largest_loss = 0.0
 
         # Achievement percentage
-        achievement_pct = (actual_pnl / self.target) * 100 if self.target > 0 else 0.0
+        achievement_pct = float((actual_pnl / self.target) * 100) if self.target > 0 else 0.0
 
         # Strategy-level breakdown
         by_strategy = self._calculate_strategy_metrics(day_trades)
@@ -185,17 +185,17 @@ class DailyPerformanceReport:
             strategy_trades = trades_df[trades_df['strategy'] == strategy_name]
 
             total = len(strategy_trades)
-            pnl = strategy_trades['pnl'].sum()
+            pnl = float(strategy_trades['pnl'].sum())
             winners = len(strategy_trades[strategy_trades['pnl'] > 0])
             losers = len(strategy_trades[strategy_trades['pnl'] < 0])
             win_rate = (winners / total) * 100 if total > 0 else 0.0
 
-            by_strategy[strategy_name] = {
-                'trades': total,
+            by_strategy[str(strategy_name)] = {
+                'trades': int(total),
                 'pnl': round(pnl, 2),
-                'win_rate': round(win_rate, 1),
-                'winners': winners,
-                'losers': losers
+                'win_rate': round(float(win_rate), 1),
+                'winners': int(winners),
+                'losers': int(losers)
             }
 
         return by_strategy
@@ -212,7 +212,8 @@ class DailyPerformanceReport:
         if trades_df.empty or 'exit_reason' not in trades_df.columns:
             return {}
 
-        return trades_df['exit_reason'].value_counts().to_dict()
+        # Convert to native Python types for JSON serialization
+        return {str(k): int(v) for k, v in trades_df['exit_reason'].value_counts().to_dict().items()}
 
     def _calculate_max_drawdown(
         self,
@@ -308,10 +309,10 @@ class DailyPerformanceReport:
             warnings.append("No trades executed")
 
         return {
-            'status': status,
-            'warnings': warnings,
-            'drawdown_ok': max_drawdown_pct <= self.max_drawdown_pct * 100,
-            'target_met': actual_pnl >= self.target
+            'status': str(status),
+            'warnings': [str(w) for w in warnings],
+            'drawdown_ok': bool(max_drawdown_pct <= self.max_drawdown_pct * 100),
+            'target_met': bool(actual_pnl >= self.target)
         }
 
     def save_report(
