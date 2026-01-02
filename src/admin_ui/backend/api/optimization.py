@@ -164,6 +164,7 @@ class OptimizationStatus(BaseModel):
     total_combinations: Optional[int] = None
     current_params: Optional[dict[str, Any]] = None
     current_metrics: Optional[dict[str, float]] = None
+    current_error: Optional[str] = None  # Error from current backtest (if any)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
@@ -481,6 +482,16 @@ async def get_optimization_status(
     if opt["status"] == "running":
         status_data = _read_status_file(optimization_id)
 
+    # Extract current_metrics and current_error separately
+    current_metrics = status_data.get("current_metrics")
+    current_error = None
+
+    # If current_metrics contains an 'error' key, extract it
+    if current_metrics and "error" in current_metrics:
+        current_error = current_metrics.get("error")
+        # Create a copy without the error key (all other values should be floats)
+        current_metrics = {k: v for k, v in current_metrics.items() if k != "error"}
+
     return OptimizationStatus(
         optimization_id=optimization_id,
         status=opt["status"],
@@ -488,7 +499,8 @@ async def get_optimization_status(
         current_combination=status_data.get("current_combination", opt.get("current_combination")),
         total_combinations=status_data.get("total_combinations", opt.get("total_combinations")),
         current_params=status_data.get("current_params"),
-        current_metrics=status_data.get("current_metrics"),
+        current_metrics=current_metrics if current_metrics else None,
+        current_error=current_error,
         started_at=opt.get("started_at"),
         completed_at=opt.get("completed_at"),
         error=opt.get("error"),

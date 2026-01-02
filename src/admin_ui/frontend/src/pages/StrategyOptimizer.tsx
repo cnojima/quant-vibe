@@ -389,6 +389,12 @@ export function StrategyOptimizer() {
                                 </div>
                               ))}
                             </div>
+                            {optimizationStatus.current_error && (
+                              <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs">
+                                <span className="text-red-700 font-medium">Error:</span>{' '}
+                                <span className="text-red-900">{optimizationStatus.current_error}</span>
+                              </div>
+                            )}
                             {optimizationStatus.current_metrics && (
                               <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs pt-2 border-t border-blue-300">
                                 {optimizationStatus.current_metrics.sharpe_ratio !== undefined && (
