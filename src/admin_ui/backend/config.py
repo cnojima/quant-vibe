@@ -31,10 +31,10 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
-    # Security
-    admin_username: str = "admin"
-    admin_password: str = "changeme"  # Should be set via environment
-    jwt_secret_key: str = "change-this-secret-key"  # Must be set in production
+    # Security - loaded from environment variables or .env file
+    admin_username: str = ""  # Required: set ADMIN_USERNAME in .env
+    admin_password: str = ""  # Required: set ADMIN_PASSWORD in .env
+    jwt_secret_key: str = ""  # Required: set JWT_SECRET_KEY in .env
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24 hours
 
@@ -54,6 +54,17 @@ class Settings(BaseSettings):
             if isinstance(origins, str):
                 data["cors_origins"] = [o.strip() for o in origins.split(",") if o.strip()]
         return data
+
+    @model_validator(mode="after")
+    def validate_security_settings(self) -> "Settings":
+        """Validate that required security settings are configured."""
+        if not self.admin_username:
+            raise ValueError("ADMIN_USERNAME must be set in environment or .env file")
+        if not self.admin_password:
+            raise ValueError("ADMIN_PASSWORD must be set in environment or .env file")
+        if not self.jwt_secret_key:
+            raise ValueError("JWT_SECRET_KEY must be set in environment or .env file")
+        return self
 
     # Redis
     redis_host: str = "localhost"
