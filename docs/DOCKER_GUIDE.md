@@ -304,7 +304,7 @@ docker-compose ps
 # 1. Missing .env file
 # 2. Services not healthy yet (wait for health checks)
 # 3. Invalid Schwab credentials
-# 4. Port conflicts (5432, 6379, 8000, 8001 already in use)
+# 4. Port conflicts (5432, 6379, 8000, 8100 already in use)
 ```
 
 ### Database Connection Failed

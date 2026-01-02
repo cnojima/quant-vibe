@@ -10,7 +10,7 @@ Centralized OAuth token management for Schwab API.
 docker-compose up -d token_service
 
 # Check health
-curl http://localhost:8001/health
+curl http://localhost:8100/health
 
 # View logs
 docker-compose logs -f token_service
@@ -32,17 +32,17 @@ python scripts/run_token_service.py
 
 ### Get Token Status
 ```bash
-curl http://localhost:8001/token/status
+curl http://localhost:8100/token/status
 ```
 
 ### Get Access Token
 ```bash
-curl http://localhost:8001/token/access
+curl http://localhost:8100/token/access
 ```
 
 ### Refresh Token
 ```bash
-curl -X POST http://localhost:8001/token/refresh
+curl -X POST http://localhost:8100/token/refresh
 ```
 
 ## Python Client
@@ -50,7 +50,7 @@ curl -X POST http://localhost:8001/token/refresh
 ```python
 from token_service.client import TokenServiceClient
 
-client = TokenServiceClient("http://localhost:8001")
+client = TokenServiceClient("http://localhost:8100")
 
 # Get access token
 token = client.get_access_token()
@@ -72,7 +72,7 @@ SCHWAB_API_KEY=your_api_key
 SCHWAB_API_SECRET=your_app_secret
 
 # Optional
-TOKEN_SERVICE_PORT=8001
+TOKEN_SERVICE_PORT=8100
 TOKEN_REFRESH_INTERVAL_MINUTES=14
 ```
 

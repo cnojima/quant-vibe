@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import HTMLResponse
 
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
@@ -28,7 +29,7 @@ router = APIRouter()
 
 # Check for token service URL from environment
 USE_TOKEN_SERVICE = os.getenv("USE_TOKEN_SERVICE", "true").lower() == "true"
-TOKEN_SERVICE_URL = os.getenv("TOKEN_SERVICE_URL", "http://token_service:8001")
+TOKEN_SERVICE_URL = os.getenv("TOKEN_SERVICE_URL", "http://token_service:8100")
 
 
 def get_token_from_db() -> Optional[dict]:
@@ -227,7 +228,15 @@ async def refresh_token(current_user: User = Depends(get_current_user)):
                     "source": "token_service",
                 }
             else:
-                print("Token service refresh returned false, falling back to local refresh")
+                # Token service refresh failed - return error immediately
+                error_status = client.get_token_status()
+                return {
+                    "success": False,
+                    "message": "Token refresh failed via token service. Check token_service logs for details.",
+                    "token_status": error_status,
+                    "source": "token_service",
+                    "hint": "Refresh token may be expired. Re-authentication required.",
+                }
         except Exception as e:
             # Fall back to local refresh
             print(f"Token service unavailable, falling back to local refresh: {e}")
@@ -370,13 +379,199 @@ async def get_oauth_url(current_user: User = Depends(get_current_user)):
         }
 
 
+@router.get("/oauth-redirect", response_class=HTMLResponse)
+async def handle_oauth_redirect(code: str, session: str = None):
+    """
+    Handle OAuth redirect from Schwab (public endpoint - no auth required).
+
+    This endpoint is called directly by the browser after Schwab redirects,
+    so it must be publicly accessible (no authentication).
+
+    Args:
+        code: Authorization code from Schwab OAuth flow
+        session: Session ID (optional)
+
+    Returns:
+        HTML page showing success/failure
+    """
+    if not code:
+        return {
+            "success": False,
+            "message": "No authorization code provided",
+        }
+
+    try:
+        import schwabdev
+
+        settings = get_settings()
+        token_db_path = settings.tokens_dir / "schwabdev_tokens.db"
+
+        # Get Schwab credentials from environment
+        app_key = os.getenv("SCHWAB_API_KEY")
+        app_secret = os.getenv("SCHWAB_API_SECRET")
+        callback_url = os.getenv("SCHWAB_CALLBACK_URL", "https://127.0.0.1")
+
+        if not app_key or not app_secret:
+            return {
+                "success": False,
+                "message": "Schwab API credentials not found in environment variables",
+                "required_vars": ["SCHWAB_API_KEY", "SCHWAB_API_SECRET", "SCHWAB_CALLBACK_URL"],
+            }
+
+        # Ensure tokens directory exists
+        settings.tokens_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"[{datetime.now()}] Admin UI: Exchanging OAuth code for tokens...")
+
+        # Use the standalone exchange function (same as schwab_oauth_callback.py script)
+        from .tokens_helper import exchange_code_for_tokens, save_tokens_to_db
+
+        issued_time = datetime.now(timezone.utc)
+        tokens = exchange_code_for_tokens(code, app_key, app_secret, callback_url)
+        save_tokens_to_db(tokens, str(token_db_path), issued_time)
+
+        print(f"[{datetime.now()}] Admin UI: OAuth token exchange successful")
+
+        # Return HTML success page
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>OAuth Success</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                }
+                .container {
+                    background: white;
+                    padding: 40px;
+                    border-radius: 10px;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+                    text-align: center;
+                    max-width: 500px;
+                }
+                .success {
+                    color: #10b981;
+                    font-size: 48px;
+                    margin-bottom: 20px;
+                }
+                h1 {
+                    color: #1f2937;
+                    margin-bottom: 20px;
+                }
+                p {
+                    color: #6b7280;
+                    line-height: 1.6;
+                }
+                .close-btn {
+                    background: #667eea;
+                    color: white;
+                    border: none;
+                    padding: 12px 24px;
+                    border-radius: 6px;
+                    font-size: 16px;
+                    cursor: pointer;
+                    margin-top: 20px;
+                }
+                .close-btn:hover {
+                    background: #5568d3;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="success">✓</div>
+                <h1>Authorization Successful!</h1>
+                <p>Your Schwab API tokens have been obtained and stored.</p>
+                <p>You can now close this window and return to the application.</p>
+                <button class="close-btn" onclick="window.close()">Close Window</button>
+            </div>
+        </body>
+        </html>
+        """
+
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"OAuth redirect error: {error_trace}")
+
+        # Return HTML error page
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>OAuth Error</title>
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                }}
+                .container {{
+                    background: white;
+                    padding: 40px;
+                    border-radius: 10px;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+                    text-align: center;
+                    max-width: 500px;
+                }}
+                .error {{
+                    color: #ef4444;
+                    font-size: 48px;
+                    margin-bottom: 20px;
+                }}
+                h1 {{
+                    color: #1f2937;
+                    margin-bottom: 20px;
+                }}
+                p {{
+                    color: #6b7280;
+                    line-height: 1.6;
+                }}
+                .error-details {{
+                    background: #fee2e2;
+                    border: 1px solid #fecaca;
+                    border-radius: 6px;
+                    padding: 12px;
+                    margin-top: 20px;
+                    font-size: 14px;
+                    text-align: left;
+                    color: #991b1b;
+                    word-wrap: break-word;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="error">✗</div>
+                <h1>Authorization Failed</h1>
+                <p>There was an error exchanging the OAuth code for tokens.</p>
+                <div class="error-details">
+                    <strong>Error:</strong> {str(e)}
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+
 @router.post("/oauth-callback")
 async def handle_oauth_callback(
     code: str,
     current_user: User = Depends(get_current_user),
 ):
     """
-    Handle OAuth callback with authorization code.
+    Handle OAuth callback with authorization code (authenticated endpoint).
 
     Args:
         code: Authorization code from Schwab OAuth flow

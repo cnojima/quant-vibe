@@ -24,7 +24,7 @@ class TestTokenServiceConfig:
         assert config.tokens_db_path == "/path/to/tokens.db"
         assert config.refresh_interval_minutes == 14
         assert config.host == "0.0.0.0"
-        assert config.port == 8001
+        assert config.port == 8100
         assert config.redis_host is None
         assert config.redis_port == 6379
         assert config.redis_db == 0
@@ -108,7 +108,7 @@ class TestTokenServiceConfig:
         assert config.schwab_callback_url == "https://127.0.0.1:8182/"
         assert config.tokens_db_path == "./tokens/schwabdev_tokens.db"
         assert config.refresh_interval_minutes == 14
-        assert config.port == 8001
+        assert config.port == 8100
 
     @patch.dict(os.environ, {}, clear=True)
     def test_from_env_missing_api_key(self):

@@ -96,51 +96,20 @@ class BacktestOrchestrator:
         Returns:
             Instantiated strategy object
         """
-        # Import strategy dynamically
-        # Map strategy names to module paths
-        strategy_map = {
-            'bullish_vertical_put': 'quant_vibe.strategies.bullish_vertical_put.BullishVerticalPutStrategy',
-            'bullish_vertical_call': 'quant_vibe.strategies.bullish_vertical_call.BullishVerticalCallStrategy',
-            'bearish_iv_scalp': 'quant_vibe.strategies.bearish_iv_scalp.BearishIVScalpStrategy',
-            'coin_toss': 'quant_vibe.strategies.coin_toss.CoinTossStrategy',
-            'coin_toss_limit': 'quant_vibe.strategies.coin_toss_limit.CoinTossLimitStrategy',
-            'bollinger_band': 'quant_vibe.strategies.bollinger_band.BollingerBandStrategy',
-            'bollinger_band_limit': 'quant_vibe.strategies.bollinger_band_limit.BollingerBandLimitStrategy',
-        }
+        # Use central registry for validation and instantiation
+        from quant_vibe.strategies.registry import StrategyRegistry
 
-        if strategy_name not in strategy_map:
-            raise ValueError(
-                f"Unknown strategy: {strategy_name}\n"
-                f"Available strategies: {list(strategy_map.keys())}"
-            )
-
-        # Parse module and class name
-        module_path = strategy_map[strategy_name]
-        module_name, class_name = module_path.rsplit('.', 1)
-
-        # Import module
-        module = __import__(module_name, fromlist=[class_name])
-        strategy_class = getattr(module, class_name)
-
-        # Validate and normalize parameters using Pydantic models
-        from quant_vibe.strategies.params import validate_and_normalize_params
         try:
-            validated_params = validate_and_normalize_params(strategy_name, params)
+            # Create strategy with validation
+            strategy = StrategyRegistry.create_strategy(
+                strategy_name=strategy_name,
+                params=params,
+                validate=True
+            )
+            return strategy
         except ValueError as e:
-            self.logger.warning(f"Parameter validation failed for {strategy_name}: {e}")
-            self.logger.warning("Falling back to raw parameters (filtering by signature)")
-            # Fallback: filter params by constructor signature
-            import inspect
-            sig = inspect.signature(strategy_class.__init__)
-            validated_params = {
-                k: v for k, v in params.items()
-                if k in sig.parameters
-            }
-
-        # Instantiate strategy with validated parameters
-        strategy = strategy_class(**validated_params)
-
-        return strategy
+            self.logger.error(f"Failed to load strategy '{strategy_name}': {e}")
+            raise
 
     def _run_single_backtest(
         self,

@@ -1,19 +1,14 @@
 """Strategy loading and configuration for live trading.
 
 Provides utilities to load and configure strategies from YAML configuration.
+Now uses central StrategyRegistry for validation and instantiation.
 """
 
 import logging
 from typing import List, Dict, Any, Optional
 
 from quant_vibe.strategies.options_base import OptionsStrategy
-from quant_vibe.strategies.bullish_vertical_put import BullishVerticalPutStrategy
-from quant_vibe.strategies.bullish_vertical_call import BullishVerticalCallStrategy
-from quant_vibe.strategies.bearish_iv_scalp import BearishIVScalpStrategy
-from quant_vibe.strategies.coin_toss import CoinTossStrategy
-from quant_vibe.strategies.coin_toss_limit import CoinTossLimitStrategy
-from quant_vibe.strategies.bollinger_band import BollingerBandStrategy
-from quant_vibe.strategies.bollinger_band_limit import BollingerBandLimitStrategy
+from quant_vibe.strategies.registry import StrategyRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -21,15 +16,11 @@ logger = logging.getLogger(__name__)
 class StrategyLoader:
     """Loads and configures strategies from configuration."""
 
-    # Map of strategy names to classes
+    # Deprecated: Use StrategyRegistry instead
+    # Kept for backward compatibility only
     STRATEGY_REGISTRY = {
-        'bullish_vertical_put': BullishVerticalPutStrategy,
-        'bullish_vertical_call': BullishVerticalCallStrategy,
-        'bearish_iv_scalp': BearishIVScalpStrategy,
-        'coin_toss': CoinTossStrategy,
-        'coin_toss_limit': CoinTossLimitStrategy,
-        'bollinger_band': BollingerBandStrategy,
-        'bollinger_band_limit': BollingerBandLimitStrategy,
+        name: StrategyRegistry.get_strategy_class(name)
+        for name in StrategyRegistry.list_strategies()
     }
 
     @classmethod
@@ -113,23 +104,21 @@ class StrategyLoader:
             logger.info(f"Strategy {strategy_name} is disabled, skipping")
             return None
 
-        # Get strategy class
-        strategy_class = cls.STRATEGY_REGISTRY.get(strategy_name)
-        if not strategy_class:
-            logger.error(
-                f"Unknown strategy: {strategy_name}. "
-                f"Available: {list(cls.STRATEGY_REGISTRY.keys())}"
-            )
-            return None
-
         # Get parameters
         params = strategy_config.get('params', {})
 
-        # Instantiate strategy
+        # Instantiate strategy using central registry (with validation)
         try:
-            strategy = strategy_class(**params)
+            strategy = StrategyRegistry.create_strategy(
+                strategy_name=strategy_name,
+                params=params,
+                validate=True
+            )
             logger.info(f"Loaded strategy: {strategy.name} with params: {params}")
             return strategy
+        except ValueError as e:
+            logger.error(f"Parameter validation failed for {strategy_name}: {e}", exc_info=True)
+            return None
         except Exception as e:
             logger.error(f"Failed to instantiate {strategy_name}: {e}", exc_info=True)
             return None

@@ -80,3 +80,7 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# ssl
+*.key
+*.crt

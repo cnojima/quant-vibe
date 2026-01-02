@@ -15,7 +15,7 @@ class TokenServiceClient:
     - Trigger manual token refresh
 
     Usage:
-        >>> client = TokenServiceClient("http://localhost:8001")
+        >>> client = TokenServiceClient("http://localhost:8100")
         >>> token = client.get_access_token()
         >>> print(token)
         "eyJhbGc..."
@@ -23,14 +23,14 @@ class TokenServiceClient:
 
     def __init__(
         self,
-        base_url: str = "http://localhost:8001",
+        base_url: str = "http://localhost:8100",
         timeout: int = 10,
         logger: Optional[logging.Logger] = None,
     ):
         """Initialize token service client.
 
         Args:
-            base_url: Base URL of token service (e.g., "http://localhost:8001")
+            base_url: Base URL of token service (e.g., "http://localhost:8100")
             timeout: Request timeout in seconds
             logger: Logger instance (creates new one if not provided)
         """
@@ -195,7 +195,7 @@ class TokenExpiredError(Exception):
 
 
 # Convenience function
-def get_token(base_url: str = "http://localhost:8001") -> Optional[str]:
+def get_token(base_url: str = "http://localhost:8100") -> Optional[str]:
     """Convenience function to get access token.
 
     Args:

@@ -2,6 +2,8 @@
 Strategy management API endpoints.
 
 Provides endpoints to list, enable, disable, and configure trading strategies.
+
+Now auto-generates metadata from central StrategyRegistry - no more manual duplication!
 """
 
 from typing import Any, List
@@ -11,6 +13,9 @@ from pydantic import BaseModel
 
 from admin_ui.backend.api.config import load_yaml_config, save_yaml_config
 from admin_ui.backend.auth import User, get_current_user
+
+# Import central registry
+from quant_vibe.strategies.registry import StrategyRegistry
 
 router = APIRouter()
 
@@ -36,134 +41,18 @@ class StrategyUpdate(BaseModel):
     params: dict[str, Any]
 
 
-# Strategy metadata (descriptions and default params)
-STRATEGY_METADATA = {
-    "bullish_vertical_put": {
-        "description": "Credit spread strategy (sell put, buy lower put) for bullish markets",
-        "default_params": {
-            "max_trades_daily": 1,
-            "spread_width": 10.0,
-            "observation_period": 30,
-            "pullback_amount": 50.0,
-            "profit_target_min": 0.5,
-            "profit_target_max": 1.0,
-            "trailing_stop_pct": 0.05,
-            "min_dte": 0,
-            "max_dte": 45,
-            "num_spreads": 10,
-            "min_volume": 50,
-            "min_bid_ask_spread_pct": 10.0,
-        },
-    },
-    "bullish_vertical_call": {
-        "description": "Debit spread strategy (buy call, sell higher call) for bullish markets",
-        "default_params": {
-            "max_trades_daily": 1,
-            "spread_width": 20.0,
-            "observation_period": 30,
-            "pullback_amount": 50.0,
-            "profit_target_min": 0.5,
-            "profit_target_max": 1.0,
-            "trailing_stop_pct": 0.05,
-            "min_dte": 7,
-            "max_dte": 45,
-            "num_spreads": 10,
-        },
-    },
-    "bearish_iv_scalp": {
-        "description": "Credit spread strategy (sell call, buy higher call) targeting IV spikes during bearish moves (0DTE scalping)",
-        "default_params": {
-            "spread_width": 10.0,
-            "observation_period": 15,
-            "iv_threshold": 0.15,
-            "iv_spike_pct": 0.10,
-            "profit_target_min": 0.30,
-            "profit_target_max": 0.50,
-            "trailing_stop_pct": 0.03,
-            "stop_loss_pct": 0.75,
-            "min_dte": 0,
-            "max_dte": 0,
-            "num_spreads": 5,
-            "min_volume": 20,
-            "min_bid_ask_spread_pct": 15.0,
-            "max_trades_daily": 2,
-            "momentum_lookback": 5,
-            "iv_lookback": 30,
-        },
-    },
-    "coin_toss": {
-        "description": "Naive strategy that randomly picks direction and buys 10 contracts near $2, sells at $2 (educational/experimental only)",
-        "default_params": {
-            "target_price": 2.0,
-            "buy_limit": 1.0,
-            "sell_target": 2.0,
-            "price_tolerance": 0.50,
-            "max_trades_daily": 5,
-            "quantity": 10,
-            "min_dte": 0,
-            "max_dte": 45,
-            "profit_target_pct": 1.0,
-            "stop_loss_pct": None,
-        },
-    },
-    "coin_toss_limit": {
-        "description": "Refined coin toss with limit orders: buy at $1, sell at $2 for 100% profit (educational/experimental only)",
-        "default_params": {
-            "target_contract_price": 2.0,
-            "limit_buy_price": 1.0,
-            "profit_target_price": 2.0,
-            "otm_percent_min": 0.10,
-            "otm_percent_max": 0.15,
-            "price_tolerance": 1.0,
-            "max_trades_daily": 5,
-            "quantity": 10,
-            "min_dte": 0,
-            "max_dte": 45,
-            "stop_loss_pct": 0.50,
-            "order_expiry_minutes": 60,
-        },
-    },
-    "bollinger_band": {
-        "description": "Uses Bollinger Bands for direction (calls at lower band, puts at upper band) with market orders (educational/experimental)",
-        "default_params": {
-            "target_price": 2.0,
-            "buy_limit": 1.0,
-            "sell_target": 2.0,
-            "otm_percent_min": 0.10,
-            "otm_percent_max": 0.15,
-            "price_tolerance": 1.0,
-            "max_trades_daily": 5,
-            "quantity": 10,
-            "min_dte": 0,
-            "max_dte": 45,
-            "profit_target_pct": 1.0,
-            "stop_loss_pct": 0.50,
-            "bb_period": 20,
-            "bb_std": 2.0,
-            "bb_threshold": 0.0,
-        },
-    },
-    "bollinger_band_limit": {
-        "description": "Uses Bollinger Bands for direction (calls at lower band, puts at upper band) with limit orders: buy at $1, sell at $2 (educational/experimental)",
-        "default_params": {
-            "target_contract_price": 2.0,
-            "limit_buy_price": 1.0,
-            "profit_target_price": 2.0,
-            "otm_percent_min": 0.10,
-            "otm_percent_max": 0.15,
-            "price_tolerance": 1.0,
-            "max_trades_daily": 5,
-            "quantity": 10,
-            "min_dte": 0,
-            "max_dte": 45,
-            "stop_loss_pct": 0.50,
-            "order_expiry_minutes": 60,
-            "bb_period": 20,
-            "bb_std": 2.0,
-            "bb_threshold": 0.0,
-        },
-    },
-}
+# AUTO-GENERATED from StrategyRegistry (single source of truth)
+# This replaces the manual STRATEGY_METADATA dictionary
+def get_strategy_metadata() -> dict[str, dict[str, Any]]:
+    """
+    Get strategy metadata from central registry.
+
+    Returns:
+        Dictionary mapping strategy names to metadata
+
+    Note: This auto-generates from Pydantic models, so no manual updates needed!
+    """
+    return StrategyRegistry.get_all_metadata()
 
 
 @router.get("/list")
@@ -194,7 +83,8 @@ async def list_strategies(current_user: User = Depends(get_current_user)):
 
     # Build list of all available strategies
     strategies = []
-    for name, metadata in STRATEGY_METADATA.items():
+    strategy_metadata = get_strategy_metadata()
+    for name, metadata in strategy_metadata.items():
         strategy_config = enabled_map.get(name)
 
         if strategy_config:
@@ -238,10 +128,11 @@ async def get_strategy(
     Returns:
         Strategy details
     """
-    if strategy_name not in STRATEGY_METADATA:
+    strategy_metadata = get_strategy_metadata()
+    if strategy_name not in strategy_metadata:
         raise HTTPException(
             status_code=404,
-            detail=f"Strategy '{strategy_name}' not found. Available: {list(STRATEGY_METADATA.keys())}",
+            detail=f"Strategy '{strategy_name}' not found. Available: {list(strategy_metadata.keys())}",
         )
 
     # Load config
@@ -256,7 +147,7 @@ async def get_strategy(
             strategy_config = s
             break
 
-    metadata = STRATEGY_METADATA[strategy_name]
+    metadata = strategy_metadata[strategy_name]
 
     if strategy_config:
         return {
@@ -291,7 +182,8 @@ async def toggle_strategy(
     Returns:
         Success message
     """
-    if strategy_name not in STRATEGY_METADATA:
+    strategy_metadata = get_strategy_metadata()
+    if strategy_name not in strategy_metadata:
         raise HTTPException(
             status_code=404,
             detail=f"Strategy '{strategy_name}' not found",
@@ -322,7 +214,7 @@ async def toggle_strategy(
             enabled_strategies[existing_index]["enabled"] = True
         else:
             # Add new strategy with default params
-            metadata = STRATEGY_METADATA[strategy_name]
+            metadata = strategy_metadata[strategy_name]
             enabled_strategies.append(
                 {
                     "name": strategy_name,
@@ -364,7 +256,8 @@ async def update_strategy_params(
     Returns:
         Success message
     """
-    if strategy_name not in STRATEGY_METADATA:
+    strategy_metadata = get_strategy_metadata()
+    if strategy_name not in strategy_metadata:
         raise HTTPException(
             status_code=404,
             detail=f"Strategy '{strategy_name}' not found",

@@ -24,7 +24,7 @@ class TestTokenServiceClient:
         """Test client initialization with defaults."""
         client = TokenServiceClient()
 
-        assert client.base_url == "http://localhost:8001"
+        assert client.base_url == "http://localhost:8100"
         assert client.timeout == 10
 
     def test_initialization_custom(self):
@@ -42,9 +42,9 @@ class TestTokenServiceClient:
 
     def test_initialization_strips_trailing_slash(self):
         """Test that trailing slash is removed from base_url."""
-        client = TokenServiceClient(base_url="http://localhost:8001/")
+        client = TokenServiceClient(base_url="http://localhost:8100/")
 
-        assert client.base_url == "http://localhost:8001"
+        assert client.base_url == "http://localhost:8100"
 
     @patch('token_service.client.requests.get')
     def test_health_check_success(self, mock_get):
@@ -62,7 +62,7 @@ class TestTokenServiceClient:
         assert result["status"] == "healthy"
         assert result["service"] == "token_service"
         mock_get.assert_called_once_with(
-            "http://localhost:8001/health",
+            "http://localhost:8100/health",
             timeout=10
         )
 
@@ -93,7 +93,7 @@ class TestTokenServiceClient:
         assert result["has_token"] is True
         assert result["is_access_token_expired"] is False
         mock_get.assert_called_once_with(
-            "http://localhost:8001/token/status",
+            "http://localhost:8100/token/status",
             timeout=10
         )
 
@@ -124,7 +124,7 @@ class TestTokenServiceClient:
 
         assert token == "test_token_12345"
         mock_get.assert_called_once_with(
-            "http://localhost:8001/token/access",
+            "http://localhost:8100/token/access",
             timeout=10
         )
 
@@ -226,7 +226,7 @@ class TestTokenServiceClient:
 
         assert result is True
         mock_post.assert_called_once_with(
-            "http://localhost:8001/token/refresh",
+            "http://localhost:8100/token/refresh",
             timeout=10
         )
 
@@ -333,7 +333,7 @@ class TestTokenServiceClient:
         client.health_check()
 
         mock_get.assert_called_once_with(
-            "http://localhost:8001/health",
+            "http://localhost:8100/health",
             timeout=30
         )
 

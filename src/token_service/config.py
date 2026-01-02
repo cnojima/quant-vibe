@@ -41,7 +41,7 @@ class TokenServiceConfig:
 
     # Service settings
     host: str = "0.0.0.0"
-    port: int = 8001
+    port: int = 8100
 
     # Redis settings (for event publishing)
     redis_host: Optional[str] = None
@@ -88,7 +88,7 @@ class TokenServiceConfig:
                 "14"
             )),
             host=os.getenv("TOKEN_SERVICE_HOST", "0.0.0.0"),
-            port=int(os.getenv("TOKEN_SERVICE_PORT", "8001")),
+            port=int(os.getenv("TOKEN_SERVICE_PORT", "8100")),
             redis_host=os.getenv("REDIS_HOST"),
             redis_port=int(os.getenv("REDIS_PORT", "6379")),
             redis_db=int(os.getenv("REDIS_DB", "0")),

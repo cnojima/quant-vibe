@@ -108,6 +108,22 @@ export function useRefreshToken() {
   });
 }
 
+export function useOAuthUrl() {
+  return useQuery({
+    queryKey: ['oauth-url'],
+    queryFn: async () => {
+      const response = await apiClient.get<{
+        success: boolean;
+        oauth_url: string;
+        callback_url: string;
+        instructions: string[];
+      }>('/tokens/oauth-url');
+      return response.data;
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
 // Live trading queries
 export function useLiveStatus() {
   return useQuery({

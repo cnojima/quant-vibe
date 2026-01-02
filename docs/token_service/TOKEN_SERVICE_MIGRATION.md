@@ -30,7 +30,7 @@ All QuantVibe services have been migrated to use the centralized `token_service`
 
 **Docker**:
 - Service: `token_service`
-- Port: 8001
+- Port: 8100
 - Health checks: Every 30 seconds
 - Auto-refresh: Every 14 minutes
 
@@ -48,7 +48,7 @@ All QuantVibe services have been migrated to use the centralized `token_service`
 **Configuration**:
 ```yaml
 # Environment variable
-TOKEN_SERVICE_URL=http://token_service:8001
+TOKEN_SERVICE_URL=http://token_service:8100
 ```
 
 **Behavior**:
@@ -73,7 +73,7 @@ TOKEN_SERVICE_URL=http://token_service:8001
 **Configuration**:
 ```yaml
 # Environment variable
-TOKEN_SERVICE_URL=http://token_service:8001
+TOKEN_SERVICE_URL=http://token_service:8100
 
 # config/live_trading.yaml
 engine:
@@ -102,7 +102,7 @@ engine:
 ```yaml
 # Environment variables
 USE_TOKEN_SERVICE=true  # Enable token service proxy (default)
-TOKEN_SERVICE_URL=http://token_service:8001
+TOKEN_SERVICE_URL=http://token_service:8100
 ```
 
 **Behavior**:
@@ -147,7 +147,7 @@ TOKEN_SERVICE_URL=http://token_service:8001
 │  - Redis event publishing                   │
 │  - Thread-safe concurrent access            │
 └─────────────────┬───────────────────────────┘
-                  │ HTTP (port 8001)
+                  │ HTTP (port 8100)
         ┌─────────┴──────────┬────────────────┐
         ↓                    ↓                 ↓
 ┌───────────────┐  ┌──────────────┐  ┌──────────────┐
@@ -175,11 +175,11 @@ All services now support these environment variables:
 ```bash
 # Token Service (required for token_service)
 TOKEN_SERVICE_HOST=0.0.0.0
-TOKEN_SERVICE_PORT=8001
+TOKEN_SERVICE_PORT=8100
 TOKEN_REFRESH_INTERVAL_MINUTES=14
 
 # Token Service URL (required for other services)
-TOKEN_SERVICE_URL=http://token_service:8001
+TOKEN_SERVICE_URL=http://token_service:8100
 
 # Legacy token database (fallback)
 SCHWAB_TOKENS_DB=./tokens/schwabdev_tokens.db
@@ -198,11 +198,11 @@ Updated `docker-compose.yml`:
 # New token_service container
 token_service:
   ports:
-    - "8001:8001"
+    - "8100:8100"
   environment:
-    TOKEN_SERVICE_URL: http://token_service:8001
+    TOKEN_SERVICE_URL: http://token_service:8100
   healthcheck:
-    test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+    test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
 
 # Updated dependencies
 streaming:
@@ -210,18 +210,18 @@ streaming:
     token_service:
       condition: service_healthy
   environment:
-    TOKEN_SERVICE_URL: http://token_service:8001
+    TOKEN_SERVICE_URL: http://token_service:8100
 
 live_trading:
   depends_on:
     token_service:
       condition: service_healthy
   environment:
-    TOKEN_SERVICE_URL: http://token_service:8001
+    TOKEN_SERVICE_URL: http://token_service:8100
 
 admin_ui:
   environment:
-    TOKEN_SERVICE_URL: http://token_service:8001
+    TOKEN_SERVICE_URL: http://token_service:8100
     USE_TOKEN_SERVICE: "true"
 ```
 
@@ -253,7 +253,7 @@ All services log their token mode at startup:
 
 **Token Service Mode**:
 ```
-[2025-12-30 10:00:00][streaming][INFO    ]   Token Mode: Centralized (via http://token_service:8001)
+[2025-12-30 10:00:00][streaming][INFO    ]   Token Mode: Centralized (via http://token_service:8100)
 [2025-12-30 10:00:00][streaming][INFO    ]   ✓ Token service connected
 ```
 
@@ -278,10 +278,10 @@ All services log their token mode at startup:
 docker-compose up -d token_service
 
 # Check health
-curl http://localhost:8001/health
+curl http://localhost:8100/health
 
 # Check token status
-curl http://localhost:8001/token/status
+curl http://localhost:8100/token/status
 ```
 
 2. **Start streaming service** (with token service):
@@ -402,7 +402,7 @@ If you encounter issues:
 1. Check token service logs: `docker-compose logs token_service`
 2. Check service logs for fallback messages
 3. Verify `TOKEN_SERVICE_URL` is set correctly
-4. Test token service health: `curl http://localhost:8001/health`
+4. Test token service health: `curl http://localhost:8100/health`
 5. If all else fails, set `USE_TOKEN_SERVICE=false` to use legacy mode
 
 ---

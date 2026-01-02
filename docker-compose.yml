@@ -209,12 +209,12 @@ services:
       SCHWAB_API_KEY: ${SCHWAB_API_KEY}
       SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}
       SCHWAB_CALLBACK_URL: ${SCHWAB_CALLBACK_URL}
-      # Redis connection (point to remote for local dev)
-      REDIS_HOST: 192.168.100.197
+      # Redis connection (use Docker service names for container networking)
+      REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 0
-      # TimescaleDB connection (point to remote for local dev)
-      TIMESCALE_HOST: 192.168.100.197
+      # TimescaleDB connection (use Docker service names for container networking)
+      TIMESCALE_HOST: timescaledb
       TIMESCALE_PORT: 5432
       TIMESCALE_DB: options_data
       TIMESCALE_USER: quantvibe
@@ -240,15 +240,20 @@ services:
 
   admin_ui_frontend:
     build:
-      context: ./src/admin_ui/frontend
-      dockerfile: Dockerfile
+      context: . #/src/admin_ui/frontend
+      dockerfile: docker/Dockerfile.nginx
     container_name: quant-vibe-admin-ui-frontend
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "80:80"        # HTTP (redirects to HTTPS)
+      - "443:443"      # HTTPS for main UI
+      - "53430:53430"  # OAuth callback HTTPS port
     depends_on:
       admin_ui:
         condition: service_healthy
+    volumes:
+      # Mount Let's Encrypt certificates from host
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     networks:
       - quant-vibe-network
     healthcheck:

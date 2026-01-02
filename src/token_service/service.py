@@ -55,7 +55,13 @@ async def heartbeat_task_func():
                                 last_error = "Access token expired"
                         else:
                             token_status = "unhealthy"
-                            last_error = "No token available"
+                            if status.get("requires_oauth"):
+                                last_error = "OAuth authentication required"
+                            else:
+                                last_error = "No token available"
+                    else:
+                        token_status = "unhealthy"
+                        last_error = "Token manager not initialized"
 
                     # Calculate uptime
                     uptime_seconds = 0
@@ -108,6 +114,10 @@ async def auto_refresh_task():
             await asyncio.sleep(config.refresh_interval_minutes * 60)
 
             logger.info("Auto-refresh check triggered")
+
+            if token_manager is None:
+                logger.warning("Token manager not initialized - skipping auto-refresh")
+                continue
 
             if token_manager.needs_refresh(threshold_minutes=5):
                 logger.info("Token needs refresh - refreshing now")
@@ -191,7 +201,9 @@ async def lifespan(app: FastAPI):
         logger.info("✓ Token manager initialized")
     except Exception as e:
         logger.error(f"Failed to initialize token manager: {e}")
-        raise
+        logger.error("Service will start but token operations will not be available")
+        # Don't raise - allow service to start for OAuth flow
+        token_manager = None
 
     # Initialize Redis message broker
     if config.enable_redis:
@@ -217,13 +229,18 @@ async def lifespan(app: FastAPI):
         logger.info("✓ Background heartbeat task started")
 
     # Check initial token status
-    status = token_manager.get_status()
-    if status.get("has_token"):
-        logger.info("✓ Token found in database")
-        logger.info(f"  Access token age: {status.get('access_token_age_seconds', 0)/60:.1f} minutes")
-        logger.info(f"  Expires in: {status.get('seconds_until_expiration', 0)/60:.1f} minutes")
+    if token_manager:
+        status = token_manager.get_status()
+        if status.get("has_token"):
+            logger.info("✓ Token found in database")
+            logger.info(f"  Access token age: {status.get('access_token_age_seconds', 0)/60:.1f} minutes")
+            logger.info(f"  Expires in: {status.get('seconds_until_expiration', 0)/60:.1f} minutes")
+        else:
+            logger.warning("⚠ No token found - authentication required")
+            if status.get("requires_oauth"):
+                logger.warning("  Use Admin UI to complete OAuth flow")
     else:
-        logger.warning("⚠ No token found - authentication required")
+        logger.warning("⚠ Token manager not initialized - OAuth authentication required")
 
     logger.info("="*70)
     logger.info(f"Token Service Ready - Listening on {config.host}:{config.port}")

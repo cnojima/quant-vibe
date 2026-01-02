@@ -15,6 +15,8 @@ export interface TokenStatus {
   refresh_token_expires_at?: string;
   access_token_expired?: boolean;
   refresh_token_expired?: boolean;
+  is_access_token_expired?: boolean;  // From token_service
+  is_refresh_token_expired?: boolean;  // From token_service
   access_token_age_seconds?: number;
   access_token_age_minutes?: number;
   expires_in?: number;
@@ -24,6 +26,8 @@ export interface TokenStatus {
   message?: string;
   database_exists?: boolean;
   instructions?: string[];
+  requires_oauth?: boolean;
+  client_init_error?: string;
 }
 
 export interface LiveEngineStatus {

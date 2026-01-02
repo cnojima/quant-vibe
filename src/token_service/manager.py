@@ -135,7 +135,22 @@ class CentralizedTokenManager:
 
         # Initialize schwabdev client
         self.logger.info("Initializing schwabdev client...")
+        self.client = None
+        self._client_init_error = None
+
         try:
+            # Check if tokens exist before initializing
+            # This prevents interactive OAuth prompts in non-interactive environments
+            if not Path(tokens_db_path).exists():
+                self.logger.warning(
+                    f"Tokens database not found at: {tokens_db_path}\n"
+                    "OAuth authentication required. Use Admin UI or run:\n"
+                    "  python scripts/authorize_schwab.py"
+                )
+                self._client_init_error = "no_token_db"
+                # Don't raise - allow service to start
+                return
+
             self.client = schwabdev.Client(
                 app_key=api_key,
                 app_secret=api_secret,
@@ -143,9 +158,20 @@ class CentralizedTokenManager:
                 tokens_db=tokens_db_path,
             )
             self.logger.info("✓ Schwabdev client initialized successfully")
+        except EOFError as e:
+            # This happens when schwabdev tries to prompt for OAuth but there's no terminal
+            self.logger.warning(
+                "Interactive OAuth required - refresh token expired\n"
+                "Use Admin UI to re-authenticate or run:\n"
+                "  python scripts/authorize_schwab.py\n"
+                f"Original error: {e}"
+            )
+            self._client_init_error = "refresh_token_expired"
+            # Don't raise - allow service to start
         except Exception as e:
-            self.logger.error(f"Failed to initialize schwabdev client: {e}")
-            raise
+            self.logger.warning(f"Failed to initialize schwabdev client: {e}")
+            self._client_init_error = str(e)
+            # Don't raise - allow service to start
 
         # Last refresh time
         self.last_refresh: Optional[datetime] = None
@@ -257,6 +283,14 @@ class CentralizedTokenManager:
             This method is thread-safe.
         """
         with self._lock:
+            if self.client is None:
+                self.logger.error(
+                    f"Cannot refresh token - schwabdev client not initialized\n"
+                    f"Initialization error: {self._client_init_error}\n"
+                    "Please complete OAuth authentication first"
+                )
+                return False
+
             try:
                 self.logger.info("Refreshing Schwab OAuth token...")
                 self.client.update_tokens()
@@ -332,10 +366,15 @@ class CentralizedTokenManager:
         token_info = self.get_token_info()
 
         if not token_info:
-            return {
+            status = {
                 "has_token": False,
                 "message": "No token found in database",
             }
+            # Include initialization error if client failed to init
+            if self._client_init_error:
+                status["client_init_error"] = self._client_init_error
+                status["requires_oauth"] = True
+            return status
 
         status = {
             "has_token": True,
@@ -347,5 +386,9 @@ class CentralizedTokenManager:
             status["minutes_since_refresh"] = (
                 datetime.now(timezone.utc) - self.last_refresh
             ).total_seconds() / 60.0
+
+        # Include client init status
+        if self._client_init_error:
+            status["client_init_error"] = self._client_init_error
 
         return status

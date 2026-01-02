@@ -25,21 +25,21 @@ from datetime import datetime
 import pandas as pd
 
 from quant_vibe.optimization import ParameterOptimizer, WalkForwardAnalysis
-from quant_vibe.strategies.bullish_vertical_put import BullishVerticalPutStrategy
-from quant_vibe.strategies.bullish_vertical_call import BullishVerticalCallStrategy
+from quant_vibe.strategies.registry import StrategyRegistry
 from quant_vibe.utils import load_options_backtest_data
 from quant_vibe.config.logging_config import setup_normalized_logging
 
 # Setup logging
 logger = setup_normalized_logging("optimize_strategy", "INFO", "logs/optimization")
 
-# Strategy mapping
+# Strategy mapping (use central registry)
 STRATEGY_MAP = {
-    "bullish_vertical_put": BullishVerticalPutStrategy,
-    "bullish_vertical_call": BullishVerticalCallStrategy,
+    name: StrategyRegistry.get_strategy_class(name)
+    for name in StrategyRegistry.list_strategies()
 }
 
 # Default parameter grids for each strategy
+# These are custom ranges - the registry can auto-generate grids if not specified
 PARAM_GRIDS = {
     "bullish_vertical_put": {
         "spread_width": [10.0, 15.0, 20.0, 25.0, 30.0],
@@ -51,6 +51,13 @@ PARAM_GRIDS = {
         "profit_target_min": [0.30, 0.40, 0.50, 0.60],
         "pullback_amount": [10.0, 20.0, 30.0],
         "trailing_stop_pct": [0.03, 0.05, 0.07],
+    },
+    "coin_toss": {
+        # Auto-generate from registry with custom ranges
+        "target_price": [1.5, 2.0, 2.5],
+        "price_tolerance": [0.25, 0.50, 0.75],
+        "profit_target_pct": [0.50, 0.75, 1.0],
+        "stop_loss_pct": [0.20, 0.30, 0.40],
     },
 }
 
@@ -74,6 +81,14 @@ FIXED_PARAMS = {
         "profit_target_max": 1.0,
         "num_spreads": 10,
         "max_trades_daily": 1,
+    },
+    "coin_toss": {
+        "min_dte": 0,
+        "max_dte": 0,
+        "observation_period": 15,  # Faster than 30 minutes
+        "profit_target_max": 1.0,
+        "num_spreads": 10,
+        "max_trades_daily": 5,
     },
 }
 
@@ -103,6 +118,22 @@ def run_grid_search(
     logger.info(f"\n{'='*70}")
     logger.info(f"GRID SEARCH OPTIMIZATION: {strategy_name}")
     logger.info(f"{'='*70}")
+
+    # Validate param_grid and fixed_params before optimization
+    logger.info("Validating parameter specifications...")
+    try:
+        # Combine param_grid and fixed_params for validation
+        sample_params = {**fixed_params}
+        for key, values in param_grid.items():
+            sample_params[key] = values[0] if values else None
+
+        # Validate using registry
+        StrategyRegistry.validate_params(strategy_name, sample_params)
+        logger.info("✓ Parameter validation passed")
+    except ValueError as e:
+        logger.error(f"❌ Parameter validation failed: {e}")
+        logger.error("Please check your PARAM_GRIDS and FIXED_PARAMS configurations")
+        raise
 
     strategy_class = STRATEGY_MAP[strategy_name]
 

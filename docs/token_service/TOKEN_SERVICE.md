@@ -139,7 +139,7 @@ SCHWAB_CALLBACK_URL=https://127.0.0.1:8182/
 ```bash
 # Token service settings
 TOKEN_SERVICE_HOST=0.0.0.0                    # Listen address
-TOKEN_SERVICE_PORT=8001                       # Listen port
+TOKEN_SERVICE_PORT=8100                       # Listen port
 TOKEN_REFRESH_INTERVAL_MINUTES=14             # Auto-refresh interval
 
 # Token storage
@@ -170,7 +170,7 @@ pip install -e ".[dev,schwab]"
 python scripts/run_token_service.py
 ```
 
-The service will start on `http://localhost:8001`.
+The service will start on `http://localhost:8100`.
 
 ### Docker (Production)
 ```bash
@@ -181,7 +181,7 @@ docker-compose up -d
 docker-compose logs -f token_service
 
 # Check health
-curl http://localhost:8001/health
+curl http://localhost:8100/health
 ```
 
 ### Docker Service Configuration
@@ -196,7 +196,7 @@ token_service:
   container_name: quant-vibe-token-service
   restart: unless-stopped
   ports:
-    - "8001:8001"
+    - "8100:8100"
   depends_on:
     redis:
       condition: service_healthy
@@ -204,7 +204,7 @@ token_service:
     SCHWAB_API_KEY: ${SCHWAB_API_KEY}
     SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}
     TOKEN_SERVICE_HOST: 0.0.0.0
-    TOKEN_SERVICE_PORT: 8001
+    TOKEN_SERVICE_PORT: 8100
     TOKEN_REFRESH_INTERVAL_MINUTES: 14
     REDIS_HOST: redis
     REDIS_PORT: 6379
@@ -213,7 +213,7 @@ token_service:
     - .:/app
     - ./tokens:/app/tokens
   healthcheck:
-    test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+    test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
     interval: 30s
     timeout: 10s
     retries: 3
@@ -229,7 +229,7 @@ Use the provided `TokenServiceClient` to interact with the service:
 from token_service.client import TokenServiceClient
 
 # Initialize client
-client = TokenServiceClient("http://localhost:8001")
+client = TokenServiceClient("http://localhost:8100")
 
 # Check if service is healthy
 health = client.health_check()
@@ -260,7 +260,7 @@ For simple use cases:
 from token_service.client import get_token
 
 # Get token in one line
-token = get_token("http://localhost:8001")
+token = get_token("http://localhost:8100")
 print(token)  # "eyJhbGc..." or None
 ```
 
@@ -269,7 +269,7 @@ print(token)  # "eyJhbGc..." or None
 When running in Docker, use the service name as hostname:
 
 ```python
-client = TokenServiceClient("http://token_service:8001")
+client = TokenServiceClient("http://token_service:8100")
 token = client.get_access_token()
 ```
 
@@ -277,7 +277,7 @@ Set the `TOKEN_SERVICE_URL` environment variable in your service:
 
 ```yaml
 environment:
-  TOKEN_SERVICE_URL: http://token_service:8001
+  TOKEN_SERVICE_URL: http://token_service:8100
 ```
 
 ## Background Auto-Refresh
@@ -343,7 +343,7 @@ Tokens are stored in a SQLite database using schwabdev's format:
 The service uses normalized logging format:
 
 ```
-[2025-12-30 10:00:00][token_service][INFO    ] Token Service Ready - Listening on 0.0.0.0:8001
+[2025-12-30 10:00:00][token_service][INFO    ] Token Service Ready - Listening on 0.0.0.0:8100
 [2025-12-30 10:14:00][token_service][INFO    ] Auto-refresh check triggered
 [2025-12-30 10:14:00][token_service][INFO    ] Token needs refresh - refreshing now
 [2025-12-30 10:14:01][token_service][INFO    ] Refreshing Schwab OAuth token...
@@ -377,7 +377,7 @@ client.update_tokens()
 from token_service.client import TokenServiceClient
 
 # Get token from centralized service
-client = TokenServiceClient(os.getenv("TOKEN_SERVICE_URL", "http://localhost:8001"))
+client = TokenServiceClient(os.getenv("TOKEN_SERVICE_URL", "http://localhost:8100"))
 token = client.get_access_token()
 
 # No need to refresh - token service handles it automatically
@@ -412,7 +412,7 @@ HTTPException: 503 Service Unavailable - Token manager not initialized
 HTTPException: 401 Unauthorized - Access token is expired
 ```
 
-**Solution**: Trigger manual refresh: `curl -X POST http://localhost:8001/token/refresh`
+**Solution**: Trigger manual refresh: `curl -X POST http://localhost:8100/token/refresh`
 
 ### Refresh Failed
 ```
@@ -460,7 +460,7 @@ Monitor the service using:
 
 **Health Endpoint**:
 ```bash
-curl http://localhost:8001/health
+curl http://localhost:8100/health
 ```
 
 **Docker Health Checks**:

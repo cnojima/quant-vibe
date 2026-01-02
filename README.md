@@ -584,7 +584,7 @@ cp .env.example .env
 
 **Key environment variables:**
 - `MASSIVE_API_KEY` - Massive API for historical options data
-- `SCHWAB_APP_KEY`, `SCHWAB_APP_SECRET` - Schwab API credentials
+- `SCHWAB_API_KEY`, `SCHWAB_API_SECRET` - Schwab API credentials
 - `TIMESCALE_*` - Local TimescaleDB connection
 - `REMOTE_TIMESCALE_*` - Remote TimescaleDB connection
 - `USE_REMOTE_TIMESCALE` - Toggle between local/remote database

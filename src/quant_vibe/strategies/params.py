@@ -322,6 +322,152 @@ class CoinTossLimitParams(BaseStrategyParams):
     )
 
 
+class BollingerBandParams(BaseStrategyParams):
+    """Parameters for Bollinger Band strategy (market orders)."""
+
+    target_price: float = Field(
+        default=2.0,
+        ge=0.0,
+        description="Target option price to search near"
+    )
+    buy_limit: float = Field(
+        default=1.0,
+        ge=0.0,
+        description="Reference price for profit calculation"
+    )
+    sell_target: float = Field(
+        default=2.0,
+        ge=0.0,
+        description="Target price for exit signal"
+    )
+    otm_percent_min: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="Minimum OTM percentage (0.10 = 10%)"
+    )
+    otm_percent_max: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description="Maximum OTM percentage (0.15 = 15%)"
+    )
+    price_tolerance: float = Field(
+        default=1.0,
+        ge=0.0,
+        description="Search range around target_price"
+    )
+    quantity: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        description="Number of contracts to trade"
+    )
+    profit_target_pct: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=10.0,
+        description="Profit target as percentage (1.0 = 100%)"
+    )
+    stop_loss_pct: Optional[float] = Field(
+        default=0.50,
+        ge=0.0,
+        le=1.0,
+        description="Stop loss as percentage (0.50 = 50%)"
+    )
+    bb_period: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        description="Bollinger Band moving average period"
+    )
+    bb_std: float = Field(
+        default=2.0,
+        ge=0.1,
+        le=5.0,
+        description="Bollinger Band standard deviations"
+    )
+    bb_threshold: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="How close to band to trigger signal (0 = at band)"
+    )
+
+
+class BollingerBandLimitParams(BaseStrategyParams):
+    """Parameters for Bollinger Band Limit strategy (limit orders)."""
+
+    target_contract_price: float = Field(
+        default=2.0,
+        ge=0.0,
+        description="Target option price to search near"
+    )
+    limit_buy_price: float = Field(
+        default=1.0,
+        ge=0.0,
+        description="Limit price for buy orders"
+    )
+    profit_target_price: float = Field(
+        default=2.0,
+        ge=0.0,
+        description="Target sell price for profit exit"
+    )
+    otm_percent_min: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="Minimum OTM percentage (0.10 = 10%)"
+    )
+    otm_percent_max: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description="Maximum OTM percentage (0.15 = 15%)"
+    )
+    price_tolerance: float = Field(
+        default=1.0,
+        ge=0.0,
+        description="Search range around target_contract_price"
+    )
+    quantity: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        description="Number of contracts to trade"
+    )
+    stop_loss_pct: Optional[float] = Field(
+        default=0.50,
+        ge=0.0,
+        le=1.0,
+        description="Stop loss as percentage (0.50 = 50%)"
+    )
+    order_expiry_minutes: int = Field(
+        default=60,
+        ge=1,
+        le=1440,
+        description="Cancel unfilled orders after this many minutes"
+    )
+    bb_period: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        description="Bollinger Band moving average period"
+    )
+    bb_std: float = Field(
+        default=2.0,
+        ge=0.1,
+        le=5.0,
+        description="Bollinger Band standard deviations"
+    )
+    bb_threshold: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="How close to band to trigger signal (0 = at band)"
+    )
+
+
 # Registry mapping strategy names to their parameter models
 STRATEGY_PARAMS_MAP = {
     'bullish_vertical_put': BullishVerticalPutParams,
@@ -329,6 +475,8 @@ STRATEGY_PARAMS_MAP = {
     'bearish_iv_scalp': BearishIVScalpParams,
     'coin_toss': CoinTossParams,
     'coin_toss_limit': CoinTossLimitParams,
+    'bollinger_band': BollingerBandParams,
+    'bollinger_band_limit': BollingerBandLimitParams,
 }
 
 

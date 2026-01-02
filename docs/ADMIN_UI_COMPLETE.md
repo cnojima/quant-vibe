@@ -317,7 +317,7 @@ REDIS_DB=0
 
 # Token Service (optional)
 USE_TOKEN_SERVICE=true
-TOKEN_SERVICE_URL=http://token_service:8001
+TOKEN_SERVICE_URL=http://token_service:8100
 ```
 
 ## Production Deployment
