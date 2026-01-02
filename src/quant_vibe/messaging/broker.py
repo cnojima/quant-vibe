@@ -7,13 +7,33 @@ by different message queue backends (Redis, RabbitMQ, etc.).
 import json
 import os
 import time
+import numpy as np
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, date
 
 import redis
 
 from .topics import Topic
+
+
+class DateTimeEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles datetime and numpy types."""
+
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        elif isinstance(obj, (np.integer, np.int64, np.int32, np.int16, np.int8)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float64, np.float32, np.float16)):
+            return float(obj)
+        elif isinstance(obj, (np.bool_, bool)):
+            return bool(obj)
+        elif isinstance(obj, (np.str_, str)):
+            return str(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
 
 
 class MessageBroker(ABC):
@@ -155,8 +175,8 @@ class RedisMessageBroker(MessageBroker):
                 "data": message,
             }
 
-            # Serialize and publish
-            serialized = json.dumps(enriched_message)
+            # Serialize and publish (use custom encoder for datetime/numpy types)
+            serialized = json.dumps(enriched_message, cls=DateTimeEncoder)
             self.client.publish(str(topic), serialized)
             return True
 
@@ -164,7 +184,7 @@ class RedisMessageBroker(MessageBroker):
             # Retry connection
             try:
                 self._connect()
-                serialized = json.dumps(enriched_message)
+                serialized = json.dumps(enriched_message, cls=DateTimeEncoder)
                 self.client.publish(str(topic), serialized)
                 return True
             except Exception as e:
