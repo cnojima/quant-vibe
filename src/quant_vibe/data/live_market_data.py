@@ -268,7 +268,7 @@ class LiveMarketDataProvider:
             current_price = underlying_prices
             current_time = self.data_feed.last_update_time or datetime.now()
 
-            print(f"DEBUG   Using direct price data: ${current_price:.2f} at {current_time}")
+            # print(f"DEBUG   Using direct price data: ${current_price:.2f} at {current_time}")
 
             return [{
                 'timestamp': current_time,
