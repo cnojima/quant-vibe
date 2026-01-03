@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Job Label (must be unique system-wide) -->
+    <key>Label</key>
+    <string>com.quantvibe.backfill-greeks</string>
+
+    <!-- Program to execute -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>
+            cd /Volumes/1TB/dev/quant-vibe &amp;&amp; \
+            source venv/bin/activate &amp;&amp; \
+            python ./scripts/backfill/backfill_stream_greeks.py --mark-expired &amp;&amp; \
+            python ./scripts/backfill/backfill_stream_greeks.py --active-only
+        </string>
+    </array>
+
+    <!-- Working Directory -->
+    <key>WorkingDirectory</key>
+    <string>/Volumes/1TB/dev/quant-vibe</string>
+
+    <!-- Standard Output and Error Logs -->
+    <key>StandardOutPath</key>
+    <string>/Volumes/1TB/dev/quant-vibe/logs/backfill_greeks_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Volumes/1TB/dev/quant-vibe/logs/backfill_greeks_stderr.log</string>
+
+    <!-- Schedule: Run every day at 2:00 PM (14:00) -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>14</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Environment Variables (load from .env if needed) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <!-- Run at load (optional - remove if you don't want immediate execution) -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!-- Keep job alive if it crashes -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Process type -->
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
