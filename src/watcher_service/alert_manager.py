@@ -6,6 +6,7 @@ from typing import Dict, Set, Optional, Any
 
 from watcher_service.config import NotificationConfig, AlertLevel, NotificationRule
 from watcher_service.service_monitor import HealthStatus
+from quant_vibe.utils import now_utc
 
 
 class Alert:
@@ -30,15 +31,15 @@ class Alert:
         self.level = level
         self.message = message
         self.details = details
-        self.first_seen = datetime.utcnow()
-        self.last_seen = datetime.utcnow()
+        self.first_seen = now_utc()
+        self.last_seen = now_utc()
         self.count = 1
         self.notified = False
         self.notified_at: Optional[datetime] = None
 
     def update(self):
         """Update alert (seen again)."""
-        self.last_seen = datetime.utcnow()
+        self.last_seen = now_utc()
         self.count += 1
 
     def should_notify(self, min_interval_seconds: int = 300) -> bool:
@@ -55,7 +56,7 @@ class Alert:
 
         # Re-notify if enough time has passed
         if self.notified_at:
-            elapsed = (datetime.utcnow() - self.notified_at).total_seconds()
+            elapsed = (now_utc() - self.notified_at).total_seconds()
             return elapsed >= min_interval_seconds
 
         return False
@@ -63,7 +64,7 @@ class Alert:
     def mark_notified(self):
         """Mark alert as notified."""
         self.notified = True
-        self.notified_at = datetime.utcnow()
+        self.notified_at = now_utc()
 
 
 class AlertManager:
@@ -232,7 +233,7 @@ class AlertManager:
 
                 self.logger.info(
                     f"Cleared {level.value} alert for {service} "
-                    f"(active for {(datetime.utcnow() - alert.first_seen).total_seconds():.0f}s)"
+                    f"(active for {(now_utc() - alert.first_seen).total_seconds():.0f}s)"
                 )
 
                 # Send recovery notification if enabled
@@ -333,7 +334,7 @@ class AlertManager:
 
         try:
             # Calculate how long the alert was active
-            duration = (datetime.utcnow() - alert.first_seen).total_seconds()
+            duration = (now_utc() - alert.first_seen).total_seconds()
             duration_str = f"{int(duration // 60)}m {int(duration % 60)}s"
 
             title = f"[RECOVERY] {alert.service}"
@@ -401,7 +402,7 @@ class AlertManager:
         Args:
             max_age_hours: Maximum age in hours
         """
-        cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
+        cutoff = now_utc() - timedelta(hours=max_age_hours)
 
         # Keep only recent alerts
         self.alert_history = [

@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
 from quant_vibe.reporting import DailyPerformanceReport
 from live_trading_service.state_store import StateStore
+from quant_vibe.utils import now_utc
 
 router = APIRouter()
 
@@ -230,7 +231,7 @@ async def get_daily_report(
 
             return {
                 "report": report,
-                "generated_at": datetime.now().isoformat()
+                "generated_at": now_utc().isoformat()
             }
 
         finally:
@@ -428,7 +429,7 @@ async def reload_strategies(current_user: User = Depends(get_current_user)):
             topic="control.live_trading",
             data={
                 "command": "reload_strategies",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": now_utc().isoformat(),
                 "user": current_user.username,
             }
         )

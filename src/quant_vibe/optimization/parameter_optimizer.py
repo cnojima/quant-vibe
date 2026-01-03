@@ -17,6 +17,7 @@ import logging
 from quant_vibe.backtesting.options_engine import OptionsBacktestEngine
 from quant_vibe.strategies.options_base import OptionsStrategy
 from quant_vibe.config.logging_config import setup_normalized_logging
+from quant_vibe.utils.timestamp_utils import now_utc
 
 logger = setup_normalized_logging("optimization", "INFO", "logs/optimization")
 
@@ -115,9 +116,9 @@ class ParameterOptimizer:
 
             try:
                 # Run backtest with this parameter set
-                start_time = datetime.now()
+                start_time = now_utc()
                 metrics = self._run_single_backtest(params)
-                elapsed_time = (datetime.now() - start_time).total_seconds()
+                elapsed_time = (now_utc() - start_time).total_seconds()
 
                 # Store results
                 result = {

@@ -10,6 +10,7 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, List, TYPE_CHECKING
 from collections import deque, defaultdict
+from quant_vibe.utils.timestamp_utils import now_utc
 
 if TYPE_CHECKING:
     from ..live.data_feed import RealtimeDataFeed
@@ -284,7 +285,7 @@ class LiveMarketDataProvider:
             # For now, return simple bars with the current price
             # In the future, we could aggregate these into proper OHLCV bars
             current_price = underlying_prices
-            current_time = self.data_feed.last_update_time or datetime.now()
+            current_time = self.data_feed.last_update_time or now_utc()
 
             # print(f"DEBUG   Using direct price data: ${current_price:.2f} at {current_time}")
 

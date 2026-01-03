@@ -14,6 +14,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 import numpy as np
+from quant_vibe.utils import now_utc
 
 load_dotenv()
 
@@ -409,7 +410,7 @@ class StateStore:
                 'quantity': order_data['quantity'],
                 'symbol': order_data['symbol'],
                 'status': order_data.get('status', 'pending'),
-                'submitted_time': order_data.get('submitted_time', datetime.now()),
+                'submitted_time': order_data.get('submitted_time', now_utc()),
                 'filled_time': order_data.get('filled_time'),  # BUG FIX: was missing
                 'expected_price': order_data.get('expected_price'),
                 'filled_price': order_data.get('filled_price'),  # BUG FIX: was missing

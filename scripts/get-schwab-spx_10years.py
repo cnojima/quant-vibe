@@ -9,6 +9,7 @@ import sqlite3
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from quant_vibe.data.schwab_dev_client import SchwabDevClient
+from quant_vibe.utils import now_utc
 
 def fetch_spx_10years():
     """Fetch 10 years of daily bars for $SPX."""
@@ -23,7 +24,7 @@ def fetch_spx_10years():
     print("✅ Connected!\n")
     
     # Calculate date range
-    end_date = datetime.now()
+    end_date = now_utc()
     start_date = end_date - timedelta(days=365 * 10)  # 10 years
     
     print(f"Date range: {start_date.date()} to {end_date.date()}")

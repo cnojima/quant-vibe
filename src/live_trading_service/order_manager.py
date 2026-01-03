@@ -14,6 +14,7 @@ from enum import Enum
 import logging
 
 from quant_vibe.strategies.options_base import OptionsPosition, OptionLeg, OptionType
+from quant_vibe.utils import now_utc
 
 
 class OrderStatus(Enum):
@@ -402,8 +403,8 @@ class OrderManager:
 
             # Mark as filled
             order.status = OrderStatus.FILLED
-            order.submitted_time = datetime.now()
-            order.filled_time = datetime.now()
+            order.submitted_time = now_utc()
+            order.filled_time = now_utc()
             order.filled_total_price = filled_price
 
             # Log fill with clear open/close indicator
@@ -455,7 +456,7 @@ class OrderManager:
             else:
                 exp_date = datetime.strptime(expiration_str, '%Y%m%d').date()
 
-            today = datetime.now().date()
+            today = now_utc().date()
             dte = (exp_date - today).days
             return max(0, dte)
         except Exception as e:

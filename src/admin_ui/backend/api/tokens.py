@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse
 
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
+from quant_vibe.utils import now_utc
 
 # Import token service client
 try:
@@ -278,9 +279,9 @@ async def refresh_token(current_user: User = Depends(get_current_user)):
         )
 
         # Refresh the token
-        print(f"[{datetime.now()}] Admin UI: Refreshing Schwab OAuth token...")
+        print(f"[{now_utc()}] Admin UI: Refreshing Schwab OAuth token...")
         client.update_tokens()
-        print(f"[{datetime.now()}] Admin UI: Token refresh successful")
+        print(f"[{now_utc()}] Admin UI: Token refresh successful")
 
         # Get updated token status
         updated_status = get_token_from_db()
@@ -421,7 +422,7 @@ async def handle_oauth_redirect(code: str, session: str = None):
         # Ensure tokens directory exists
         settings.tokens_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f"[{datetime.now()}] Admin UI: Exchanging OAuth code for tokens...")
+        print(f"[{now_utc()}] Admin UI: Exchanging OAuth code for tokens...")
 
         # Use the standalone exchange function (same as schwab_oauth_callback.py script)
         from .tokens_helper import exchange_code_for_tokens, save_tokens_to_db
@@ -430,7 +431,7 @@ async def handle_oauth_redirect(code: str, session: str = None):
         tokens = exchange_code_for_tokens(code, app_key, app_secret, callback_url)
         save_tokens_to_db(tokens, str(token_db_path), issued_time)
 
-        print(f"[{datetime.now()}] Admin UI: OAuth token exchange successful")
+        print(f"[{now_utc()}] Admin UI: OAuth token exchange successful")
 
         # Return HTML success page
         return """
@@ -607,7 +608,7 @@ async def handle_oauth_callback(
         # Ensure tokens directory exists
         settings.tokens_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f"[{datetime.now()}] Admin UI: Exchanging OAuth code for tokens...")
+        print(f"[{now_utc()}] Admin UI: Exchanging OAuth code for tokens...")
 
         # Initialize schwabdev client with the authorization code
         # This will automatically exchange the code for tokens and store them
@@ -623,7 +624,7 @@ async def handle_oauth_callback(
         token_status = get_token_from_db()
 
         if token_status and token_status.get("has_token"):
-            print(f"[{datetime.now()}] Admin UI: OAuth token exchange successful")
+            print(f"[{now_utc()}] Admin UI: OAuth token exchange successful")
 
             return {
                 "success": True,

@@ -16,6 +16,7 @@ from admin_ui.backend.auth import User, get_current_user
 
 # Import central registry
 from quant_vibe.strategies.registry import StrategyRegistry
+from quant_vibe.utils import now_utc
 
 router = APIRouter()
 
@@ -242,7 +243,7 @@ async def toggle_strategy(
             topic="control.live_trading",
             data={
                 "command": "reload_strategies",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": now_utc().isoformat(),
                 "trigger": "strategy_toggle",
                 "strategy": strategy_name,
             }
@@ -334,7 +335,7 @@ async def update_strategy_params(
             topic="control.live_trading",
             data={
                 "command": "reload_strategies",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": now_utc().isoformat(),
                 "trigger": "params_update",
                 "strategy": strategy_name,
             }

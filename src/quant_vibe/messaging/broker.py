@@ -15,6 +15,7 @@ from datetime import datetime, date
 import redis
 
 from .topics import Topic
+from quant_vibe.utils.timestamp_utils import now_utc
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -170,7 +171,7 @@ class RedisMessageBroker(MessageBroker):
         try:
             # Add metadata
             enriched_message = {
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": now_utc().isoformat(),
                 "topic": str(topic),
                 "data": message,
             }

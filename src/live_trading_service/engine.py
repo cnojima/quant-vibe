@@ -34,6 +34,7 @@ from quant_vibe.config.logging_config import setup_normalized_logging
 from quant_vibe.data import LiveMarketDataProvider
 from quant_vibe.messaging import RedisMessageBroker
 from quant_vibe.notifications import TradingNotifier
+from quant_vibe.utils import now_utc
 
 # Import token service client
 try:
@@ -339,7 +340,7 @@ class LiveTradingEngine:
         self.logger.info("="*70)
 
         self.state = TradingState.STARTING
-        self.start_time = datetime.now()
+        self.start_time = now_utc()
 
         # Log state
         self.state_store.log_event(
@@ -526,7 +527,7 @@ class LiveTradingEngine:
             # Calculate uptime
             uptime_seconds = 0
             if self.start_time:
-                uptime_seconds = (datetime.now() - self.start_time).total_seconds()
+                uptime_seconds = (now_utc() - self.start_time).total_seconds()
 
             # Determine status
             status = "healthy"
@@ -544,7 +545,7 @@ class LiveTradingEngine:
                 "heartbeat.live_trading",
                 {
                     "service": "live_trading",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": now_utc().isoformat(),
                     "status": status,
                     "metrics": {
                         "uptime_seconds": round(uptime_seconds, 1),
@@ -558,7 +559,7 @@ class LiveTradingEngine:
                 },
             )
 
-            self.last_heartbeat_time = datetime.now()
+            self.last_heartbeat_time = now_utc()
             self.logger.debug(f"Heartbeat published (status: {status})")
 
         except Exception as e:
@@ -567,24 +568,24 @@ class LiveTradingEngine:
     def _run_main_loop(self):
         """Main event loop."""
         status_interval = self.config['monitoring']['status_update_interval_seconds']
-        last_status_time = datetime.now()
-        last_heartbeat_time = datetime.now()
+        last_status_time = now_utc()
+        last_heartbeat_time = now_utc()
 
         try:
             while not self._shutdown_requested:
                 time.sleep(1)
 
                 # Heartbeat every 30 seconds
-                heartbeat_elapsed = (datetime.now() - last_heartbeat_time).total_seconds()
+                heartbeat_elapsed = (now_utc() - last_heartbeat_time).total_seconds()
                 if heartbeat_elapsed >= 30:
                     self._publish_heartbeat()
-                    last_heartbeat_time = datetime.now()
+                    last_heartbeat_time = now_utc()
 
                 # Status update
-                elapsed = (datetime.now() - last_status_time).total_seconds()
+                elapsed = (now_utc() - last_status_time).total_seconds()
                 if elapsed >= status_interval:
                     self._print_status()
-                    last_status_time = datetime.now()
+                    last_status_time = now_utc()
 
                 # Health checks
                 self._health_check()
@@ -615,7 +616,7 @@ class LiveTradingEngine:
 
     def _print_status(self):
         """Print status update."""
-        uptime = (datetime.now() - self.start_time).total_seconds() if self.start_time else 0
+        uptime = (now_utc() - self.start_time).total_seconds() if self.start_time else 0
         hours = int(uptime // 3600)
         minutes = int((uptime % 3600) // 60)
 
@@ -628,7 +629,7 @@ class LiveTradingEngine:
             feed_type = "Unknown"
 
         self.logger.info("\n" + "="*70)
-        self.logger.info(f"STATUS UPDATE - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        self.logger.info(f"STATUS UPDATE - {now_utc().strftime('%Y-%m-%d %H:%M:%S')}")
         self.logger.info("-"*70)
         self.logger.info(f"State: {self.state}")
         self.logger.info(f"Mode: {'PAPER TRADING' if self.paper_trading else '⚠️  LIVE TRADING ⚠️'}")
@@ -684,7 +685,7 @@ class LiveTradingEngine:
             self.logger.info("Closing state store...")
             self.state_store.save_engine_state(
                 TradingState.STOPPED,
-                {'stopped_at': datetime.now().isoformat()}
+                {'stopped_at': now_utc().isoformat()}
             )
             self.state_store.log_event(
                 EventType.ENGINE_STOPPED,
@@ -777,7 +778,7 @@ class LiveTradingEngine:
         return {
             'state': self.state,
             'paper_trading': self.paper_trading,
-            'uptime_seconds': (datetime.now() - self.start_time).total_seconds() if self.start_time else 0,
+            'uptime_seconds': (now_utc() - self.start_time).total_seconds() if self.start_time else 0,
             'bars_processed': self.total_bars_processed,
             'strategies_loaded': len(self.strategies),
             'data_feed_stats': self.redis_feed.get_stats() if self.redis_feed else {},

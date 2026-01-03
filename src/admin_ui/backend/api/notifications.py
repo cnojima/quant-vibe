@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from admin_ui.backend.auth import User, get_current_user
+from quant_vibe.utils import now_utc
 
 # Import database store
 try:
@@ -186,8 +187,8 @@ async def get_notification_stats(
 
     try:
         ts_store = TimescaleStore()
-        period_start = datetime.now() - timedelta(days=days)
-        period_end = datetime.now()
+        period_start = now_utc() - timedelta(days=days)
+        period_end = now_utc()
 
         query = """
             SELECT

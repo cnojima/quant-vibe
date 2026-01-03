@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+from quant_vibe.utils import now_utc
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -107,7 +108,7 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
 
     # Update status
     _running_backtests[backtest_id]["status"] = "running"
-    _running_backtests[backtest_id]["started_at"] = datetime.now()
+    _running_backtests[backtest_id]["started_at"] = now_utc()
     _save_backtests(_running_backtests)
 
     try:
@@ -157,7 +158,7 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
             process.kill()
             await process.wait()
             _running_backtests[backtest_id]["status"] = "failed"
-            _running_backtests[backtest_id]["completed_at"] = datetime.now()
+            _running_backtests[backtest_id]["completed_at"] = now_utc()
             _running_backtests[backtest_id]["error"] = "Backtest timed out (exceeded 10 minutes)"
             _save_backtests(_running_backtests)
             return
@@ -203,7 +204,7 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
                 print(f"WARNING: Database verification failed after {max_retries} retries, marking as completed anyway")
 
             _running_backtests[backtest_id]["status"] = "completed"
-            _running_backtests[backtest_id]["completed_at"] = datetime.now()
+            _running_backtests[backtest_id]["completed_at"] = now_utc()
             _running_backtests[backtest_id]["result_files"] = result_files
             _save_backtests(_running_backtests)
         else:
@@ -219,13 +220,13 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
 
             error_msg = '\n\n'.join(error_parts) if error_parts else "Unknown error"
             _running_backtests[backtest_id]["status"] = "failed"
-            _running_backtests[backtest_id]["completed_at"] = datetime.now()
+            _running_backtests[backtest_id]["completed_at"] = now_utc()
             _running_backtests[backtest_id]["error"] = error_msg
             _save_backtests(_running_backtests)
 
     except Exception as e:
         _running_backtests[backtest_id]["status"] = "failed"
-        _running_backtests[backtest_id]["completed_at"] = datetime.now()
+        _running_backtests[backtest_id]["completed_at"] = now_utc()
         _running_backtests[backtest_id]["error"] = str(e)
         _save_backtests(_running_backtests)
 
@@ -287,7 +288,7 @@ async def run_backtest(
         Backtest ID for status checking
     """
     # Generate unique backtest ID
-    backtest_id = f"{request.strategy_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    backtest_id = f"{request.strategy_name}_{now_utc().strftime('%Y%m%d_%H%M%S')}"
 
     # Initialize status
     _running_backtests[backtest_id] = {

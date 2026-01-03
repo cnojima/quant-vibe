@@ -20,6 +20,7 @@ from watcher_service.config import WatcherConfig, ServiceType
 from watcher_service.service_monitor import ServiceMonitor, HealthStatus
 from watcher_service.heartbeat_manager import HeartbeatManager
 from watcher_service.alert_manager import AlertManager
+from quant_vibe.utils import now_utc
 
 # Optional: Import Pushover notifier if available
 try:
@@ -103,7 +104,7 @@ class WatcherService:
         # Subscribe to heartbeat topics
         self._subscribe_to_heartbeats()
 
-        self.start_time = datetime.utcnow()
+        self.start_time = now_utc()
         self.logger.info("Watcher service initialized")
 
     def _subscribe_to_heartbeats(self):
@@ -163,7 +164,7 @@ class WatcherService:
         """
         health_data = {
             "service": service.name,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": now_utc().isoformat(),
             "checks": {},
         }
 
@@ -262,7 +263,7 @@ class WatcherService:
             if s.get("overall_status") == HealthStatus.UNKNOWN
         )
 
-        uptime_seconds = (datetime.utcnow() - self.start_time).total_seconds()
+        uptime_seconds = (now_utc() - self.start_time).total_seconds()
 
         return {
             "watcher_status": "running" if self.running else "stopped",
@@ -367,7 +368,7 @@ class WatcherService:
         except Exception as e:
             self.logger.error(f"Error during cleanup: {e}", exc_info=True)
 
-        uptime = (datetime.utcnow() - self.start_time).total_seconds()
+        uptime = (now_utc() - self.start_time).total_seconds()
         self.logger.info(f"Watcher service stopped (uptime: {uptime:.0f}s)")
 
 

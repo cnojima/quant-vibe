@@ -30,6 +30,7 @@ from quant_vibe.optimization import ParameterOptimizer, WalkForwardAnalysis
 from quant_vibe.strategies.registry import StrategyRegistry
 from quant_vibe.utils import load_options_backtest_data
 from quant_vibe.config.logging_config import setup_normalized_logging
+from quant_vibe.utils import now_utc
 
 # Setup logging
 logger = setup_normalized_logging("optimize_strategy", "INFO", "logs/optimization")
@@ -54,7 +55,7 @@ def update_status(current: int, total: int, params: dict, metrics: dict, status_
 
     try:
         status_data = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now_utc().isoformat(),
             "type": status_type,
             "current_combination": current,
             "total_combinations": total,
@@ -90,7 +91,7 @@ def log_message(message: str, level: str = "INFO"):
     if STATUS_FILE_PATH:
         try:
             log_data = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": now_utc().isoformat(),
                 "type": "log",
                 "level": level,
                 "message": message,
@@ -588,7 +589,7 @@ def main():
     )
 
     # Save grid search results
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = now_utc().strftime("%Y%m%d_%H%M%S")
     grid_results_file = output_dir / f"{args.strategy}_grid_search_{timestamp}.csv"
     optimizer.save_results(str(grid_results_file))
     log_message(f"\nGrid search results saved to: {grid_results_file}")

@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from quant_vibe.data.schwab_dev_client import SchwabDevClient
 from quant_vibe.data.timescale_store import TimescaleStore
 from quant_vibe.utils import normalize_option_ticker
+from quant_vibe.utils import now_utc
 
 
 class OptionsQuotePoller:
@@ -83,7 +84,7 @@ class OptionsQuotePoller:
         print(f"Strike Range: ${strike_min:.0f} - ${strike_max:.0f}")
 
         # Calculate DTE range
-        today = datetime.now().date()
+        today = now_utc().date()
         min_exp_date = today + timedelta(days=self.min_dte)
         max_exp_date = today + timedelta(days=self.max_dte)
 
@@ -214,7 +215,7 @@ class OptionsQuotePoller:
         Args:
             contracts: List of contract dictionaries
         """
-        current_time = datetime.now()
+        current_time = now_utc()
         bar_time = current_time.replace(second=0, microsecond=0)
 
         # Only create new bar if we're in a new minute

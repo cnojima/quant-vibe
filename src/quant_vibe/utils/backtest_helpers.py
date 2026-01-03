@@ -49,7 +49,7 @@ def setup_backtest_output(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = now_utc().strftime("%Y%m%d_%H%M%S")
 
     # Create log file
     log_file = output_dir / f"{strategy_name}_log_{timestamp}.txt"

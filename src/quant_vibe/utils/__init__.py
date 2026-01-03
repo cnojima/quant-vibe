@@ -14,16 +14,29 @@ from .symbol_utils import (
     normalize_option_ticker,
     parse_contract_type_from_ticker,
     parse_expiration_from_ticker,
+    parse_strike_from_ticker,
+)
+from .timestamp_utils import (
+    ensure_utc_aware,
+    from_timestamp,
+    is_utc_aware,
+    now_utc,
+    to_utc,
 )
 
 __all__ = [
+    "ensure_utc_aware",
+    "from_timestamp",
     "generate_position_id",
     "get_date_range",
+    "is_utc_aware",
     "load_options_backtest_data",
     "make_utc_datetime",
     "normalize_option_ticker",
+    "now_utc",
     "parse_contract_type_from_ticker",
     "parse_expiration_from_ticker",
+    "parse_strike_from_ticker",
     "RetryConfig",
     "RetryContext",
     "retry_with_backoff",
@@ -31,4 +44,5 @@ __all__ = [
     "save_backtest_to_db",
     "setup_backtest_output",
     "TeeOutput",
+    "to_utc",
 ]

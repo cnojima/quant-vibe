@@ -10,44 +10,11 @@ import re
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from quant_vibe.utils import normalize_option_ticker
-
-
-def parse_expiration_from_ticker(ticker: str) -> Optional[datetime]:
-    """Parse expiration date from SPXW option ticker.
-
-    SPXW option tickers have the format: SPXW  YYMMDDX########
-    Where:
-    - YYMMDD = expiration date (year, month, day)
-    - X = P (put) or C (call)
-    - ######## = strike price
-
-    Example: SPXW  260121P06200000 = Jan 21, 2026 Put at 6200 strike
-
-    Args:
-        ticker: Option ticker in format "SPXW  YYMMDDX########"
-
-    Returns:
-        Expiration date as datetime.date or None if parse fails
-    """
-    ticker = ticker.strip()
-    pattern = r'SPXW\s*(\d{6})[PC]'
-    match = re.search(pattern, ticker)
-
-    if not match:
-        return None
-
-    date_str = match.group(1)  # YYMMDD
-
-    try:
-        yy = int(date_str[0:2])
-        mm = int(date_str[2:4])
-        dd = int(date_str[4:6])
-        yyyy = 2000 + yy
-        exp_date = datetime(yyyy, mm, dd).date()
-        return exp_date
-    except (ValueError, IndexError):
-        return None
+from quant_vibe.utils import (
+    normalize_option_ticker,
+    parse_expiration_from_ticker,  # Import from canonical location
+    now_utc,
+)
 
 
 class BarAggregator:
@@ -65,7 +32,7 @@ class BarAggregator:
         """
         self.aggregate_interval = aggregate_interval_seconds
         self.quote_buffer: Dict[str, List[Dict]] = defaultdict(list)
-        self.last_flush_time = datetime.now()
+        self.last_flush_time = now_utc()
 
     def add_quote(self, quote: Dict):
         """Add a quote to the buffer.
@@ -83,7 +50,7 @@ class BarAggregator:
         Returns:
             True if aggregate interval has elapsed
         """
-        elapsed = (datetime.now() - self.last_flush_time).total_seconds()
+        elapsed = (now_utc() - self.last_flush_time).total_seconds()
         return elapsed >= self.aggregate_interval
 
     def flush(self) -> List[Dict]:
@@ -93,10 +60,10 @@ class BarAggregator:
             List of bar dictionaries ready for database insertion
         """
         if not self.quote_buffer:
-            self.last_flush_time = datetime.now()
+            self.last_flush_time = now_utc()
             return []
 
-        now = datetime.now()
+        now = now_utc()
         print(f"\n  💾 [{now.strftime('%Y-%m-%d %H:%M:%S')}] Flushing {len(self.quote_buffer)} symbols to database...")
 
         bars_to_insert = []
@@ -171,7 +138,7 @@ class BarAggregator:
 
         # Clear buffer
         self.quote_buffer.clear()
-        self.last_flush_time = datetime.now()
+        self.last_flush_time = now_utc()
 
         return bars_to_insert
 

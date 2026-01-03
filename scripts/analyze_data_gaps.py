@@ -37,6 +37,7 @@ from psycopg2.extras import execute_batch, RealDictCursor
 from dotenv import load_dotenv
 from collections import defaultdict
 import argparse
+from quant_vibe.utils import now_utc
 
 # Load environment variables
 env_path = Path(__file__).parent.parent / ".env"
@@ -362,7 +363,7 @@ def generate_sync_commands(gaps, output_file=None, table_type='options'):
         with open(output_file, 'w') as f:
             f.write("#!/bin/bash\n")
             f.write(f"# Auto-generated sync commands for {table_type}_bars\n")
-            f.write(f"# Generated: {datetime.now()}\n\n")
+            f.write(f"# Generated: {now_utc()}\n\n")
             for cmd in commands:
                 f.write(cmd + "\n")
         print(f"\n✅ Sync commands saved to: {output_file}")

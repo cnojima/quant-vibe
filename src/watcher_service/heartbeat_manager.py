@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, Any, Callable
 
 from watcher_service.service_monitor import HealthStatus
+from quant_vibe.utils import now_utc
 
 
 class HeartbeatManager:
@@ -58,7 +59,7 @@ class HeartbeatManager:
 
                 with self.heartbeat_lock:
                     self.heartbeats[service_name] = {
-                        "timestamp": datetime.utcnow(),
+                        "timestamp": now_utc(),
                         "data": data,
                         "topic": topic,
                     }
@@ -104,7 +105,7 @@ class HeartbeatManager:
 
         # Calculate time since last heartbeat
         last_timestamp = heartbeat["timestamp"]
-        now = datetime.utcnow()
+        now = now_utc()
         seconds_since = (now - last_timestamp).total_seconds()
 
         # Estimate missed heartbeats (assuming 30s interval)
@@ -155,7 +156,7 @@ class HeartbeatManager:
         """
         message = {
             "service": service_name,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": now_utc().isoformat(),
             "status": status,
             "metrics": metrics,
         }
@@ -174,7 +175,7 @@ class HeartbeatManager:
         Args:
             max_age_hours: Maximum age in hours before cleanup
         """
-        cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
+        cutoff = now_utc() - timedelta(hours=max_age_hours)
         removed = []
 
         with self.heartbeat_lock:

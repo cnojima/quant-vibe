@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import Optional
 import schwabdev
+from quant_vibe.utils import now_utc
 
 
 class TokenManager:
@@ -30,7 +31,7 @@ class TokenManager:
             True if refresh successful, False otherwise
         """
         try:
-            now = datetime.now()
+            now = now_utc()
             print(f"\n🔄 [{now.strftime('%Y-%m-%d %H:%M:%S')}] Refreshing Schwab OAuth token...")
 
             # Call token refresh
@@ -55,7 +56,7 @@ class TokenManager:
         if self.last_refresh is None:
             return True
 
-        elapsed_minutes = (datetime.now() - self.last_refresh).total_seconds() / 60.0
+        elapsed_minutes = (now_utc() - self.last_refresh).total_seconds() / 60.0
         return elapsed_minutes >= self.refresh_interval_minutes
 
     def get_token_age_minutes(self) -> float:
@@ -67,4 +68,4 @@ class TokenManager:
         if self.last_refresh is None:
             return 0.0
 
-        return (datetime.now() - self.last_refresh).total_seconds() / 60.0
+        return (now_utc() - self.last_refresh).total_seconds() / 60.0

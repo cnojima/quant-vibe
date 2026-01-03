@@ -24,6 +24,7 @@ from streaming_service.config import StreamingConfig
 from streaming_service.aggregator import BarAggregator
 from streaming_service.underlying_aggregator import UnderlyingBarAggregator
 from streaming_service.enrich_stream_with_chain import OptionContractEnricher
+from quant_vibe.utils import now_utc
 
 # Import token service client
 try:
@@ -186,7 +187,7 @@ class StreamingService:
                 return []
 
             # Parse chain to get SPXW contracts
-            today = datetime.now().date()
+            today = now_utc().date()
 
             for option_type in ['callExpDateMap', 'putExpDateMap']:
                 if option_type not in chain_data:
@@ -285,7 +286,7 @@ class StreamingService:
                         content = data_item.get('content', [])
 
                         if service == 'LEVELONE_OPTIONS' and content:
-                            timestamp = datetime.now()
+                            timestamp = now_utc()
 
                             for item in content:
                                 symbol = item.get('key', '')
@@ -360,7 +361,7 @@ class StreamingService:
 
                         # Handle underlying asset quotes (SPX, etc.)
                         elif service == 'LEVELONE_EQUITIES' and content:
-                            timestamp = datetime.now()
+                            timestamp = now_utc()
 
                             for item in content:
                                 symbol = item.get('key', '')
@@ -421,7 +422,7 @@ class StreamingService:
 
         # Periodic status update
         if self.message_count % 10 == 0:
-            now = datetime.now()
+            now = now_utc()
             self.logger.info(f"  📊 [{now.strftime('%H:%M:%S')}] Messages: {self.message_count} | Redis publishes: {self.redis_publish_count} | Buffered symbols: {self.aggregator.get_buffered_symbol_count()}")
 
     def _flush_bars(self):
@@ -469,7 +470,7 @@ class StreamingService:
             # Calculate uptime
             uptime_seconds = 0
             if self.start_time:
-                uptime_seconds = (datetime.utcnow() - self.start_time).total_seconds()
+                uptime_seconds = (now_utc() - self.start_time).total_seconds()
 
             # Determine status
             status = "healthy"
@@ -477,7 +478,7 @@ class StreamingService:
 
             # Check if we're receiving messages
             if self.last_heartbeat_time:
-                time_since_heartbeat = (datetime.utcnow() - self.last_heartbeat_time).total_seconds()
+                time_since_heartbeat = (now_utc() - self.last_heartbeat_time).total_seconds()
                 if time_since_heartbeat > 120:  # No heartbeat for 2 minutes
                     status = "degraded"
                     last_error = f"No heartbeat for {time_since_heartbeat:.0f}s"
@@ -487,7 +488,7 @@ class StreamingService:
                 "heartbeat.streaming",
                 {
                     "service": "streaming",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": now_utc().isoformat(),
                     "status": status,
                     "metrics": {
                         "uptime_seconds": round(uptime_seconds, 1),
@@ -499,7 +500,7 @@ class StreamingService:
                 },
             )
 
-            self.last_heartbeat_time = datetime.utcnow()
+            self.last_heartbeat_time = now_utc()
             self.logger.debug(f"Heartbeat published (status: {status})")
 
         except Exception as e:
@@ -507,13 +508,13 @@ class StreamingService:
 
     def start(self):
         """Start the streaming service."""
-        self.start_time = datetime.utcnow()
-        self.last_heartbeat_time = datetime.utcnow()
+        self.start_time = now_utc()
+        self.last_heartbeat_time = now_utc()
 
         self.logger.info("="*70)
         self.logger.info("SPXW OPTIONS STREAMING SERVICE")
         self.logger.info("="*70)
-        self.logger.info(f"Started: {datetime.now()}")
+        self.logger.info(f"Started: {now_utc()}")
         self.logger.info(f"DTE Range: {self.config.min_dte} - {self.config.max_dte} days")
         self.logger.info(f"Strike Range: ±{self.config.strike_range_pct*100}%")
         self.logger.info(f"Aggregate Interval: {self.config.aggregate_interval_seconds}s")
@@ -622,7 +623,7 @@ class StreamingService:
             while True:
                 dt_time.sleep(30)  # Changed to 30s for heartbeat alignment
 
-                now = datetime.now()
+                now = now_utc()
                 heartbeat_counter += 1
 
                 # Publish heartbeat every 30 seconds

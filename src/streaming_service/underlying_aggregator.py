@@ -4,6 +4,11 @@ from datetime import datetime
 from collections import defaultdict
 from typing import Dict, List, Optional
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from quant_vibe.utils import now_utc
+
 
 class UnderlyingBarAggregator:
     """Aggregates underlying asset (SPX) streaming quotes into OHLCV bars.
@@ -20,7 +25,7 @@ class UnderlyingBarAggregator:
         """
         self.aggregate_interval = aggregate_interval_seconds
         self.quote_buffer: Dict[str, List[Dict]] = defaultdict(list)
-        self.last_flush_time = datetime.now()
+        self.last_flush_time = now_utc()
 
     def add_quote(self, quote: Dict):
         """Add an underlying asset quote to the buffer.
@@ -40,7 +45,7 @@ class UnderlyingBarAggregator:
         Returns:
             True if aggregate interval has elapsed
         """
-        elapsed = (datetime.now() - self.last_flush_time).total_seconds()
+        elapsed = (now_utc() - self.last_flush_time).total_seconds()
         return elapsed >= self.aggregate_interval
 
     def flush(self) -> List[Dict]:
@@ -50,10 +55,10 @@ class UnderlyingBarAggregator:
             List of bar dictionaries ready for database insertion into underlying_bars
         """
         if not self.quote_buffer:
-            self.last_flush_time = datetime.now()
+            self.last_flush_time = now_utc()
             return []
 
-        now = datetime.now()
+        now = now_utc()
         print(f"\n  💾 [{now.strftime('%Y-%m-%d %H:%M:%S')}] Flushing {len(self.quote_buffer)} underlying symbols...")
 
         bars_to_insert = []
@@ -110,7 +115,7 @@ class UnderlyingBarAggregator:
 
         # Clear buffer
         self.quote_buffer.clear()
-        self.last_flush_time = datetime.now()
+        self.last_flush_time = now_utc()
 
         return bars_to_insert
 

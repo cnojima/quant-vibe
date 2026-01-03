@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+from quant_vibe.utils import now_utc
 
 
 def setup_logging(
@@ -71,7 +72,7 @@ def is_market_open(current_time: Optional[datetime] = None) -> bool:
     from datetime import datetime
 
     if current_time is None:
-        current_time = datetime.now()
+        current_time = now_utc()
 
     # Convert to ET
     et_tz = pytz.timezone('America/New_York')

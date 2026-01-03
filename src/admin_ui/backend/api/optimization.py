@@ -21,6 +21,7 @@ from admin_ui.backend.config import get_settings
 # Load .env file to ensure environment variables are available for subprocesses
 # In Docker, environment variables are set via docker-compose, but load_dotenv() won't hurt
 from pathlib import Path
+from quant_vibe.utils import now_utc
 env_path = Path(__file__).parent.parent.parent.parent.parent / ".env"
 if env_path.exists():
     load_dotenv(env_path)
@@ -194,7 +195,7 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
         request: Optimization parameters
     """
     settings = get_settings()
-    start_time = datetime.now()
+    start_time = now_utc()
 
     # Update status
     _running_optimizations[optimization_id]["status"] = "running"
@@ -275,7 +276,7 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
 
             if process.returncode == 0:
                 # Success - parse results
-                end_time = datetime.now()
+                end_time = now_utc()
                 runtime_minutes = (end_time - start_time).total_seconds() / 60.0
 
                 _running_optimizations[optimization_id]["status"] = "completed"
@@ -324,7 +325,7 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
 
             else:
                 # Failed
-                end_time = datetime.now()
+                end_time = now_utc()
                 runtime_minutes = (end_time - start_time).total_seconds() / 60.0
 
                 # Build error message from both stdout and stderr
@@ -362,7 +363,7 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
 
         except asyncio.TimeoutError:
             # Timeout
-            end_time = datetime.now()
+            end_time = now_utc()
             runtime_minutes = (end_time - start_time).total_seconds() / 60.0
 
             process.kill()
@@ -390,7 +391,7 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
 
     except Exception as e:
         # Unexpected error
-        end_time = datetime.now()
+        end_time = now_utc()
         runtime_minutes = (end_time - start_time).total_seconds() / 60.0
 
         error_msg = str(e)
@@ -435,14 +436,14 @@ async def run_optimization(
         Optimization ID and status
     """
     # Generate unique ID
-    optimization_id = f"opt_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    optimization_id = f"opt_{now_utc().strftime('%Y%m%d_%H%M%S')}"
 
     # Initialize optimization state
     _running_optimizations[optimization_id] = {
         "optimization_id": optimization_id,
         "status": "pending",
         "request": request.dict(),
-        "created_at": datetime.now(),
+        "created_at": now_utc(),
         "progress": 0,
     }
     _save_optimizations(_running_optimizations)

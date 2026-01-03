@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 import os
 
 from quant_vibe.utils import normalize_option_ticker
+from quant_vibe.utils import now_utc
 
 load_dotenv()
 
@@ -108,11 +109,11 @@ class OptionContractEnricher:
                                 'ask': contract.get('ask'),
                                 'last': contract.get('last'),
                                 'open_interest': contract.get('openInterest'),
-                                'cached_at': datetime.now()
+                                'cached_at': now_utc()
                             }
                             contracts_added += 1
 
-            self.last_refresh = datetime.now()
+            self.last_refresh = now_utc()
             print(f"   ✅ Cached {contracts_added} contracts")
             print(f"   Last refresh: {self.last_refresh}")
 
@@ -149,7 +150,7 @@ class OptionContractEnricher:
         if self.last_refresh is None:
             return True
 
-        elapsed = (datetime.now() - self.last_refresh).total_seconds() / 60
+        elapsed = (now_utc() - self.last_refresh).total_seconds() / 60
         return elapsed >= self.refresh_interval_minutes
 
     def enrich_quote(self, quote: Dict) -> Dict:
@@ -212,7 +213,7 @@ class OptionContractEnricher:
         return {
             'contracts_cached': len(self.contract_cache),
             'last_refresh': self.last_refresh,
-            'cache_age_minutes': (datetime.now() - self.last_refresh).total_seconds() / 60 if self.last_refresh else None
+            'cache_age_minutes': (now_utc() - self.last_refresh).total_seconds() / 60 if self.last_refresh else None
         }
 
 

@@ -15,6 +15,7 @@ from token_service.config import TokenServiceConfig
 from token_service.manager import CentralizedTokenManager
 from quant_vibe.config.logging_config import setup_normalized_logging
 from quant_vibe.messaging import RedisMessageBroker, Topic
+from quant_vibe.utils import now_utc
 
 
 # Global state
@@ -66,14 +67,14 @@ async def heartbeat_task_func():
                     # Calculate uptime
                     uptime_seconds = 0
                     if service_start_time:
-                        uptime_seconds = (datetime.utcnow() - service_start_time).total_seconds()
+                        uptime_seconds = (now_utc() - service_start_time).total_seconds()
 
                     # Publish heartbeat
                     message_broker.publish(
                         "heartbeat.token_service",
                         {
                             "service": "token_service",
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": now_utc().isoformat(),
                             "status": token_status,
                             "metrics": {
                                 "uptime_seconds": round(uptime_seconds, 1),
@@ -174,7 +175,7 @@ async def lifespan(app: FastAPI):
     global token_manager, config, logger, message_broker, refresh_task, heartbeat_task, service_start_time
 
     # Record start time
-    service_start_time = datetime.utcnow()
+    service_start_time = now_utc()
 
     # Startup
     logger.info("="*70)

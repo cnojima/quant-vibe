@@ -30,6 +30,7 @@ from dotenv import load_dotenv
 
 # Import schwabdev
 import schwabdev
+from quant_vibe.utils.timestamp_utils import now_utc
 
 load_dotenv()
 
@@ -407,7 +408,7 @@ class SchwabDevClient:
             self.get_account()
 
         if from_date is None:
-            from_date = datetime.now() - timedelta(days=60)
+            from_date = now_utc() - timedelta(days=60)
 
         response = self.client.account_orders(
             self.account_number,

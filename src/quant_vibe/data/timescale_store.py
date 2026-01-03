@@ -26,6 +26,7 @@ from psycopg2.pool import SimpleConnectionPool
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
+from quant_vibe.utils.timestamp_utils import now_utc
 
 load_dotenv()
 
@@ -408,7 +409,7 @@ class TimescaleStore:
             DataFrame with OHLCV and quote data
         """
         if not end_time:
-            end_time = datetime.now()
+            end_time = now_utc()
         if not start_time:
             start_time = end_time - timedelta(days=30)
 
@@ -684,7 +685,7 @@ class TimescaleStore:
             List of expiration dates
         """
         if not as_of:
-            as_of = datetime.now()
+            as_of = now_utc()
 
         query = """
         SELECT DISTINCT expiration_date

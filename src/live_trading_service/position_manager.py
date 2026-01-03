@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from collections import defaultdict
 
 from quant_vibe.strategies.options_base import OptionsPosition, OptionLeg
+from quant_vibe.utils import now_utc
 
 
 def _to_native_type(value: Any) -> Any:
@@ -255,7 +256,7 @@ class PositionManager:
 
         try:
             # Update position
-            position.exit_time = datetime.now()
+            position.exit_time = now_utc()
             position.exit_value = exit_value
             position.exit_reason = exit_reason
 

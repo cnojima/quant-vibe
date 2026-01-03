@@ -29,6 +29,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from quant_vibe.data import MassiveClient, TimescaleStore
+from quant_vibe.utils import now_utc
 
 
 def convert_numpy_types(obj: Any) -> Any:
@@ -70,7 +71,7 @@ def parse_args():
         "--from",
         dest="from_date",
         type=str,
-        default=(datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
+        default=(now_utc() - timedelta(days=1)).strftime("%Y-%m-%d"),
         help="Start date (YYYY-MM-DD), default: yesterday"
     )
 
@@ -78,7 +79,7 @@ def parse_args():
         "--to",
         dest="to_date",
         type=str,
-        default=datetime.now().strftime("%Y-%m-%d"),
+        default=now_utc().strftime("%Y-%m-%d"),
         help="End date (YYYY-MM-DD), default: today"
     )
 
@@ -181,8 +182,8 @@ def get_options_contracts(
         )
     else:
         # Get all upcoming expirations (next 60 days)
-        today = datetime.now().strftime("%Y-%m-%d")
-        future = (datetime.now() + timedelta(days=60)).strftime("%Y-%m-%d")
+        today = now_utc().strftime("%Y-%m-%d")
+        future = (now_utc() + timedelta(days=60)).strftime("%Y-%m-%d")
 
         contracts_df = massive_client.list_options_contracts(
             underlying_ticker=api_underlying,

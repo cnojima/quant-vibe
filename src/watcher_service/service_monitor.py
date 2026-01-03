@@ -8,6 +8,7 @@ from enum import Enum
 import requests
 import docker
 from docker.errors import DockerException, NotFound
+from quant_vibe.utils import now_utc
 
 
 class HealthStatus(Enum):
@@ -52,7 +53,7 @@ class ServiceMonitor:
             return {
                 "status": HealthStatus.UNKNOWN,
                 "details": "Docker client not available",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": now_utc().isoformat(),
             }
 
         try:
@@ -67,7 +68,7 @@ class ServiceMonitor:
                 return {
                     "status": HealthStatus.UNHEALTHY,
                     "details": f"Container not running (status: {state.get('Status')})",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": now_utc().isoformat(),
                     "restart_count": state.get("RestartCount", 0),
                 }
 
@@ -79,21 +80,21 @@ class ServiceMonitor:
                 return {
                     "status": HealthStatus.HEALTHY,
                     "details": "Container running and healthy",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": now_utc().isoformat(),
                     "restart_count": state.get("RestartCount", 0),
                 }
             elif health_status == "unhealthy":
                 return {
                     "status": HealthStatus.UNHEALTHY,
                     "details": f"Container health check failed: {health.get('FailingStreak', 0)} failures",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": now_utc().isoformat(),
                     "restart_count": state.get("RestartCount", 0),
                 }
             elif health_status == "starting":
                 return {
                     "status": HealthStatus.DEGRADED,
                     "details": "Container starting (health check in progress)",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": now_utc().isoformat(),
                     "restart_count": state.get("RestartCount", 0),
                 }
             else:
@@ -101,7 +102,7 @@ class ServiceMonitor:
                 return {
                     "status": HealthStatus.HEALTHY,
                     "details": "Container running (no healthcheck defined)",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": now_utc().isoformat(),
                     "restart_count": state.get("RestartCount", 0),
                 }
 
@@ -109,13 +110,13 @@ class ServiceMonitor:
             return {
                 "status": HealthStatus.UNHEALTHY,
                 "details": f"Container '{container_name}' not found",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": now_utc().isoformat(),
             }
         except Exception as e:
             return {
                 "status": HealthStatus.UNKNOWN,
                 "details": f"Error checking container: {str(e)}",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": now_utc().isoformat(),
             }
 
     def check_http_health(
@@ -153,7 +154,7 @@ class ServiceMonitor:
                         "status": health_status,
                         "details": data.get("message", "Service responding"),
                         "response_time_ms": round(response_time * 1000, 2),
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": now_utc().isoformat(),
                         "data": data,
                     }
                 except ValueError:
@@ -162,33 +163,33 @@ class ServiceMonitor:
                         "status": HealthStatus.HEALTHY,
                         "details": "Service responding (non-JSON response)",
                         "response_time_ms": round(response_time * 1000, 2),
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": now_utc().isoformat(),
                     }
             else:
                 return {
                     "status": HealthStatus.UNHEALTHY,
                     "details": f"HTTP {response.status_code}: {response.text[:100]}",
                     "response_time_ms": round(response_time * 1000, 2),
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": now_utc().isoformat(),
                 }
 
         except requests.exceptions.Timeout:
             return {
                 "status": HealthStatus.UNHEALTHY,
                 "details": f"Request timeout after {timeout}s",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": now_utc().isoformat(),
             }
         except requests.exceptions.ConnectionError as e:
             return {
                 "status": HealthStatus.UNHEALTHY,
                 "details": f"Connection error: {str(e)[:100]}",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": now_utc().isoformat(),
             }
         except Exception as e:
             return {
                 "status": HealthStatus.UNKNOWN,
                 "details": f"Error checking endpoint: {str(e)[:100]}",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": now_utc().isoformat(),
             }
 
     def check_service(
@@ -244,7 +245,7 @@ class ServiceMonitor:
             results["overall_status"] = HealthStatus.UNKNOWN
             results["error"] = "Invalid service type or missing configuration"
 
-        results["timestamp"] = datetime.utcnow().isoformat()
+        results["timestamp"] = now_utc().isoformat()
         return results
 
     def close(self):

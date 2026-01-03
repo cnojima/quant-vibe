@@ -10,6 +10,7 @@ from datetime import datetime, date
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import pandas as pd
+from quant_vibe.utils.timestamp_utils import now_utc
 
 
 class DailyPerformanceReport:
@@ -20,7 +21,7 @@ class DailyPerformanceReport:
 
     Example:
         >>> reporter = DailyPerformanceReport(target_daily_income=1780.0)
-        >>> report = reporter.generate_report(trades_df, datetime.now())
+        >>> report = reporter.generate_report(trades_df, now_utc())
         >>> reporter.save_report(report, Path("reports/daily"))
         >>> reporter.send_summary(report)  # Via Pushover
     """
@@ -162,7 +163,7 @@ class DailyPerformanceReport:
             'by_strategy': by_strategy,
             'exit_reasons': exit_reasons,
             'risk_metrics': risk_metrics,
-            'generated_at': datetime.now().isoformat()
+            'generated_at': now_utc().isoformat()
         }
 
         return report

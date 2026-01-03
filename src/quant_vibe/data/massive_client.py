@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 
 from massive import RESTClient
 from massive.rest.models import OptionsContract, Agg
+from quant_vibe.utils.timestamp_utils import now_utc
 
 load_dotenv()
 
@@ -210,9 +211,9 @@ class MassiveClient:
         """
         # Set default dates if not provided
         if not to_date:
-            to_date = datetime.now().strftime("%Y-%m-%d")
+            to_date = now_utc().strftime("%Y-%m-%d")
         if not from_date:
-            from_dt = datetime.now() - timedelta(days=365)
+            from_dt = now_utc() - timedelta(days=365)
             from_date = from_dt.strftime("%Y-%m-%d")
 
         # Get aggregates from Massive API
@@ -309,9 +310,9 @@ class MassiveClient:
         """
         # Set default dates if not provided
         if not to_date:
-            to_date = datetime.now().strftime("%Y-%m-%d")
+            to_date = now_utc().strftime("%Y-%m-%d")
         if not from_date:
-            from_dt = datetime.now() - timedelta(days=7)
+            from_dt = now_utc() - timedelta(days=7)
             from_date = from_dt.strftime("%Y-%m-%d")
 
         # Get aggregates from Massive API
@@ -455,8 +456,8 @@ class MassiveClient:
         Example:
             >>> client = MassiveClient()
             >>> # Get all SPX contracts expiring in next 30 days
-            >>> today = datetime.now().strftime("%Y-%m-%d")
-            >>> future = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
+            >>> today = now_utc().strftime("%Y-%m-%d")
+            >>> future = (now_utc() + timedelta(days=30)).strftime("%Y-%m-%d")
             >>> contracts = client.search_options_by_date_range("SPX", today, future)
         """
         return self.list_options_contracts(

@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from quant_vibe.reporting import DailyPerformanceReport
 from quant_vibe.notifications import TradingNotifier
 from live_trading_service.state_store import StateStore
+from quant_vibe.utils import now_utc
 
 
 def main():
@@ -49,7 +50,7 @@ def main():
     if args.date:
         report_date = datetime.strptime(args.date, '%Y-%m-%d')
     else:
-        report_date = datetime.now()
+        report_date = now_utc()
 
     print(f"Generating daily report for: {report_date.strftime('%Y-%m-%d')}")
     print("=" * 70)

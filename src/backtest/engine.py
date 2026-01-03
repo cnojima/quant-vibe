@@ -7,6 +7,7 @@ data loading, execution, and reporting.
 
 import sys
 from datetime import datetime
+from quant_vibe.utils import now_utc
 from typing import Any, Dict, List, Optional
 
 from .config_loader import BacktestConfig
@@ -296,7 +297,7 @@ class BacktestOrchestrator:
         Returns:
             List of result dictionaries for each strategy
         """
-        self.start_time = datetime.now()
+        self.start_time = now_utc()
 
         # Get strategies to run
         strategies = self._get_strategies_to_run()
@@ -384,7 +385,7 @@ class BacktestOrchestrator:
 
             results.append(result)
 
-        self.end_time = datetime.now()
+        self.end_time = now_utc()
         self.results = results
 
         # Print summary
