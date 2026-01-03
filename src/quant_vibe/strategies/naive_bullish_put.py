@@ -191,22 +191,19 @@ class NaiveBullishPutStrategy(OptionsStrategy):
             print(f"NBP ❌ [CONSTRUCT_SPREAD] Invalid current price")
             return None
 
-        # Filter options for appropriate expiration
-        target_date = current_time + timedelta(days=self.min_dte)
-        max_date = current_time + timedelta(days=self.max_dte)
-
-        target_date = pd.Timestamp(target_date).normalize().tz_localize(None)
-        max_date = pd.Timestamp(max_date).normalize().tz_localize(None)
-
+        # Filter options by DTE range using base class utility
         print(f"NBP    DTE range: {self.min_dte}-{self.max_dte} days")
-        print(f"NBP    Target expiration: {target_date} to {max_date}")
 
-        # Filter for PUT options within DTE range
-        valid_options = options_data[
-            (options_data['expiration_date'] >= target_date) &
-            (options_data['expiration_date'] <= max_date) &
-            (options_data['contract_type'] == 'put')
-        ]
+        # Use base class method to filter by DTE (handles date type conversion)
+        dte_filtered = self._filter_by_dte(
+            options_data=options_data,
+            current_time=current_time,
+            min_dte=self.min_dte,
+            max_dte=self.max_dte
+        )
+
+        # Further filter for PUT options
+        valid_options = dte_filtered[dte_filtered['contract_type'] == 'put']
 
         print(f"NBP    Total options in data: {len(options_data)}")
         print(f"NBP    Valid PUT options in DTE range: {len(valid_options)}")
@@ -363,7 +360,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         # Close early if expiring today
         if position.legs:
             expiration = position.legs[0].expiration_date
-            days_to_expiration = (expiration.date() - current_time_et.date()).days
+            days_to_expiration = (expiration - current_time_et.date()).days
             print(f"NBP    DTE: {days_to_expiration}")
 
             if days_to_expiration == 0 and current_time_et.hour >= 15 and current_time_et.minute >= 45:

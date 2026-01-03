@@ -435,7 +435,8 @@ class WalkForwardAnalysis:
         win_rate = (len(winning_trades) / len(trades)) * 100 if len(trades) > 0 else 0.0
 
         # Sharpe ratio
-        daily_returns = equity_curve["total_value"].pct_change().dropna()
+        # Use portfolio_value column (not total_value)
+        daily_returns = equity_curve["portfolio_value"].pct_change().dropna()
         if len(daily_returns) > 1:
             sharpe_ratio = (
                 (daily_returns.mean() / daily_returns.std()) * np.sqrt(252)

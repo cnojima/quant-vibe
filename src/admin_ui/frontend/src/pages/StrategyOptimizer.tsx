@@ -7,6 +7,7 @@ import {
   useOptimizationResults,
   useOptimizationHistory,
   useDeleteOptimization,
+  useDeleteAllOptimizations,
 } from '../api/queries';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
@@ -36,6 +37,7 @@ export function StrategyOptimizer() {
   const { data: optimizationResults } = useOptimizationResults(currentOptimizationId, optimizationStatus?.status);
   const { data: history } = useOptimizationHistory(50);
   const deleteOptimization = useDeleteOptimization();
+  const deleteAllOptimizations = useDeleteAllOptimizations();
 
   // Invalidate history when optimization completes
   useEffect(() => {
@@ -79,6 +81,20 @@ export function StrategyOptimizer() {
     } catch (error) {
       console.error('Failed to delete optimization:', error);
       alert('Failed to delete optimization. Please try again.');
+    }
+  };
+
+  const handleDeleteAllOptimizations = async () => {
+    if (!confirm('Are you sure you want to delete ALL optimizations? This will permanently delete all optimization history and result files. This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const result = await deleteAllOptimizations.mutateAsync();
+      alert(result.message || 'All optimizations deleted successfully');
+    } catch (error) {
+      console.error('Failed to delete all optimizations:', error);
+      alert('Failed to delete all optimizations. Please try again.');
     }
   };
 
@@ -265,22 +281,81 @@ export function StrategyOptimizer() {
             <div className="flex items-center gap-2 mb-4">
               <h3 className="text-lg font-semibold">Quick Date Presets</h3>
               <InfoIcon
-                content="One-click date range selection for common optimization periods. Training periods should have enough data to find meaningful patterns."
+                content="One-click date range selection. Use 'Quick Sanity Checks' for fast testing (1-2 weeks), or 'Standard Optimizations' for more robust results (3+ months)."
                 placement="right"
               />
             </div>
             <div className="space-y-2">
-              <Button
-                variant="secondary"
-                className="w-full"
-                onClick={() => {
-                  const { start, end } = getLastNMonthsEST(3);
-                  setTrainStartDate(start);
-                  setTrainEndDate(end);
-                }}
-              >
-                Last 3 Months (Training)
-              </Button>
+              {/* Quick sanity check presets */}
+              <div className="pb-2 border-b border-gray-200">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Quick Sanity Checks</p>
+                <div className="space-y-1">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full text-xs"
+                    onClick={() => {
+                      // Last 7 days
+                      const endDate = new Date();
+                      const startDate = new Date();
+                      startDate.setDate(endDate.getDate() - 7);
+                      setTrainStartDate(startDate.toISOString().split('T')[0]);
+                      setTrainEndDate(endDate.toISOString().split('T')[0]);
+                      setTestStartDate('');
+                      setTestEndDate('');
+                    }}
+                  >
+                    Last Week (7 days) - Fast Test
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full text-xs"
+                    onClick={() => {
+                      // Last 14 days
+                      const endDate = new Date();
+                      const startDate = new Date();
+                      startDate.setDate(endDate.getDate() - 14);
+                      setTrainStartDate(startDate.toISOString().split('T')[0]);
+                      setTrainEndDate(endDate.toISOString().split('T')[0]);
+                      setTestStartDate('');
+                      setTestEndDate('');
+                    }}
+                  >
+                    Last 2 Weeks (14 days) - Quick Test
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full text-xs"
+                    onClick={() => {
+                      const { start, end } = getLastNMonthsEST(1);
+                      setTrainStartDate(start);
+                      setTrainEndDate(end);
+                      setTestStartDate('');
+                      setTestEndDate('');
+                    }}
+                  >
+                    Last Month - Sanity Check
+                  </Button>
+                </div>
+              </div>
+
+              {/* Standard presets */}
+              <div className="pt-2">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Standard Optimizations</p>
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => {
+                    const { start, end } = getLastNMonthsEST(3);
+                    setTrainStartDate(start);
+                    setTrainEndDate(end);
+                  }}
+                >
+                  Last 3 Months (Training)
+                </Button>
+              </div>
               <Button
                 variant="secondary"
                 className="w-full"
@@ -648,6 +723,18 @@ export function StrategyOptimizer() {
       {/* History Tab */}
       {selectedTab === 'history' && (
         <div className="space-y-4">
+          {history && history.length > 0 && (
+            <div className="flex justify-end mb-4">
+              <Button
+                variant="secondary"
+                onClick={handleDeleteAllOptimizations}
+                disabled={deleteAllOptimizations.isPending}
+                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              >
+                {deleteAllOptimizations.isPending ? 'Deleting All...' : 'Delete All'}
+              </Button>
+            </div>
+          )}
           {history && history.length > 0 ? (
             history.map((opt: any) => (
               <Card key={opt.optimization_id}>

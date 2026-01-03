@@ -52,6 +52,8 @@ class CoinTossStrategy(OptionsStrategy):
         max_dte: int = 45,
         profit_target_pct: float = 1.0,  # 100% profit (buy at 1, sell at 2)
         stop_loss_pct: Optional[float] = None,
+        observation_period: Optional[int] = None,  # Accepted for compatibility, not used
+        **kwargs  # Accept any additional parameters from optimizer
     ):
         """
         Initialize CoinTossStrategy.
@@ -67,8 +69,14 @@ class CoinTossStrategy(OptionsStrategy):
             max_dte: Maximum days to expiration (45 default)
             profit_target_pct: Profit target as percentage (1.0 = 100%)
             stop_loss_pct: Stop loss as percentage (None = no stop loss)
+            observation_period: Observation period in minutes (accepted for compatibility, not used by this strategy)
+            **kwargs: Additional parameters (silently ignored)
         """
-        super().__init__(name="CoinToss", max_trades_daily=max_trades_daily)
+        super().__init__(
+            name="CoinToss",
+            max_trades_daily=max_trades_daily,
+            observation_period=observation_period
+        )
 
         self.target_price = target_price
         self.buy_limit = buy_limit
@@ -166,31 +174,6 @@ class CoinTossStrategy(OptionsStrategy):
 
         option_type = OptionType.CALL if direction == "call" else OptionType.PUT
 
-        # Calculate DTE range
-        from datetime import timedelta
-        target_date = current_time + timedelta(days=self.min_dte)
-        max_date = current_time + timedelta(days=self.max_dte)
-
-        # Normalize dates for comparison (expiration_date is timezone-naive)
-        target_date = pd.Timestamp(target_date).normalize().tz_localize(None)
-        max_date = pd.Timestamp(max_date).normalize().tz_localize(None)
-
-        # Debug: Check what data we have
-        print(f"[CoinToss DEBUG] Current time: {current_time}")
-        print(f"[CoinToss DEBUG] Target date range: {target_date} to {max_date}")
-        print(f"[CoinToss DEBUG] Total options in data: {len(options_data)}")
-        if not options_data.empty:
-            print(f"[CoinToss DEBUG] Available columns: {options_data.columns.tolist()}")
-            if 'expiration_date' in options_data.columns:
-                unique_exp = options_data['expiration_date'].unique()
-                print(f"[CoinToss DEBUG] Unique expiration dates: {unique_exp}")
-            if 'contract_type' in options_data.columns:
-                print(f"[CoinToss DEBUG] Contract types: {options_data['contract_type'].unique()}")
-            else:
-                print(f"[CoinToss DEBUG] ⚠️  'contract_type' column MISSING!")
-                # Show first row to debug
-                print(f"[CoinToss DEBUG] Sample row: {options_data.iloc[0].to_dict() if len(options_data) > 0 else 'N/A'}")
-
         # Early return if no data
         if options_data.empty:
             print(f"[CoinToss] No options data available")
@@ -205,14 +188,16 @@ class CoinTossStrategy(OptionsStrategy):
             print(f"[CoinToss] ERROR: 'expiration_date' column missing from options data")
             return None
 
-        # Filter options by type and DTE
-        # Note: contract_type is lowercase enum ('call', 'put')
-        # direction is already lowercase from analyze_market
-        options_filtered = options_data[
-            (options_data["contract_type"] == direction)
-            & (options_data["expiration_date"] >= target_date)
-            & (options_data["expiration_date"] <= max_date)
-        ].copy()
+        # Filter by contract type first
+        options_by_type = options_data[options_data["contract_type"] == direction].copy()
+
+        # Filter by DTE using base class helper (handles date type conversion)
+        options_filtered = self._filter_by_dte(
+            options_by_type,
+            current_time,
+            self.min_dte,
+            self.max_dte
+        )
 
         if options_filtered.empty:
             print(f"[CoinToss] No {direction} options found in DTE range {self.min_dte}-{self.max_dte} days")
@@ -395,7 +380,8 @@ class CoinTossStrategy(OptionsStrategy):
             return True, f"End of day exit - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 
         # Force exit if past expiration date (should not happen in normal flow)
-        if current_time.date() > leg.expiration_date.date():
+        # expiration_date is now a date object (not datetime)
+        if current_time.date() > leg.expiration_date:
             # Use bid price for exit value
             leg_data = options_data[options_data['contract_symbol'] == leg.contract_symbol]
             if not leg_data.empty:

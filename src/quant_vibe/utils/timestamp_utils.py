@@ -140,3 +140,63 @@ def is_utc_aware(dt: datetime) -> bool:
         >>> is_utc_aware(now_utc())  # False
     """
     return dt.tzinfo is not None and dt.tzinfo == UTC
+
+
+def market_hours(date: datetime | None = None) -> tuple[datetime, datetime]:
+    """
+    Get NYSE market open and close times as UTC-aware datetimes.
+
+    Args:
+        date: Date to get market hours for. Can be:
+              - datetime (uses its date component)
+              - None (uses today's date)
+
+    Returns:
+        tuple[datetime, datetime]: (market_open, market_close) in UTC
+            - market_open: 9:30 AM ET converted to UTC
+            - market_close: 4:00 PM ET converted to UTC
+
+    Note:
+        This returns regular trading hours only. Does not account for:
+        - Market holidays (returns hours even if market is closed)
+        - Early close days (returns full hours)
+        - Pre-market (4:00 AM ET) or after-hours (8:00 PM ET)
+
+    Example:
+        >>> open_dt, close_dt = market_hours(datetime(2025, 12, 23))
+        >>> open_dt   # 2025-12-23 14:30:00+00:00 (9:30 AM ET in UTC)
+        >>> close_dt  # 2025-12-23 21:00:00+00:00 (4:00 PM ET in UTC)
+
+        >>> # During EST (UTC-5): 9:30 AM ET = 14:30 UTC
+        >>> # During EDT (UTC-4): 9:30 AM ET = 13:30 UTC
+    """
+    if date is None:
+        date = now_utc()
+
+    # Extract just the date component
+    target_date = date.date() if isinstance(date, datetime) else date
+
+    # NYSE regular trading hours in Eastern Time
+    market_open_et = datetime(
+        target_date.year,
+        target_date.month,
+        target_date.day,
+        hour=9,
+        minute=30,
+        second=0,
+        microsecond=0,
+        tzinfo=EST,
+    )
+    market_close_et = datetime(
+        target_date.year,
+        target_date.month,
+        target_date.day,
+        hour=16,
+        minute=0,
+        second=0,
+        microsecond=0,
+        tzinfo=EST,
+    )
+
+    # Convert to UTC
+    return (market_open_et.astimezone(UTC), market_close_et.astimezone(UTC))

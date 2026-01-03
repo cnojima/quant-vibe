@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 import pandas as pd
 
@@ -31,7 +31,7 @@ class OptionLeg:
     contract_symbol: str
     option_type: OptionType
     strike_price: float
-    expiration_date: datetime
+    expiration_date: date  # Changed from datetime to date to match OptionsBar Pydantic model
     quantity: int  # Positive for long, negative for short
     entry_price: float
     current_price: Optional[float] = None
@@ -96,19 +96,69 @@ class OptionsPosition:
 class OptionsStrategy(ABC):
     """Base class for options trading strategies."""
 
-    def __init__(self, name: str, max_trades_daily: int = 1) -> None:
+    def __init__(
+        self,
+        name: str,
+        max_trades_daily: int = 1,
+        observation_period: Optional[int] = None,
+        **kwargs  # Accept any additional parameters for child classes
+    ) -> None:
         """
         Initialize options strategy.
 
         Args:
             name: Strategy name
             max_trades_daily: Maximum number of trades allowed per day (default: 1)
+            observation_period: Observation period in minutes for market analysis (optional, strategy-specific)
+            **kwargs: Additional parameters accepted by child classes (silently ignored)
         """
         self.name = name
         self.max_trades_daily = max_trades_daily
+        self.observation_period = observation_period
         self.trades_today = 0  # Track number of trades entered today
         self.positions: List[OptionsPosition] = []
         self.active_position: Optional[OptionsPosition] = None
+        self.stop_loss_pct: Optional[float] = None
+
+    def _filter_by_dte(
+        self,
+        options_data: pd.DataFrame,
+        current_time: datetime,
+        min_dte: int,
+        max_dte: int
+    ) -> pd.DataFrame:
+        """
+        Filter options by days to expiration (DTE).
+
+        This method handles the date type conversion to ensure compatibility with
+        the DataFrame's expiration_date column, which contains datetime.date objects
+        from the Pydantic model.
+
+        Args:
+            options_data: Options DataFrame with 'expiration_date' column
+            current_time: Current timestamp (UTC-aware)
+            min_dte: Minimum days to expiration
+            max_dte: Maximum days to expiration
+
+        Returns:
+            Filtered DataFrame with options in the DTE range
+        """
+        from datetime import timedelta
+
+        # Calculate target date range
+        target_date = current_time + timedelta(days=min_dte)
+        max_date = current_time + timedelta(days=max_dte)
+
+        # Convert to date objects for comparison (expiration_date column contains date objects)
+        # This prevents "Cannot compare Timestamp with datetime.date" pandas errors
+        target_date = target_date.date()
+        max_date = max_date.date()
+
+        # Filter by DTE range
+        return options_data[
+            (options_data["expiration_date"] >= target_date) &
+            (options_data["expiration_date"] <= max_date)
+        ].copy()
 
     @abstractmethod
     def analyze_market(

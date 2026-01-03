@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+import numpy as np
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -21,7 +23,7 @@ from admin_ui.backend.config import get_settings
 # Load .env file to ensure environment variables are available for subprocesses
 # In Docker, environment variables are set via docker-compose, but load_dotenv() won't hurt
 from pathlib import Path
-from quant_vibe.utils import now_utc
+from quant_vibe.utils import now_utc, to_utc
 env_path = Path(__file__).parent.parent.parent.parent.parent / ".env"
 if env_path.exists():
     load_dotenv(env_path)
@@ -296,7 +298,6 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
                 if PUSHOVER_AVAILABLE:
                     try:
                         # Try to parse results for notification
-                        import pandas as pd
                         best_sharpe = None
                         best_return = None
 
@@ -537,8 +538,6 @@ async def get_optimization_results(
         )
 
     # Parse result files
-    import pandas as pd
-
     result_files = opt.get("result_files", {})
     best_params = None
     best_sharpe = None
@@ -560,11 +559,13 @@ async def get_optimization_results(
             # Get best result (highest Sharpe ratio)
             best_row = df.iloc[0]
             best_params = eval(best_row["params"]) if isinstance(best_row["params"], str) else best_row["params"]
-            best_sharpe = float(best_row["sharpe_ratio"])
-            best_return = float(best_row["total_return"])
 
-            # Get top 10 results
-            top_results = df.head(10).to_dict(orient="records")
+            # Handle NaN values - convert to None for JSON serialization
+            best_sharpe = None if pd.isna(best_row["sharpe_ratio"]) else float(best_row["sharpe_ratio"])
+            best_return = None if pd.isna(best_row["total_return"]) else float(best_row["total_return"])
+
+            # Get top 10 results and replace NaN with None for JSON compatibility
+            top_results = df.head(10).replace([np.nan, pd.NA], None).to_dict(orient="records")
 
     # Parse walk-forward results if available
     wf_file = None
@@ -577,12 +578,17 @@ async def get_optimization_results(
         df = pd.read_csv(wf_file)
 
         if len(df) > 0:
+            # Handle NaN values in mean calculations
+            def safe_mean(series):
+                mean_val = series.mean()
+                return None if pd.isna(mean_val) else float(mean_val)
+
             walk_forward_summary = {
                 "num_periods": len(df),
-                "avg_out_of_sample_sharpe": float(df["out_of_sample_sharpe"].mean()),
-                "avg_out_of_sample_return": float(df["out_of_sample_return"].mean()),
-                "avg_sharpe_degradation": float(df["sharpe_degradation"].mean()),
-                "avg_return_degradation": float(df["return_degradation"].mean()),
+                "avg_out_of_sample_sharpe": safe_mean(df["out_of_sample_sharpe"]),
+                "avg_out_of_sample_return": safe_mean(df["out_of_sample_return"]),
+                "avg_sharpe_degradation": safe_mean(df["sharpe_degradation"]),
+                "avg_return_degradation": safe_mean(df["return_degradation"]),
             }
 
     return OptimizationResult(
@@ -615,13 +621,18 @@ async def get_optimization_history(
     # Sort by created_at descending
     # Note: created_at might be a string (from JSON) or datetime object
     def get_sort_key(x):
-        created_at = x.get("created_at", datetime.min)
+        created_at = x.get("created_at")
+        if created_at is None:
+            # Return a very old UTC-aware datetime for missing timestamps
+            return to_utc(datetime.min)
         if isinstance(created_at, str):
             try:
-                return datetime.fromisoformat(created_at)
+                # Parse and ensure UTC-aware
+                return to_utc(datetime.fromisoformat(created_at))
             except (ValueError, TypeError):
-                return datetime.min
-        return created_at
+                return to_utc(datetime.min)
+        # If already a datetime object, ensure UTC-aware
+        return to_utc(created_at)
 
     history = sorted(
         _running_optimizations.values(),
@@ -670,6 +681,62 @@ async def delete_optimization(
 
     return {
         "message": "Optimization deleted",
+        "deleted_files": deleted_files
+    }
+
+
+@router.delete("/")
+async def delete_all_optimizations(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Delete all optimizations and their result files.
+
+    Args:
+        current_user: Authenticated user
+
+    Returns:
+        Success message with count of deleted optimizations
+    """
+    settings = get_settings()
+    deleted_count = 0
+    deleted_files = 0
+
+    # Get all optimization IDs
+    optimization_ids = list(_running_optimizations.keys())
+
+    # Delete each optimization
+    for optimization_id in optimization_ids:
+        opt = _running_optimizations[optimization_id]
+
+        # Delete result files if they exist
+        result_files = opt.get("result_files", {})
+        for path in result_files.values():
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                    deleted_files += 1
+                except Exception as e:
+                    print(f"Error deleting file {path}: {e}")
+
+        # Also try to delete the optimization directory
+        output_dir = settings.project_root / "results" / "optimization" / optimization_id
+        if output_dir.exists():
+            try:
+                import shutil
+                shutil.rmtree(output_dir)
+            except Exception as e:
+                print(f"Error deleting directory {output_dir}: {e}")
+
+        deleted_count += 1
+
+    # Clear all optimizations from state
+    _running_optimizations.clear()
+    _save_optimizations(_running_optimizations)
+
+    return {
+        "message": f"Deleted {deleted_count} optimization(s)",
+        "deleted_optimizations": deleted_count,
         "deleted_files": deleted_files
     }
 

@@ -266,7 +266,8 @@ class ParameterOptimizer:
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else np.inf
 
         # Sharpe ratio (annualized)
-        daily_returns = equity_curve["total_value"].pct_change().dropna()
+        # Use portfolio_value column (not total_value)
+        daily_returns = equity_curve["portfolio_value"].pct_change().dropna()
         if len(daily_returns) > 1:
             sharpe_ratio = (
                 (daily_returns.mean() / daily_returns.std()) * np.sqrt(252)

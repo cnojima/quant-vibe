@@ -6,7 +6,7 @@ import json
 import time as dt_time
 from pathlib import Path
 from datetime import datetime, time
-from typing import List, Optional
+from typing import List, Optional, Dict
 import zoneinfo
 
 import schwabdev
@@ -137,7 +137,14 @@ class StreamingService:
                     port=self.config.redis_port,
                     db=self.config.redis_db,
                 )
+
+                # Register Pydantic models for automatic deserialization
+                from quant_vibe.models import OptionsBar, UnderlyingBar
+                RedisMessageBroker.register_topic_model(Topic.OPTIONS_BARS, OptionsBar)
+                RedisMessageBroker.register_topic_model(Topic.UNDERLYING_BARS, UnderlyingBar)
+
                 self.logger.info("  ✓ Redis message broker connected")
+                self.logger.info("  ✓ Registered Pydantic models for topics")
             except Exception as e:
                 self.logger.warning(f"  ⚠️  Redis connection failed: {e}")
                 self.logger.warning("  ⚠️  Continuing without Redis pub/sub")
@@ -237,6 +244,30 @@ class StreamingService:
 
         return contracts
 
+    def _parse_expiration_date_from_quote(self, quote: Dict, symbol: str) -> Optional[datetime]:
+        """Parse expiration date from quote or symbol.
+
+        Args:
+            quote: Quote dictionary
+            symbol: Option symbol
+
+        Returns:
+            Expiration date or None
+        """
+        try:
+            exp_year = quote.get('exp_year')
+            exp_month = quote.get('exp_month')
+            exp_day = quote.get('exp_day')
+
+            if exp_year and exp_month and exp_day:
+                return datetime(int(exp_year), int(exp_month), int(exp_day)).date()
+        except (ValueError, TypeError):
+            pass
+
+        # Fallback: parse from ticker symbol
+        from quant_vibe.utils import parse_expiration_from_ticker
+        return parse_expiration_from_ticker(symbol)
+
     @retry_with_backoff(max_retries=3, backoff_base=2.0, exceptions=(Exception,))
     def _get_spx_price(self) -> float:
         """Get current SPX price with retry logic.
@@ -326,38 +357,62 @@ class StreamingService:
                                 # Add to aggregator
                                 self.aggregator.add_quote(enriched_quote)
 
-                                # Publish to Redis immediately for real-time consumers
+                                # Publish to Redis immediately for real-time consumers (as Pydantic model)
                                 if self.message_broker:
-                                    # Convert quote to bar format for compatibility
-                                    # Ensure timestamp is serializable
-                                    ts = enriched_quote['timestamp']
-                                    timestamp_str = ts.isoformat() if isinstance(ts, datetime) else str(ts)
+                                    from quant_vibe.models import OptionsBar
+                                    from quant_vibe.utils import normalize_option_ticker
+                                    from decimal import Decimal
 
-                                    quote_as_bar = {
-                                        'timestamp': timestamp_str,
-                                        'option_ticker': enriched_quote['symbol'],
-                                        'underlying_ticker': 'SPX',
-                                        'bid': enriched_quote.get('bid'),
-                                        'ask': enriched_quote.get('ask'),
-                                        'last': enriched_quote.get('last'),
-                                        'high': enriched_quote.get('high'),
-                                        'low': enriched_quote.get('low'),
-                                        'close': enriched_quote.get('close'),
-                                        'volume': enriched_quote.get('volume'),
-                                        'open': enriched_quote.get('open'),
-                                        'bid_size': enriched_quote.get('bid_size'),
-                                        'ask_size': enriched_quote.get('ask_size'),
-                                        'strike_price': enriched_quote.get('strike'),
-                                        'contract_type': enriched_quote.get('contract_type'),
-                                        'implied_volatility': enriched_quote.get('iv'),
-                                        'delta': enriched_quote.get('delta'),
-                                        'gamma': enriched_quote.get('gamma'),
-                                        'theta': enriched_quote.get('theta'),
-                                        'vega': enriched_quote.get('vega'),
-                                        'rho': enriched_quote.get('rho'),
-                                    }
-                                    if self.message_broker.publish(Topic.OPTIONS_BARS, quote_as_bar):
-                                        self.redis_publish_count += 1
+                                    # Parse expiration date
+                                    exp_date = self._parse_expiration_date_from_quote(enriched_quote, enriched_quote['symbol'])
+                                    # Parse contract type
+                                    contract_type_raw = enriched_quote.get('contract_type')
+                                    contract_type = 'call' if str(contract_type_raw).upper().startswith('C') else 'put'
+
+                                    # Get strike price
+                                    strike_price = enriched_quote.get('strike')
+                                    if strike_price is not None:
+                                        # Normalize symbol
+                                        normalized_symbol = normalize_option_ticker(enriched_quote['symbol'])
+
+                                        # Calculate mark
+                                        bid = enriched_quote.get('bid')
+                                        ask = enriched_quote.get('ask')
+                                        mark = None
+                                        if bid is not None and ask is not None:
+                                            mark = (bid + ask) / 2.0
+
+                                        # Create OptionsBar Pydantic model
+                                        try:
+                                            options_bar = OptionsBar(
+                                                timestamp=timestamp,
+                                                contract_symbol=normalized_symbol,
+                                                underlying_ticker='SPX',
+                                                strike_price=Decimal(str(strike_price)),
+                                                contract_type=contract_type,
+                                                expiration_date=exp_date,
+                                                open=Decimal(str(enriched_quote.get('open'))) if enriched_quote.get('open') is not None else Decimal('0'),
+                                                high=Decimal(str(enriched_quote.get('high'))) if enriched_quote.get('high') is not None else Decimal('0'),
+                                                low=Decimal(str(enriched_quote.get('low'))) if enriched_quote.get('low') is not None else Decimal('0'),
+                                                close=Decimal(str(enriched_quote.get('close'))) if enriched_quote.get('close') is not None else Decimal('0'),
+                                                volume=enriched_quote.get('volume', 0),
+                                                bid=Decimal(str(bid)) if bid is not None else None,
+                                                ask=Decimal(str(ask)) if ask is not None else None,
+                                                mark=Decimal(str(mark)) if mark is not None else None,
+                                                bid_size=enriched_quote.get('bid_size'),
+                                                ask_size=enriched_quote.get('ask_size'),
+                                                implied_volatility=Decimal(str(enriched_quote.get('iv'))) if enriched_quote.get('iv') is not None else None,
+                                                delta=Decimal(str(enriched_quote.get('delta'))) if enriched_quote.get('delta') is not None else None,
+                                                gamma=Decimal(str(enriched_quote.get('gamma'))) if enriched_quote.get('gamma') is not None else None,
+                                                theta=Decimal(str(enriched_quote.get('theta'))) if enriched_quote.get('theta') is not None else None,
+                                                vega=Decimal(str(enriched_quote.get('vega'))) if enriched_quote.get('vega') is not None else None,
+                                                rho=Decimal(str(enriched_quote.get('rho'))) if enriched_quote.get('rho') is not None else None,
+                                                data_source='schwabdev_stream',
+                                            )
+                                            if self.message_broker.publish(Topic.OPTIONS_BARS, options_bar):
+                                                self.redis_publish_count += 1
+                                        except Exception as model_err:
+                                            self.logger.warning(f"Failed to create OptionsBar model: {model_err}")
 
                         # Handle underlying asset quotes (SPX, etc.)
                         elif service == 'LEVELONE_EQUITIES' and content:
@@ -385,27 +440,37 @@ class StreamingService:
                                 # Add to underlying aggregator
                                 self.underlying_aggregator.add_quote(quote)
 
-                                # Publish to Redis immediately for real-time consumers
+                                # Publish to Redis immediately for real-time consumers (as Pydantic model)
                                 if self.message_broker:
-                                    # Convert quote to bar format for compatibility
-                                    # Ensure timestamp is serializable
-                                    ts = quote['timestamp']
-                                    timestamp_str = ts.isoformat() if isinstance(ts, datetime) else str(ts)
+                                    from quant_vibe.models import UnderlyingBar
+                                    from decimal import Decimal
 
-                                    quote_as_bar = {
-                                        'timestamp': timestamp_str,
-                                        'underlying_ticker': quote['symbol'],
-                                        'bid': quote.get('bid'),
-                                        'ask': quote.get('ask'),
-                                        'last': quote.get('last'),
-                                        'high': quote.get('high'),
-                                        'low': quote.get('low'),
-                                        'close': quote.get('close'),
-                                        'volume': quote.get('volume'),
-                                        'open': quote.get('open'),
-                                    }
-                                    if self.message_broker.publish(Topic.UNDERLYING_BARS, quote_as_bar):
-                                        self.redis_publish_count += 1
+                                    # Normalize symbol
+                                    normalized_symbol = quote['symbol'].replace('$', '').replace('.X', '')
+
+                                    # Get price (fallback to bid/ask if last not available)
+                                    last = quote.get('last')
+                                    if last is None and quote.get('bid') and quote.get('ask'):
+                                        last = (quote['bid'] + quote['ask']) / 2.0
+                                    if last is None:
+                                        last = quote.get('bid') or quote.get('ask')
+
+                                    if last is not None:
+                                        try:
+                                            underlying_bar = UnderlyingBar(
+                                                timestamp=timestamp,
+                                                ticker=normalized_symbol,
+                                                open=Decimal(str(quote.get('open'))) if quote.get('open') is not None else Decimal(str(last)),
+                                                high=Decimal(str(quote.get('high'))) if quote.get('high') is not None else Decimal(str(last)),
+                                                low=Decimal(str(quote.get('low'))) if quote.get('low') is not None else Decimal(str(last)),
+                                                close=Decimal(str(quote.get('close'))) if quote.get('close') is not None else Decimal(str(last)),
+                                                volume=quote.get('volume', 0),
+                                                data_source='schwabdev_stream',
+                                            )
+                                            if self.message_broker.publish(Topic.UNDERLYING_BARS, underlying_bar):
+                                                self.redis_publish_count += 1
+                                        except Exception as model_err:
+                                            self.logger.warning(f"Failed to create UnderlyingBar model: {model_err}")
 
             # Check if we should flush (create 1-min bars)
             if self.aggregator.should_flush():

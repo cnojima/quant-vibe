@@ -15,7 +15,6 @@ from typing import Dict, Optional, Any, List
 from dataclasses import dataclass, field
 from enum import Enum
 
-import pandas as pd
 import pytz
 
 from quant_vibe.strategies.options_base import (
@@ -178,8 +177,8 @@ class CoinTossLimitStrategy(OptionsStrategy):
         max_date = current_time + timedelta(days=self.max_dte)
 
         # Normalize dates for comparison
-        target_date = pd.Timestamp(target_date).normalize().tz_localize(None)
-        max_date = pd.Timestamp(max_date).normalize().tz_localize(None)
+        target_date = target_date.date()
+        max_date = max_date.date()
 
         # Filter options by type, DTE, and strike range
         options_filtered = options_data[
@@ -679,7 +678,7 @@ class CoinTossLimitStrategy(OptionsStrategy):
             return True, f"End of day exit - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 
         # Force exit if past expiration
-        if current_time.date() > leg.expiration_date.date():
+        if current_time.date() > leg.expiration_date:
             for order in self.pending_sell_orders:
                 order.status = OrderStatus.CANCELLED
             self.pending_sell_orders = []

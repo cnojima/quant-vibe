@@ -56,6 +56,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         min_volume: int = 50,  # minimum volume per contract
         min_bid_ask_spread_pct: float = 10.0,  # maximum bid/ask spread percentage
         max_trades_daily: int = 1,  # maximum trades per day
+        stop_loss_pct: Optional[float] = None,
     ) -> None:
         """
         Initialize Bullish Vertical Put Strategy.
@@ -359,23 +360,16 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         if current_price == 0:
             return None
 
-        # Filter options for appropriate expiration
-        target_date = current_time + timedelta(days=self.min_dte)
-        max_date = current_time + timedelta(days=self.max_dte)
+        # Filter options by DTE range using base class utility
+        dte_filtered = self._filter_by_dte(
+            options_data=options_data,
+            current_time=current_time,
+            min_dte=self.min_dte,
+            max_dte=self.max_dte
+        )
 
-        # Normalize expiration dates for comparison
-        # expiration_date in DataFrame is datetime64[ns] (timezone-naive), normalize to midnight
-        import pandas as pd
-        target_date = pd.Timestamp(target_date).normalize().tz_localize(None)
-        max_date = pd.Timestamp(max_date).normalize().tz_localize(None)
-
-        # Filter for PUT options within DTE range
-        # contract_type is 'put' (lowercase enum value)
-        valid_options = options_data[
-            (options_data['expiration_date'] >= target_date) &
-            (options_data['expiration_date'] <= max_date) &
-            (options_data['contract_type'] == 'put')
-        ]
+        # Filter for PUT options
+        valid_options = dte_filtered[dte_filtered['contract_type'] == 'put']
 
         if valid_options.empty:
             print(f"  ⚠️  No options found in DTE range {self.min_dte}-{self.max_dte}")
@@ -595,7 +589,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         # Check if expiration is approaching (close 15 minutes before market close on expiration day)
         if position.legs:
             expiration = position.legs[0].expiration_date
-            days_to_expiration = (expiration.date() - current_time_et.date()).days
+            days_to_expiration = (expiration - current_time_et.date()).days
 
             # If expiring today, close at 3:45 PM ET (15 minutes before market close)
             if days_to_expiration == 0 and current_time_et.hour >= 15 and current_time_et.minute >= 45:

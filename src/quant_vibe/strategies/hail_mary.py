@@ -19,16 +19,17 @@ class HailMaryStrategy(OptionsStrategy):
     Hail Mary Strategy - Speculative overnight call buying.
 
     Strategy Logic:
-    1. Buy 10 CALL contracts 15 minutes before market close (3:45 PM ET)
+    1. Buy 10 CALL contracts in final 15 minutes of trading (3:45-4:00 PM ET)
     2. Target strike: 5-10% above current underlying price
     3. Expiration: Next trading day (1 DTE)
     4. Hold overnight
     5. Set trailing stop at market open with 5% limit
 
     Entry Criteria:
-    - 15 minutes before market close (3:45 PM ET)
-    - Only enter once per day
+    - During final 15 minutes of trading day (3:45-4:00 PM ET)
+    - Only enter once per day (first signal in window)
     - Sufficient options liquidity
+    - Timeframe-agnostic: works with 1min, 5min, 15min, 1hr bars
 
     Exit Criteria:
     - Trailing stop triggered (5% from peak)
@@ -38,14 +39,14 @@ class HailMaryStrategy(OptionsStrategy):
 
     def __init__(
         self,
-        strike_otm_min_pct: float = 0.05,  # 5% OTM minimum
-        strike_otm_max_pct: float = 0.10,  # 10% OTM maximum
+        strike_otm_min_pct: float = -0.05,  # 5% OTM minimum
+        strike_otm_max_pct: float = 0.05,  # 10% OTM maximum
         entry_time_before_close: int = 15,  # minutes before close (3:45 PM ET)
         num_contracts: int = 10,  # number of contracts to buy
         trailing_stop_pct: float = 0.05,  # 5% trailing stop
         min_volume: int = 50,  # minimum volume per contract
         max_bid_ask_spread_pct: float = 15.0,  # maximum bid/ask spread percentage
-        max_trades_daily: int = 1,  # maximum trades per day
+        max_trades_daily: int = 3,  # maximum trades per day
     ) -> None:
         """
         Initialize Hail Mary Strategy.
@@ -131,14 +132,13 @@ class HailMaryStrategy(OptionsStrategy):
             # Convert to UTC
             self.market_close_time = market_close_et.astimezone(pytz.UTC)
 
-            # Entry window: 15 minutes before close (3:45 PM ET)
+            # Entry window: 15 minutes before close (3:45 PM ET) until close
+            # This is timeframe-agnostic - works with 1min, 5min, 15min, 1hr bars
             self.entry_window_start = self.market_close_time - timedelta(
                 minutes=self.entry_time_before_close
             )
-            # Give 1-minute window to enter
-            self.entry_window_end = self.market_close_time - timedelta(
-                minutes=self.entry_time_before_close - 1
-            )
+            # Allow entry any time from entry_window_start until close
+            self.entry_window_end = self.market_close_time
 
         # Calculate time to close
         minutes_to_close = (self.market_close_time - current_time).total_seconds() / 60
@@ -241,20 +241,19 @@ class HailMaryStrategy(OptionsStrategy):
         max_strike = current_price * (1 + self.strike_otm_max_pct)
 
         # Filter for CALL options expiring next trading day (1 DTE)
-        target_date = current_time + timedelta(days=1)
-        max_date = current_time + timedelta(days=2)  # Allow small window
+        # Filter options by DTE range using base class utility (1-2 days for hail mary)
+        dte_filtered = self._filter_by_dte(
+            options_data=options_data,
+            current_time=current_time,
+            min_dte=1,
+            max_dte=2
+        )
 
-        # Normalize expiration dates for comparison
-        target_date = pd.Timestamp(target_date).normalize().tz_localize(None)
-        max_date = pd.Timestamp(max_date).normalize().tz_localize(None)
-
-        # Filter for CALL options with 1 DTE
-        valid_options = options_data[
-            (options_data['expiration_date'] >= target_date) &
-            (options_data['expiration_date'] <= max_date) &
-            (options_data['contract_type'] == 'call') &
-            (options_data['strike_price'] >= min_strike) &
-            (options_data['strike_price'] <= max_strike)
+        # Filter for CALL options in strike range
+        valid_options = dte_filtered[
+            (dte_filtered['contract_type'] == 'call') &
+            (dte_filtered['strike_price'] >= min_strike) &
+            (dte_filtered['strike_price'] <= max_strike)
         ]
 
         if valid_options.empty:
@@ -395,7 +394,7 @@ class HailMaryStrategy(OptionsStrategy):
         # Check if expiration is approaching
         if position.legs:
             expiration = position.legs[0].expiration_date
-            days_to_expiration = (expiration.date() - current_time_et.date()).days
+            days_to_expiration = (expiration - current_time_et.date()).days
 
             # If expiring today, close at 3:45 PM ET (15 minutes before market close)
             if days_to_expiration == 0 and current_time_et.hour >= 15 and current_time_et.minute >= 45:

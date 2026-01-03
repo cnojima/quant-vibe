@@ -31,6 +31,13 @@ class BaseStrategyParams(BaseModel):
         description="Maximum trades per day (0=no trades, 999=unlimited)"
     )
 
+    stop_loss_pct: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="Stop loss percentage (0.0 = 0%, 100.0 = 100%)"
+    )
+
     class Config:
         extra = "ignore"  # Ignore unknown parameters (don't pass to strategy)
 
@@ -495,13 +502,13 @@ class HailMaryParams(BaseStrategyParams):
     """Parameters for Hail Mary strategy."""
 
     strike_otm_min_pct: float = Field(
-        default=0.05,
+        default=-0.01,
         ge=0.0,
         le=1.0,
         description="Minimum percentage OTM for strike selection (0.05 = 5%)"
     )
     strike_otm_max_pct: float = Field(
-        default=0.10,
+        default=0.01,
         ge=0.0,
         le=1.0,
         description="Maximum percentage OTM for strike selection (0.10 = 10%)"

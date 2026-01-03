@@ -35,12 +35,14 @@ import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
+from decimal import Decimal
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from quant_vibe.data.massive_client import MassiveClient
 from quant_vibe.data.timescale_store import TimescaleStore
+from quant_vibe.models import OptionsBar
 import pandas as pd
 
 
@@ -532,18 +534,43 @@ Examples:
                 if not bars:
                     continue
 
-                # Enrich bars with contract details and normalize symbol
-                for bar in bars:
-                    # Normalize contract symbol (remove O: prefix)
-                    bar['option_ticker'] = ts_store.normalize_contract_symbol(bar['option_ticker'])
+                # Convert dicts to Pydantic models
+                for bar_dict in bars:
+                    try:
+                        # Normalize contract symbol (remove O: prefix)
+                        normalized_symbol = ts_store.normalize_contract_symbol(bar_dict['option_ticker'])
 
-                    bar['underlying_ticker'] = 'SPX'  # Store as SPX for consistency
-                    bar['strike_price'] = contract_details['strike_price']
-                    bar['contract_type'] = contract_details['contract_type']  # 'call' or 'put'
-                    bar['expiration_date'] = contract_details['expiration_date']
-                    bar['data_source'] = 'massive'
+                        # Calculate mark from bid/ask if available
+                        bid = bar_dict.get('bid')
+                        ask = bar_dict.get('ask')
+                        mark = None
+                        if bid is not None and ask is not None:
+                            mark = (bid + ask) / 2.0
 
-                all_bars.extend(bars)
+                        # Create OptionsBar Pydantic model
+                        options_bar = OptionsBar(
+                            timestamp=bar_dict['timestamp'],
+                            contract_symbol=normalized_symbol,
+                            underlying_ticker='SPX',
+                            strike_price=Decimal(str(contract_details['strike_price'])),
+                            contract_type=contract_details['contract_type'],
+                            expiration_date=contract_details['expiration_date'],
+                            open=Decimal(str(bar_dict['open'])) if bar_dict.get('open') is not None else Decimal('0'),
+                            high=Decimal(str(bar_dict['high'])) if bar_dict.get('high') is not None else Decimal('0'),
+                            low=Decimal(str(bar_dict['low'])) if bar_dict.get('low') is not None else Decimal('0'),
+                            close=Decimal(str(bar_dict['close'])) if bar_dict.get('close') is not None else Decimal('0'),
+                            volume=bar_dict.get('volume', 0),
+                            bid=Decimal(str(bid)) if bid is not None else None,
+                            ask=Decimal(str(ask)) if ask is not None else None,
+                            mark=Decimal(str(mark)) if mark is not None else None,
+                            vwap=Decimal(str(bar_dict['vwap'])) if bar_dict.get('vwap') is not None else None,
+                            transactions=bar_dict.get('transactions'),
+                            data_source='massive',
+                        )
+                        all_bars.append(options_bar)
+                    except Exception as e:
+                        print(f"    ⚠️  Error creating OptionsBar model: {e}, skipping bar")
+                        continue
 
                 # Insert in batches to avoid memory issues
                 if len(all_bars) >= args.batch_size:

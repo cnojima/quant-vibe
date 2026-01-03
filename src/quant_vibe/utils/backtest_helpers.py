@@ -2,22 +2,52 @@
 
 import os
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple, Optional, TYPE_CHECKING
 
 import pandas as pd
 from dotenv import load_dotenv
 
 from .output import TeeOutput
 from ..data.timescale_store import TimescaleStore
+from quant_vibe.utils.timestamp_utils import market_hours, now_utc
+
+# Avoid circular import: models → utils.timestamp_utils → utils.__init__ → backtest_helpers
+if TYPE_CHECKING:
+    from ..models import OptionsBar, UnderlyingBar
 
 # Load environment variables
 load_dotenv()
 
 
+def _convert_decimals_to_float(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert Decimal columns to float for pandas compatibility.
+
+    Pydantic models use Decimal for precision, but pandas operations
+    (like .std(), .mean()) require numeric types that support arithmetic.
+
+    Args:
+        df: DataFrame with potential Decimal columns
+
+    Returns:
+        DataFrame with Decimal columns converted to float
+    """
+    if df.empty:
+        return df
+
+    for col in df.columns:
+        # Check if column contains Decimal objects
+        if len(df) > 0 and isinstance(df[col].iloc[0], Decimal):
+            df[col] = df[col].astype(float)
+
+    return df
+
+
 def setup_backtest_output(
     strategy_name: str,
-    base_dir: Path | None = None,
+    base_dir: Optional[Path] = None,
 ) -> Tuple[Path, str, TeeOutput]:
     """Setup output directory, timestamp, and dual output logger.
 
@@ -67,7 +97,7 @@ def load_options_backtest_data(
     min_dte: int,
     max_dte: int,
     verbose: bool = True,
-    db_profile: str | None = None,
+    db_profile: Optional[str] = None,
     timeframe: str = "1min",
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Load options and underlying data from TimescaleDB with validation.
@@ -145,6 +175,10 @@ def load_options_backtest_data(
     else:  # local (default)
         ts_store = TimescaleStore()  # Uses TIMESCALE_* env vars
 
+    # Convert to UTC market hours (market open for start, market close for end)
+    start_date = market_hours(start_date)[0]  # Market open time
+    end_date = market_hours(end_date)[1]  # Market close time
+
     # Log timeframe being used
     if verbose:
         memory_savings = {"5min": "95%", "15min": "98%", "1hour": "99%", "daily": "99.9%"}
@@ -152,8 +186,8 @@ def load_options_backtest_data(
             print(f"   Using {timeframe} aggregated data (saves ~{memory_savings.get(timeframe, '90%')} memory)")
 
     try:
-        # Load options data
-        options_data = ts_store.get_options_for_backtest(
+        # Load options data (returns List[OptionsBar])
+        options_bars = ts_store.get_options_for_backtest(
             underlying_ticker=underlying_ticker,
             start_time=start_date,
             end_time=end_date,
@@ -161,6 +195,14 @@ def load_options_backtest_data(
             max_dte=max_dte,
             timeframe=timeframe,
         )
+
+        # Convert Pydantic models to DataFrame
+        if not options_bars:
+            options_data = pd.DataFrame()
+        else:
+            options_data = pd.DataFrame([bar.model_dump() for bar in options_bars])
+            # Convert Decimal columns to float for pandas compatibility
+            options_data = _convert_decimals_to_float(options_data)
 
         if options_data.empty:
             error_msg = (
@@ -192,11 +234,22 @@ def load_options_backtest_data(
                 f"underlying_bars table..."
             )
 
-        underlying_data = ts_store.get_underlying_bars(
+        # Load underlying bars (returns List[UnderlyingBar])
+        underlying_bars = ts_store.get_underlying_bars(
             ticker=underlying_ticker,
             start_time=start_date,
             end_time=end_date,
         )
+
+        # Convert Pydantic models to DataFrame
+        if not underlying_bars:
+            underlying_data = pd.DataFrame()
+        else:
+            underlying_data = pd.DataFrame([bar.model_dump() for bar in underlying_bars])
+            # Convert Decimal columns to float for pandas compatibility
+            underlying_data = _convert_decimals_to_float(underlying_data)
+            # Set timestamp as index for compatibility with existing code
+            underlying_data = underlying_data.set_index('timestamp')
 
         # Fall back to deriving from options if underlying_bars is empty
         if underlying_data.empty:
@@ -206,11 +259,22 @@ def load_options_backtest_data(
                     f"from options bid/ask..."
                 )
 
-            underlying_data = ts_store.get_underlying_price_from_options(
+            # Load from options (returns List[UnderlyingBar])
+            underlying_bars_from_options = ts_store.get_underlying_price_from_options(
                 underlying_ticker=underlying_ticker,
                 start_time=start_date,
                 end_time=end_date,
             )
+
+            # Convert Pydantic models to DataFrame
+            if not underlying_bars_from_options:
+                underlying_data = pd.DataFrame()
+            else:
+                underlying_data = pd.DataFrame([bar.model_dump() for bar in underlying_bars_from_options])
+                # Convert Decimal columns to float for pandas compatibility
+                underlying_data = _convert_decimals_to_float(underlying_data)
+                # Set timestamp as index for compatibility with existing code
+                underlying_data = underlying_data.set_index('timestamp')
 
             if underlying_data.empty:
                 error_msg = (
@@ -311,10 +375,10 @@ def save_backtest_to_db(
     end_date: datetime,
     initial_capital: float,
     results: Dict,
-    parameters: Dict | None = None,
+    parameters: Optional[Dict] = None,
     max_positions: int = 1,
     verbose: bool = True,
-    db_profile: str | None = None,
+    db_profile: Optional[str] = None,
 ) -> None:
     """Save backtest results to PostgreSQL database.
 
@@ -385,18 +449,21 @@ def save_backtest_to_db(
 
         # 2. Save performance metrics
         # Convert NumPy types to Python native types for PostgreSQL compatibility
-        def to_python_type(value):
+        def to_python_type(value: Any) -> Optional[float]:
             """Convert NumPy types to Python native types."""
             if value is None:
                 return None
             # Check if it's a NumPy type
             if hasattr(value, 'item'):
-                return value.item()  # Convert numpy scalar to Python type
+                return float(value.item())  # Convert numpy scalar to Python type
             return float(value) if isinstance(value, (int, float)) else value
 
+        final_capital = to_python_type(results.get("final_capital"))
+        total_return = (final_capital - initial_capital) if final_capital is not None else None
+
         metrics = {
-            "final_capital": to_python_type(results.get("final_capital")),
-            "total_return": to_python_type(results.get("final_capital", initial_capital)) - initial_capital,
+            "final_capital": final_capital,
+            "total_return": total_return,
             "total_return_pct": to_python_type(results.get("total_return_pct")),
             "num_trades": to_python_type(results.get("num_trades")),
             "num_winning_trades": to_python_type(results.get("num_winning_trades")),

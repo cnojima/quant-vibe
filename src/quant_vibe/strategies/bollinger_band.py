@@ -14,7 +14,6 @@ This strategy:
 from datetime import datetime, time, timedelta
 from typing import Dict, Optional, Any
 
-import pandas as pd
 import pytz
 
 from quant_vibe.indicators.technical import calculate_bollinger_bands
@@ -268,8 +267,8 @@ class BollingerBandStrategy(OptionsStrategy):
         max_date = current_time + timedelta(days=self.max_dte)
 
         # Normalize dates for comparison (expiration_date is timezone-naive)
-        target_date = pd.Timestamp(target_date).normalize().tz_localize(None)
-        max_date = pd.Timestamp(max_date).normalize().tz_localize(None)
+        target_date = target_date.date()
+        max_date = max_date.date()
 
         # Calculate target strike range (10-15% OTM)
         if direction == "call":
@@ -490,7 +489,7 @@ class BollingerBandStrategy(OptionsStrategy):
             return True, f"End of day exit - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 
         # Force exit if past expiration date (should not happen in normal flow)
-        if current_time.date() > leg.expiration_date.date():
+        if current_time.date() > leg.expiration_date:
             # Use bid price for exit value
             leg_data = options_data[options_data['contract_symbol'] == leg.contract_symbol]
             if not leg_data.empty:

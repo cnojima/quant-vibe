@@ -2,7 +2,6 @@
 
 from typing import Optional, Dict, Tuple
 from datetime import datetime, timedelta
-import pandas as pd
 import numpy as np
 
 from .options_base import (
@@ -333,18 +332,16 @@ class BullishVerticalCallStrategy(OptionsStrategy):
         if current_price == 0:
             return None
 
-        # Filter options for appropriate expiration
-        target_date = current_time + timedelta(days=self.min_dte)
-        max_date = current_time + timedelta(days=self.max_dte)
+        # Filter options by DTE range using base class utility
+        dte_filtered = self._filter_by_dte(
+            options_data=options_data,
+            current_time=current_time,
+            min_dte=self.min_dte,
+            max_dte=self.max_dte
+        )
 
-        # Normalize expiration dates for comparison
-        # expiration_date in DataFrame is datetime64[ns] (timezone-naive), normalize to midnight
-        import pandas as pd
-        target_date = pd.Timestamp(target_date).normalize().tz_localize(None)
-        max_date = pd.Timestamp(max_date).normalize().tz_localize(None)
-
-        # Filter for CALL options within DTE range
-        # contract_type is 'call' (lowercase enum value)
+        # Filter for CALL options
+        valid_options = dte_filtered[dte_filtered['contract_type'] == 'call']
         valid_options = options_data[
             (options_data['expiration_date'] >= target_date) &
             (options_data['expiration_date'] <= max_date) &
@@ -484,7 +481,7 @@ class BullishVerticalCallStrategy(OptionsStrategy):
         # Check if expiration is approaching (close 15 minutes before market close on expiration day)
         if position.legs:
             expiration = position.legs[0].expiration_date
-            days_to_expiration = (expiration.date() - current_time_et.date()).days
+            days_to_expiration = (expiration - current_time_et.date()).days
 
             # If expiring today, close at 3:45 PM ET (15 minutes before market close)
             if days_to_expiration == 0 and current_time_et.hour >= 15 and current_time_et.minute >= 45:

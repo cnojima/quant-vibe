@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
+from decimal import Decimal
 import pandas as pd
 
 # Add src to path
@@ -15,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from quant_vibe.data.massive_client import MassiveClient
 from quant_vibe.data.timescale_store import TimescaleStore
+from quant_vibe.models import OptionsBar
 
 
 def get_spxw_expiration_dates(start_date: datetime, end_date: datetime) -> List[datetime]:
@@ -371,15 +373,40 @@ def main():
                 if not bars:
                     continue
 
-                # Enrich bars with contract details
-                for bar in bars:
-                    bar['underlying_ticker'] = 'SPX'  # Store as SPX for consistency
-                    bar['strike_price'] = contract_details['strike_price']
-                    bar['contract_type'] = contract_details['contract_type']
-                    bar['expiration_date'] = contract_details['expiration_date']
-                    bar['data_source'] = 'massive'
+                # Convert dicts to Pydantic models
+                for bar_dict in bars:
+                    try:
+                        # Calculate mark from bid/ask if available
+                        bid = bar_dict.get('bid')
+                        ask = bar_dict.get('ask')
+                        mark = None
+                        if bid is not None and ask is not None:
+                            mark = (bid + ask) / 2.0
 
-                all_bars.extend(bars)
+                        # Create OptionsBar Pydantic model
+                        options_bar = OptionsBar(
+                            timestamp=bar_dict['timestamp'],
+                            contract_symbol=bar_dict['option_ticker'],
+                            underlying_ticker='SPX',  # Store as SPX for consistency
+                            strike_price=Decimal(str(contract_details['strike_price'])),
+                            contract_type=contract_details['contract_type'],
+                            expiration_date=contract_details['expiration_date'],
+                            open=Decimal(str(bar_dict['open'])) if bar_dict.get('open') is not None else Decimal('0'),
+                            high=Decimal(str(bar_dict['high'])) if bar_dict.get('high') is not None else Decimal('0'),
+                            low=Decimal(str(bar_dict['low'])) if bar_dict.get('low') is not None else Decimal('0'),
+                            close=Decimal(str(bar_dict['close'])) if bar_dict.get('close') is not None else Decimal('0'),
+                            volume=bar_dict.get('volume', 0),
+                            bid=Decimal(str(bid)) if bid is not None else None,
+                            ask=Decimal(str(ask)) if ask is not None else None,
+                            mark=Decimal(str(mark)) if mark is not None else None,
+                            vwap=Decimal(str(bar_dict['vwap'])) if bar_dict.get('vwap') is not None else None,
+                            transactions=bar_dict.get('transactions'),
+                            data_source='massive',
+                        )
+                        all_bars.append(options_bar)
+                    except Exception as e:
+                        print(f"    ⚠️  Error creating OptionsBar model: {e}, skipping bar")
+                        continue
 
                 # Insert in batches to avoid memory issues
                 if len(all_bars) >= batch_size:

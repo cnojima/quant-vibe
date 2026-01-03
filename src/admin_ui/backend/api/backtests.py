@@ -14,13 +14,15 @@ from typing import Any, Optional
 
 from quant_vibe.utils import now_utc
 import pandas as pd
+
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
-from quant_vibe.data.timescale_store import TimescaleStore
 from backtest.config_loader import BacktestConfig
+from quant_vibe.data.timescale_store import TimescaleStore
+from quant_vibe.utils.backtest_helpers import _convert_decimals_to_float
 
 router = APIRouter()
 
@@ -393,15 +395,21 @@ async def get_backtest_results(
                     print(f"  Start date: {start_date}, End date: {end_date}")
 
                     if start_date and end_date:
-                        # Fetch underlying bars from database
-                        underlying_df = ts_store.get_underlying_bars(
+                        # Fetch underlying bars from database (returns List[UnderlyingBar])
+                        underlying_bars = ts_store.get_underlying_bars(
                             ticker='SPX',
                             start_time=start_date,
                             end_time=end_date
                         )
-                        print(f"  Retrieved {len(underlying_df)} underlying bars")
+                        print(f"  Retrieved {len(underlying_bars)} underlying bars")
 
-                        if not underlying_df.empty:
+                        if underlying_bars:
+                            underlying_df = pd.DataFrame([bar.model_dump() for bar in underlying_bars])
+                            underlying_df = _convert_decimals_to_float(underlying_df)
+
+                            # Set timestamp as index
+                            if 'timestamp' in underlying_df.columns:
+                                underlying_df = underlying_df.set_index('timestamp')
                             # Downsample for multi-day backtests to reduce data size
                             duration_days = (end_date - start_date).days
                             num_bars = len(underlying_df)

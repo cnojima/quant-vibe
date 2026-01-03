@@ -351,8 +351,8 @@ class BacktestOrchestrator:
             underlying_ticker=self.config.get_underlying_ticker(),
             start_date=start_date,
             end_date=end_date,
-            min_dte=min_dte,
-            max_dte=max_dte,
+            min_dte=int(min_dte),
+            max_dte=int(max_dte),
             verbose=self.config.is_verbose(),
             db_profile=self.config.get_db_profile(),
         )

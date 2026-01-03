@@ -2,12 +2,16 @@
 
 from datetime import datetime
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING
+from decimal import Decimal
 
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from quant_vibe.utils import now_utc
+
+if TYPE_CHECKING:
+    from quant_vibe.models import UnderlyingBar
 
 
 class UnderlyingBarAggregator:
@@ -48,11 +52,11 @@ class UnderlyingBarAggregator:
         elapsed = (now_utc() - self.last_flush_time).total_seconds()
         return elapsed >= self.aggregate_interval
 
-    def flush(self) -> List[Dict]:
+    def flush(self) -> List["UnderlyingBar"]:
         """Aggregate buffered quotes into bars and clear buffer.
 
         Returns:
-            List of bar dictionaries ready for database insertion into underlying_bars
+            List of UnderlyingBar Pydantic models ready for database insertion into underlying_bars
         """
         if not self.quote_buffer:
             self.last_flush_time = now_utc()
@@ -63,6 +67,9 @@ class UnderlyingBarAggregator:
 
         bars_to_insert = []
         flush_timestamp = self.last_flush_time
+
+        # Import Pydantic model at runtime
+        from quant_vibe.models import UnderlyingBar
 
         for symbol, quotes in self.quote_buffer.items():
             if not quotes:
@@ -98,18 +105,19 @@ class UnderlyingBarAggregator:
             # Get latest quote for other fields
             latest_quote = quotes[-1]
 
-            bar = {
-                'timestamp': flush_timestamp,
-                'ticker': symbol,  # Normalized (no $ or .X)
-                'open': prices[0],
-                'high': max(prices),
-                'low': min(prices),
-                'close': prices[-1],
-                'volume': max_volume,
-                'vwap': vwap,
-                'transactions': len(quotes),
-                'data_source': 'schwabdev_stream',
-            }
+            # Create UnderlyingBar Pydantic model
+            bar = UnderlyingBar(
+                timestamp=flush_timestamp,
+                ticker=symbol,  # Normalized (no $ or .X)
+                open=Decimal(str(prices[0])),
+                high=Decimal(str(max(prices))),
+                low=Decimal(str(min(prices))),
+                close=Decimal(str(prices[-1])),
+                volume=max_volume,
+                vwap=Decimal(str(vwap)) if vwap is not None else None,
+                transactions=len(quotes),
+                data_source='schwabdev_stream',
+            )
 
             bars_to_insert.append(bar)
 

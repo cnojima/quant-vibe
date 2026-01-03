@@ -15,7 +15,7 @@ Features:
 
 import os
 import logging
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 from venv import logger
@@ -27,6 +27,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
 from quant_vibe.utils.timestamp_utils import now_utc
+
+if TYPE_CHECKING:
+    from quant_vibe.models import OptionsBar, UnderlyingBar
 
 load_dotenv()
 
@@ -134,61 +137,35 @@ class TimescaleStore:
         finally:
             self.pool.putconn(conn)
 
-    def insert_option_bar(
-        self,
-        timestamp: datetime,
-        option_ticker: str,
-        underlying_ticker: str,
-        open_price: float,
-        high: float,
-        low: float,
-        close: float,
-        volume: int,
-        strike_price: float,
-        contract_type: str,
-        expiration_date: datetime,
-        bid: Optional[float] = None,
-        ask: Optional[float] = None,
-        bid_size: Optional[int] = None,
-        ask_size: Optional[int] = None,
-        vwap: Optional[float] = None,
-        transactions: Optional[int] = None,
-        implied_volatility: Optional[float] = None,
-        delta: Optional[float] = None,
-        gamma: Optional[float] = None,
-        theta: Optional[float] = None,
-        vega: Optional[float] = None,
-        rho: Optional[float] = None,
-        data_source: str = "combined",
-    ) -> None:
+    def insert_option_bar(self, bar: "OptionsBar") -> None:
         """
-        Insert a single options bar into the database.
+        Insert a single options bar into the database using Pydantic model.
 
         Args:
-            timestamp: Bar timestamp
-            option_ticker: Option contract ticker (e.g., 'O:SPX241220C04500000')
-            underlying_ticker: Underlying ticker (e.g., 'SPX')
-            open_price: Opening price
-            high: High price
-            low: Low price
-            close: Closing price
-            volume: Volume
-            strike_price: Strike price
-            contract_type: 'call' or 'put'
-            expiration_date: Contract expiration date
-            bid: Bid price (optional)
-            ask: Ask price (optional)
-            bid_size: Bid size (optional)
-            ask_size: Ask size (optional)
-            vwap: Volume-weighted average price (optional)
-            transactions: Number of transactions (optional)
-            implied_volatility: Implied volatility (optional)
-            delta: Delta greek (optional)
-            gamma: Gamma greek (optional)
-            theta: Theta greek (optional)
-            vega: Vega greek (optional)
-            rho: Rho greek (optional)
-            data_source: Source of data ('massive', 'schwab', or 'combined')
+            bar: OptionsBar Pydantic model instance
+
+        Example:
+            >>> from quant_vibe.models import OptionsBar
+            >>> from quant_vibe.utils import now_utc
+            >>> from datetime import date
+            >>> from decimal import Decimal
+            >>> bar = OptionsBar(
+            ...     timestamp=now_utc(),
+            ...     contract_symbol="SPXW260123P06860000",
+            ...     underlying_ticker="SPX",
+            ...     strike_price=Decimal("6860.0"),
+            ...     contract_type="put",
+            ...     expiration_date=date(2026, 1, 23),
+            ...     open=Decimal("10.2"),
+            ...     high=Decimal("10.8"),
+            ...     low=Decimal("10.0"),
+            ...     close=Decimal("10.5"),
+            ...     volume=100,
+            ...     bid=Decimal("10.4"),
+            ...     ask=Decimal("10.6"),
+            ...     mark=Decimal("10.5"),
+            ... )
+            >>> store.insert_option_bar(bar)
         """
         query = """
         INSERT INTO options_bars (
@@ -225,37 +202,69 @@ class TimescaleStore:
         """
 
         # Normalize contract symbol to canonical format
-        option_ticker = self.normalize_contract_symbol(option_ticker)
+        option_ticker = self.normalize_contract_symbol(bar.contract_symbol)
+
+        # Coerce Greek values to fit database constraints
+        implied_volatility = self._coerce_greek_value(
+            float(bar.implied_volatility) if bar.implied_volatility is not None else None,
+            "implied_volatility",
+            option_ticker
+        )
+        delta = self._coerce_greek_value(
+            float(bar.delta) if bar.delta is not None else None,
+            "delta",
+            option_ticker
+        )
+        gamma = self._coerce_greek_value(
+            float(bar.gamma) if bar.gamma is not None else None,
+            "gamma",
+            option_ticker
+        )
+        theta = self._coerce_greek_value(
+            float(bar.theta) if bar.theta is not None else None,
+            "theta",
+            option_ticker
+        )
+        vega = self._coerce_greek_value(
+            float(bar.vega) if bar.vega is not None else None,
+            "vega",
+            option_ticker
+        )
+        rho = self._coerce_greek_value(
+            float(bar.rho) if bar.rho is not None else None,
+            "rho",
+            option_ticker
+        )
 
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     query,
                     (
-                        timestamp,
+                        bar.timestamp,
                         option_ticker,
-                        underlying_ticker,
-                        open_price,
-                        high,
-                        low,
-                        close,
-                        volume,
-                        vwap,
-                        transactions,
-                        bid,
-                        ask,
-                        bid_size,
-                        ask_size,
-                        strike_price,
-                        contract_type,
-                        expiration_date,
+                        bar.underlying_ticker,
+                        float(bar.open),
+                        float(bar.high),
+                        float(bar.low),
+                        float(bar.close),
+                        bar.volume,
+                        float(bar.vwap) if bar.vwap is not None else None,
+                        bar.transactions,
+                        float(bar.bid) if bar.bid is not None else None,
+                        float(bar.ask) if bar.ask is not None else None,
+                        bar.bid_size,
+                        bar.ask_size,
+                        float(bar.strike_price),
+                        bar.contract_type,
+                        bar.expiration_date,
                         implied_volatility,
                         delta,
                         gamma,
                         theta,
                         vega,
                         rho,
-                        data_source,
+                        bar.data_source,
                     ),
                 )
             conn.commit()
@@ -294,33 +303,39 @@ class TimescaleStore:
 
         return value
 
-    def bulk_insert_option_bars(self, bars: List[Dict[str, Any]], batch_size: int = 1000) -> int:
+    def bulk_insert_option_bars(self, bars: List["OptionsBar"], batch_size: int = 1000) -> int:
         """
         Bulk insert options bars for efficient data loading.
 
         Args:
-            bars: List of dictionaries containing bar data
+            bars: List of OptionsBar Pydantic model instances
             batch_size: Number of rows to insert per batch
 
         Returns:
             Number of rows inserted
 
         Example:
+            >>> from quant_vibe.models import OptionsBar
+            >>> from quant_vibe.utils import now_utc
+            >>> from datetime import date
+            >>> from decimal import Decimal
             >>> bars = [
-            ...     {
-            ...         'timestamp': datetime(2024, 1, 1, 9, 30),
-            ...         'option_ticker': 'O:SPX241220C04500000',
-            ...         'underlying_ticker': 'SPX',
-            ...         'open': 100.5,
-            ...         'high': 101.0,
-            ...         'low': 100.0,
-            ...         'close': 100.75,
-            ...         'volume': 1000,
-            ...         'strike_price': 4500.0,
-            ...         'contract_type': 'call',
-            ...         'expiration_date': datetime(2024, 12, 20),
-            ...     },
-            ...     ...
+            ...     OptionsBar(
+            ...         timestamp=now_utc(),
+            ...         contract_symbol='SPXW260123P06860000',
+            ...         underlying_ticker='SPX',
+            ...         strike_price=Decimal('6860.0'),
+            ...         contract_type='put',
+            ...         expiration_date=date(2026, 1, 23),
+            ...         open=Decimal('100.5'),
+            ...         high=Decimal('101.0'),
+            ...         low=Decimal('100.0'),
+            ...         close=Decimal('100.75'),
+            ...         volume=1000,
+            ...         bid=Decimal('100.4'),
+            ...         ask=Decimal('100.6'),
+            ...         mark=Decimal('100.5'),
+            ...     ),
             ... ]
             >>> store.bulk_insert_option_bars(bars)
         """
@@ -343,42 +358,66 @@ class TimescaleStore:
         rows = []
         for bar in bars:
             # Normalize contract symbol to canonical format
-            option_ticker = self.normalize_contract_symbol(bar["option_ticker"])
+            option_ticker = self.normalize_contract_symbol(bar.contract_symbol)
 
             # Coerce Greek values to fit database constraints
-            implied_volatility = self._coerce_greek_value(bar.get("implied_volatility"), "implied_volatility", option_ticker)
-            delta = self._coerce_greek_value(bar.get("delta"), "delta", option_ticker)
-            gamma = self._coerce_greek_value(bar.get("gamma"), "gamma", option_ticker)
-            theta = self._coerce_greek_value(bar.get("theta"), "theta", option_ticker)
-            vega = self._coerce_greek_value(bar.get("vega"), "vega", option_ticker)
-            rho = self._coerce_greek_value(bar.get("rho"), "rho", option_ticker)
+            implied_volatility = self._coerce_greek_value(
+                float(bar.implied_volatility) if bar.implied_volatility is not None else None,
+                "implied_volatility",
+                option_ticker
+            )
+            delta = self._coerce_greek_value(
+                float(bar.delta) if bar.delta is not None else None,
+                "delta",
+                option_ticker
+            )
+            gamma = self._coerce_greek_value(
+                float(bar.gamma) if bar.gamma is not None else None,
+                "gamma",
+                option_ticker
+            )
+            theta = self._coerce_greek_value(
+                float(bar.theta) if bar.theta is not None else None,
+                "theta",
+                option_ticker
+            )
+            vega = self._coerce_greek_value(
+                float(bar.vega) if bar.vega is not None else None,
+                "vega",
+                option_ticker
+            )
+            rho = self._coerce_greek_value(
+                float(bar.rho) if bar.rho is not None else None,
+                "rho",
+                option_ticker
+            )
 
             rows.append(
                 (
-                    bar["timestamp"],
+                    bar.timestamp,
                     option_ticker,
-                    bar["underlying_ticker"],
-                    bar.get("open"),
-                    bar.get("high"),
-                    bar.get("low"),
-                    bar.get("close"),
-                    bar.get("volume"),
-                    bar.get("vwap"),
-                    bar.get("transactions"),
-                    bar.get("bid"),
-                    bar.get("ask"),
-                    bar.get("bid_size"),
-                    bar.get("ask_size"),
-                    bar.get("strike_price"),
-                    bar.get("contract_type"),
-                    bar.get("expiration_date"),
+                    bar.underlying_ticker,
+                    float(bar.open),
+                    float(bar.high),
+                    float(bar.low),
+                    float(bar.close),
+                    bar.volume,
+                    float(bar.vwap) if bar.vwap is not None else None,
+                    bar.transactions,
+                    float(bar.bid) if bar.bid is not None else None,
+                    float(bar.ask) if bar.ask is not None else None,
+                    bar.bid_size,
+                    bar.ask_size,
+                    float(bar.strike_price),
+                    bar.contract_type,
+                    bar.expiration_date,
                     implied_volatility,
                     delta,
                     gamma,
                     theta,
                     vega,
                     rho,
-                    bar.get("data_source", "combined"),
+                    bar.data_source,
                 )
             )
 
@@ -505,7 +544,7 @@ class TimescaleStore:
         max_dte: Optional[int] = None,
         strike_range_pct: Optional[float] = None,
         timeframe: str = "1min",
-    ) -> pd.DataFrame:
+    ) -> List["OptionsBar"]:
         """
         Get options data optimized for backtesting.
 
@@ -520,11 +559,9 @@ class TimescaleStore:
                       Using 5min or 15min dramatically reduces memory usage for optimizations
 
         Returns:
-            DataFrame with all options data in the time range, with columns:
-            - timestamp, contract_symbol, strike_price, contract_type
-            - expiration_date, open, high, low, close, volume
-            - bid, ask, mark (calculated as mid), bid_size, ask_size
-            - delta, gamma, theta, vega, rho, implied_volatility
+            List of OptionsBar Pydantic model instances with all options data in the time range.
+            Each bar contains: timestamp, contract_symbol, strike_price, contract_type,
+            expiration_date, OHLCV data, bid/ask quotes, Greeks, etc.
 
             Note: contract_type values are lowercase enum: 'call', 'put'
         """
@@ -579,21 +616,69 @@ class TimescaleStore:
 
         df = pd.read_sql_query(query, self.engine, params=tuple(params), parse_dates=['timestamp', 'expiration_date'])
 
-        # Note: contract_type is stored as lowercase enum ('call', 'put') in database
-        # No conversion needed - use values as-is
+        # Convert DataFrame to list of Pydantic models using vectorized operations
+        from quant_vibe.models import OptionsBar
+        from decimal import Decimal
 
-        # Normalize contract symbols to canonical format
-        if not df.empty and 'contract_symbol' in df.columns:
-            df['contract_symbol'] = df['contract_symbol'].apply(self.normalize_contract_symbol)
+        if df.empty:
+            return []
 
-        return df
+        # Normalize contract symbols in bulk (vectorized)
+        df['contract_symbol'] = df['contract_symbol'].apply(self.normalize_contract_symbol)
+
+        # Convert expiration_date to date objects (vectorized)
+        # pd.read_sql_query with parse_dates returns Timestamp objects, convert to date
+        # This matches the OptionsBar Pydantic model which expects date (not datetime)
+        import datetime as dt
+        df['expiration_date'] = df['expiration_date'].apply(
+            lambda x: x.date() if isinstance(x, (pd.Timestamp, dt.datetime)) else x
+        )
+
+        # Pre-fill data_source if not present
+        if 'data_source' not in df.columns:
+            df['data_source'] = 'combined'
+
+        # Use model_validate to create Pydantic models from dict records (much faster than iterrows)
+        # Convert to dict records and batch process
+        records = df.to_dict('records')
+
+        # Batch convert to Pydantic models
+        bars = []
+        for record in records:
+            # Add underlying_ticker since it's not in the query result
+            record['underlying_ticker'] = underlying_ticker
+
+            # Convert numeric fields to Decimal where needed
+            # Pydantic will handle type coercion, but we need to ensure Decimal for precision fields
+            for field in ['strike_price', 'open', 'high', 'low', 'close', 'bid', 'ask', 'mark', 'vwap',
+                         'implied_volatility', 'delta', 'gamma', 'theta', 'vega', 'rho']:
+                if field in record and pd.notna(record[field]):
+                    record[field] = Decimal(str(record[field]))
+                elif field in record:
+                    record[field] = None
+
+            # Convert integer fields
+            for field in ['volume', 'bid_size', 'ask_size', 'transactions']:
+                if field in record and pd.notna(record[field]):
+                    record[field] = int(record[field])
+                elif field in record:
+                    record[field] = None if field != 'volume' else 0
+
+            try:
+                bar = OptionsBar.model_validate(record)
+                bars.append(bar)
+            except Exception as e:
+                logging.warning(f"Failed to create OptionsBar from record: {e}")
+                continue
+
+        return bars
 
     def get_underlying_price_from_options(
         self,
         underlying_ticker: str,
         start_time: datetime,
         end_time: datetime,
-    ) -> pd.DataFrame:
+    ) -> List["UnderlyingBar"]:
         """
         Estimate underlying price from ATM options using bid/ask data.
 
@@ -606,9 +691,8 @@ class TimescaleStore:
             end_time: End time
 
         Returns:
-            DataFrame with OHLCV structure using estimated underlying prices
-            Index: DatetimeIndex
-            Columns: open, high, low, close, volume
+            List of UnderlyingBar Pydantic model instances with estimated underlying prices.
+            Each bar has OHLC set to the estimated price (since we derive from a single point).
         """
         query = """
         WITH nearest_expiry AS (
@@ -652,24 +736,42 @@ class TimescaleStore:
         )
 
         if df.empty:
-            return pd.DataFrame()
+            return []
 
         # Group by timestamp and take median strike as best ATM estimate
         result = df.groupby('timestamp').agg({
             'price': 'median'
         }).reset_index()
 
-        # Create OHLCV structure (use lowercase to match live data format)
-        result['open'] = result['price']
-        result['high'] = result['price']
-        result['low'] = result['price']
-        result['close'] = result['price']
-        result['volume'] = 0
+        # Convert to UnderlyingBar Pydantic models using vectorized operations
+        from quant_vibe.models import UnderlyingBar
+        from decimal import Decimal
 
-        result = result[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
-        result.set_index('timestamp', inplace=True)
+        # Convert to dict records for batch processing (much faster than iterrows)
+        records = result.to_dict('records')
 
-        return result
+        # Batch convert to Pydantic models
+        bars = []
+        for record in records:
+            price = Decimal(str(record['price']))
+            record['ticker'] = underlying_ticker
+            record['open'] = price
+            record['high'] = price
+            record['low'] = price
+            record['close'] = price
+            record['volume'] = 0
+            record['data_source'] = 'derived_from_options'
+            # Remove 'price' as it's not a field in UnderlyingBar
+            del record['price']
+
+            try:
+                bar = UnderlyingBar.model_validate(record)
+                bars.append(bar)
+            except Exception as e:
+                logging.warning(f"Failed to create UnderlyingBar from record: {e}")
+                continue
+
+        return bars
 
     def get_available_expirations(
         self, underlying_ticker: str, as_of: Optional[datetime] = None
@@ -814,33 +916,27 @@ class TimescaleStore:
     # UNDERLYING PRICE DATA METHODS
     # ========================================================================
 
-    def insert_underlying_bar(
-        self,
-        timestamp: datetime,
-        ticker: str,
-        open_price: float,
-        high: float,
-        low: float,
-        close: float,
-        volume: int = 0,
-        vwap: Optional[float] = None,
-        transactions: Optional[int] = None,
-        data_source: str = 'schwab'
-    ) -> None:
+    def insert_underlying_bar(self, bar: "UnderlyingBar") -> None:
         """
-        Insert a single underlying price bar.
+        Insert a single underlying price bar using Pydantic model.
 
         Args:
-            timestamp: Bar timestamp
-            ticker: Ticker symbol (e.g., 'SPX', 'SPY')
-            open_price: Opening price
-            high: High price
-            low: Low price
-            close: Closing price
-            volume: Volume (default: 0)
-            vwap: Volume-weighted average price (optional)
-            transactions: Number of transactions (optional)
-            data_source: Source of data (default: 'schwab')
+            bar: UnderlyingBar Pydantic model instance
+
+        Example:
+            >>> from quant_vibe.models import UnderlyingBar
+            >>> from quant_vibe.utils import now_utc
+            >>> from decimal import Decimal
+            >>> bar = UnderlyingBar(
+            ...     timestamp=now_utc(),
+            ...     ticker="SPX",
+            ...     open=Decimal("6100.0"),
+            ...     high=Decimal("6120.0"),
+            ...     low=Decimal("6090.0"),
+            ...     close=Decimal("6110.0"),
+            ...     volume=1000000,
+            ... )
+            >>> store.insert_underlying_bar(bar)
         """
         query = """
         INSERT INTO underlying_bars (
@@ -864,45 +960,44 @@ class TimescaleStore:
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(query, (
-                    timestamp, ticker,
-                    open_price, high, low, close, volume, vwap, transactions,
-                    data_source
+                    bar.timestamp,
+                    bar.ticker,
+                    float(bar.open),
+                    float(bar.high),
+                    float(bar.low),
+                    float(bar.close),
+                    bar.volume,
+                    float(bar.vwap) if bar.vwap is not None else None,
+                    bar.transactions,
+                    bar.data_source,
                 ))
             conn.commit()
 
-    def bulk_insert_underlying_bars(self, bars: List[Dict[str, Any]], batch_size: int = 1000) -> int:
+    def bulk_insert_underlying_bars(self, bars: List["UnderlyingBar"], batch_size: int = 1000) -> int:
         """
-        Bulk insert underlying price bars.
+        Bulk insert underlying price bars using Pydantic models.
 
         Args:
-            bars: List of bar dictionaries with keys:
-                  - timestamp: datetime
-                  - ticker: str
-                  - open: float
-                  - high: float
-                  - low: float
-                  - close: float
-                  - volume: int (optional, default: 0)
-                  - vwap: float (optional)
-                  - transactions: int (optional)
-                  - data_source: str (optional, default: 'schwab')
+            bars: List of UnderlyingBar Pydantic model instances
             batch_size: Number of bars per batch (default: 1000)
 
         Returns:
             Number of bars inserted
 
         Example:
+            >>> from quant_vibe.models import UnderlyingBar
+            >>> from quant_vibe.utils import now_utc
+            >>> from decimal import Decimal
             >>> bars = [
-            ...     {
-            ...         'timestamp': datetime(2025, 12, 23, 9, 30),
-            ...         'ticker': 'SPX',
-            ...         'open': 6850.0,
-            ...         'high': 6855.0,
-            ...         'low': 6848.0,
-            ...         'close': 6852.0,
-            ...         'volume': 0,
-            ...     },
-            ...     ...
+            ...     UnderlyingBar(
+            ...         timestamp=now_utc(),
+            ...         ticker="SPX",
+            ...         open=Decimal("6850.0"),
+            ...         high=Decimal("6855.0"),
+            ...         low=Decimal("6848.0"),
+            ...         close=Decimal("6852.0"),
+            ...         volume=0,
+            ...     ),
             ... ]
             >>> store.bulk_insert_underlying_bars(bars)
         """
@@ -935,16 +1030,16 @@ class TimescaleStore:
                     values = []
                     for bar in batch:
                         values.append((
-                            bar['timestamp'],
-                            bar['ticker'],
-                            bar.get('open'),
-                            bar.get('high'),
-                            bar.get('low'),
-                            bar.get('close'),
-                            bar.get('volume', 0),
-                            bar.get('vwap'),
-                            bar.get('transactions'),
-                            bar.get('data_source', 'schwab')
+                            bar.timestamp,
+                            bar.ticker,
+                            float(bar.open),
+                            float(bar.high),
+                            float(bar.low),
+                            float(bar.close),
+                            bar.volume,
+                            float(bar.vwap) if bar.vwap is not None else None,
+                            bar.transactions,
+                            bar.data_source,
                         ))
 
                     cur.executemany(query, values)
@@ -959,7 +1054,7 @@ class TimescaleStore:
         ticker: str,
         start_time: datetime,
         end_time: datetime
-    ) -> pd.DataFrame:
+    ) -> List["UnderlyingBar"]:
         """
         Get underlying price bars for a ticker and time range.
 
@@ -969,14 +1064,17 @@ class TimescaleStore:
             end_time: End timestamp
 
         Returns:
-            DataFrame with OHLCV data, indexed by timestamp
+            List of UnderlyingBar Pydantic model instances
 
         Example:
+            >>> from quant_vibe.data import TimescaleStore
+            >>> from quant_vibe.utils import now_utc
+            >>> from datetime import timedelta
             >>> store = TimescaleStore()
-            >>> df = store.get_underlying_bars(
+            >>> bars = store.get_underlying_bars(
             ...     'SPX',
-            ...     datetime(2025, 12, 23, 9, 30),
-            ...     datetime(2025, 12, 23, 16, 0)
+            ...     now_utc() - timedelta(hours=1),
+            ...     now_utc()
             ... )
         """
         query = """
@@ -1004,12 +1102,47 @@ class TimescaleStore:
         )
 
         if df.empty:
-            return pd.DataFrame()
+            return []
 
-        # Set index (keep lowercase columns to match live data format)
-        df.set_index('timestamp', inplace=True)
+        # Convert to UnderlyingBar Pydantic models using vectorized operations
+        from quant_vibe.models import UnderlyingBar
+        from decimal import Decimal
 
-        return df[['open', 'high', 'low', 'close', 'volume']]
+        # Pre-fill data_source if not present
+        if 'data_source' not in df.columns:
+            df['data_source'] = 'schwab'
+
+        # Convert to dict records for batch processing (much faster than iterrows)
+        records = df.to_dict('records')
+
+        # Batch convert to Pydantic models
+        bars = []
+        for record in records:
+            # Add ticker since it's not in the query result
+            record['ticker'] = ticker
+
+            # Convert numeric fields to Decimal
+            for field in ['open', 'high', 'low', 'close', 'vwap']:
+                if field in record and pd.notna(record[field]):
+                    record[field] = Decimal(str(record[field]))
+                elif field in record:
+                    record[field] = None
+
+            # Convert integer fields
+            for field in ['volume', 'transactions']:
+                if field in record and pd.notna(record[field]):
+                    record[field] = int(record[field])
+                elif field in record:
+                    record[field] = None if field != 'volume' else 0
+
+            try:
+                bar = UnderlyingBar.model_validate(record)
+                bars.append(bar)
+            except Exception as e:
+                logging.warning(f"Failed to create UnderlyingBar from record: {e}")
+                continue
+
+        return bars
 
     # ========================================================================
     # BACKTEST RESULTS PERSISTENCE

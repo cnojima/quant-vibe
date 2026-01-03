@@ -4,7 +4,8 @@ import sys
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING
+from decimal import Decimal
 import re
 
 # Add parent directory to path for imports
@@ -15,6 +16,9 @@ from quant_vibe.utils import (
     parse_expiration_from_ticker,  # Import from canonical location
     now_utc,
 )
+
+if TYPE_CHECKING:
+    from quant_vibe.models import OptionsBar
 
 
 class BarAggregator:
@@ -53,11 +57,11 @@ class BarAggregator:
         elapsed = (now_utc() - self.last_flush_time).total_seconds()
         return elapsed >= self.aggregate_interval
 
-    def flush(self) -> List[Dict]:
+    def flush(self) -> List["OptionsBar"]:
         """Aggregate buffered quotes into bars and clear buffer.
 
         Returns:
-            List of bar dictionaries ready for database insertion
+            List of OptionsBar Pydantic models ready for database insertion
         """
         if not self.quote_buffer:
             self.last_flush_time = now_utc()
@@ -68,6 +72,9 @@ class BarAggregator:
 
         bars_to_insert = []
         flush_timestamp = self.last_flush_time
+
+        # Import Pydantic model at runtime
+        from quant_vibe.models import OptionsBar
 
         for symbol, quotes in self.quote_buffer.items():
             if not quotes:
@@ -104,35 +111,46 @@ class BarAggregator:
             # Normalize option ticker (remove spaces and O: prefix)
             normalized_ticker = normalize_option_ticker(symbol)
 
-            bar = {
-                'timestamp': flush_timestamp,
-                'option_ticker': normalized_ticker,
-                'underlying_ticker': 'SPX',
-                'open': prices[0],
-                'high': max(prices),
-                'low': min(prices),
-                'close': prices[-1],
-                'volume': max_volume,
-                'vwap': vwap,
-                'transactions': len(quotes),
-                # Latest quote data
-                'bid': latest_quote.get('bid'),
-                'ask': latest_quote.get('ask'),
-                'bid_size': latest_quote.get('bid_size'),
-                'ask_size': latest_quote.get('ask_size'),
-                # Contract details
-                'strike_price': latest_quote.get('strike'),
-                'contract_type': contract_type,
-                'expiration_date': exp_date,
-                # Greeks
-                'delta': latest_quote.get('delta'),
-                'gamma': latest_quote.get('gamma'),
-                'theta': latest_quote.get('theta'),
-                'vega': latest_quote.get('vega'),
-                'rho': latest_quote.get('rho'),
-                'implied_volatility': latest_quote.get('iv'),
-                'data_source': 'schwabdev_stream',
-            }
+            # Get strike price
+            strike_price = latest_quote.get('strike')
+            if strike_price is None:
+                continue  # Skip if no strike price
+
+            # Calculate mark price
+            bid = latest_quote.get('bid')
+            ask = latest_quote.get('ask')
+            mark = None
+            if bid is not None and ask is not None:
+                mark = (bid + ask) / 2.0
+
+            # Create OptionsBar Pydantic model
+            bar = OptionsBar(
+                timestamp=flush_timestamp,
+                contract_symbol=normalized_ticker,
+                underlying_ticker='SPX',
+                strike_price=Decimal(str(strike_price)),
+                contract_type=contract_type,
+                expiration_date=exp_date,
+                open=Decimal(str(prices[0])),
+                high=Decimal(str(max(prices))),
+                low=Decimal(str(min(prices))),
+                close=Decimal(str(prices[-1])),
+                volume=max_volume,
+                bid=Decimal(str(bid)) if bid is not None else None,
+                ask=Decimal(str(ask)) if ask is not None else None,
+                mark=Decimal(str(mark)) if mark is not None else None,
+                bid_size=latest_quote.get('bid_size'),
+                ask_size=latest_quote.get('ask_size'),
+                vwap=Decimal(str(vwap)) if vwap is not None else None,
+                transactions=len(quotes),
+                implied_volatility=Decimal(str(latest_quote.get('iv'))) if latest_quote.get('iv') is not None else None,
+                delta=Decimal(str(latest_quote.get('delta'))) if latest_quote.get('delta') is not None else None,
+                gamma=Decimal(str(latest_quote.get('gamma'))) if latest_quote.get('gamma') is not None else None,
+                theta=Decimal(str(latest_quote.get('theta'))) if latest_quote.get('theta') is not None else None,
+                vega=Decimal(str(latest_quote.get('vega'))) if latest_quote.get('vega') is not None else None,
+                rho=Decimal(str(latest_quote.get('rho'))) if latest_quote.get('rho') is not None else None,
+                data_source='schwabdev_stream',
+            )
 
             bars_to_insert.append(bar)
 

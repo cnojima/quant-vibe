@@ -9,21 +9,34 @@ import os
 import time
 import numpy as np
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union, TYPE_CHECKING
 from datetime import datetime, date
+from decimal import Decimal
 
 import redis
+from pydantic import BaseModel
 
 from .topics import Topic
 from quant_vibe.utils.timestamp_utils import now_utc
 
+if TYPE_CHECKING:
+    from quant_vibe.models import OptionsBar, UnderlyingBar
 
-class DateTimeEncoder(json.JSONEncoder):
-    """Custom JSON encoder that handles datetime and numpy types."""
+
+class PydanticEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles Pydantic models, datetime, Decimal, and numpy types."""
 
     def default(self, obj):
-        if isinstance(obj, (datetime, date)):
+        # Handle Pydantic models
+        if isinstance(obj, BaseModel):
+            return obj.model_dump(mode='json')
+        # Handle Decimal (convert to float for JSON)
+        elif isinstance(obj, Decimal):
+            return float(obj)
+        # Handle datetime/date
+        elif isinstance(obj, (datetime, date)):
             return obj.isoformat()
+        # Handle numpy types
         elif isinstance(obj, (np.integer, np.int64, np.int32, np.int16, np.int8)):
             return int(obj)
         elif isinstance(obj, (np.floating, np.float64, np.float32, np.float16)):
@@ -41,15 +54,16 @@ class MessageBroker(ABC):
     """Abstract base class for message brokers.
 
     Provides pub/sub messaging between services with retry logic.
+    Supports both Pydantic models and plain dictionaries for messages.
     """
 
     @abstractmethod
-    def publish(self, topic: Topic, message: Dict[str, Any]) -> bool:
+    def publish(self, topic: Topic, message: Union[BaseModel, Dict[str, Any]]) -> bool:
         """Publish a message to a topic.
 
         Args:
             topic: Topic to publish to
-            message: Message data (will be JSON serialized)
+            message: Message data - can be a Pydantic model or dict (will be JSON serialized)
 
         Returns:
             True if published successfully, False otherwise
@@ -57,12 +71,14 @@ class MessageBroker(ABC):
         pass
 
     @abstractmethod
-    def subscribe(self, topics: List[Topic], callback: Callable[[Topic, Dict[str, Any]], None]) -> None:
+    def subscribe(self, topics: List[Topic], callback: Callable[[Topic, Union[BaseModel, Dict[str, Any]]], None]) -> None:
         """Subscribe to topics and process messages with callback.
 
         Args:
             topics: List of topics to subscribe to
             callback: Function to call for each message (topic, message_data)
+                     message_data will be a Pydantic model if the topic has a registered schema,
+                     otherwise it will be a dict
         """
         pass
 
@@ -86,7 +102,21 @@ class RedisMessageBroker(MessageBroker):
 
     Uses Redis pub/sub for real-time messaging between services.
     Provides automatic reconnection and exponential backoff.
+    Supports automatic serialization/deserialization of Pydantic models.
     """
+
+    # Topic to Pydantic model mapping for automatic deserialization
+    TOPIC_MODEL_MAP: Dict[Topic, type] = {}
+
+    @classmethod
+    def register_topic_model(cls, topic: Topic, model_class: type) -> None:
+        """Register a Pydantic model for a topic for automatic deserialization.
+
+        Args:
+            topic: Topic to register
+            model_class: Pydantic model class to use for deserialization
+        """
+        cls.TOPIC_MODEL_MAP[topic] = model_class
 
     def __init__(
         self,
@@ -155,12 +185,12 @@ class RedisMessageBroker(MessageBroker):
                 wait_time = self.retry_backoff_base ** attempt
                 time.sleep(wait_time)
 
-    def publish(self, topic: Topic, message: Dict[str, Any]) -> bool:
+    def publish(self, topic: Topic, message: Union[BaseModel, Dict[str, Any]]) -> bool:
         """Publish a message to a topic.
 
         Args:
             topic: Topic to publish to
-            message: Message data (will be JSON serialized)
+            message: Message data - Pydantic model or dict (will be JSON serialized)
 
         Returns:
             True if published successfully, False otherwise
@@ -176,8 +206,8 @@ class RedisMessageBroker(MessageBroker):
                 "data": message,
             }
 
-            # Serialize and publish (use custom encoder for datetime/numpy types)
-            serialized = json.dumps(enriched_message, cls=DateTimeEncoder)
+            # Serialize and publish (use custom encoder for Pydantic/datetime/numpy/Decimal types)
+            serialized = json.dumps(enriched_message, cls=PydanticEncoder)
             self.client.publish(str(topic), serialized)
             return True
 
@@ -185,7 +215,7 @@ class RedisMessageBroker(MessageBroker):
             # Retry connection
             try:
                 self._connect()
-                serialized = json.dumps(enriched_message, cls=DateTimeEncoder)
+                serialized = json.dumps(enriched_message, cls=PydanticEncoder)
                 self.client.publish(str(topic), serialized)
                 return True
             except Exception as e:
@@ -195,7 +225,8 @@ class RedisMessageBroker(MessageBroker):
 
         except TypeError as e:
             import logging
-            logging.getLogger(__name__).error(f"JSON serialization error: {e}. Message keys: {list(message.keys())}")
+            msg_type = type(message).__name__
+            logging.getLogger(__name__).error(f"JSON serialization error: {e}. Message type: {msg_type}")
             return False
 
         except Exception as e:
@@ -271,17 +302,32 @@ class RedisMessageBroker(MessageBroker):
                                 break
 
                         if topic:
+                            # Try to deserialize to Pydantic model if registered
+                            if topic in self.TOPIC_MODEL_MAP:
+                                try:
+                                    model_class = self.TOPIC_MODEL_MAP[topic]
+                                    message_data = model_class(**message_data)
+                                except Exception as e:
+                                    import logging
+                                    logging.getLogger(__name__).warning(
+                                        f"Failed to deserialize message to {model_class.__name__}: {e}. "
+                                        f"Falling back to dict."
+                                    )
+                                    # Fall back to dict if deserialization fails
+
                             # Invoke callback
                             self._callback(topic, message_data)
 
-                    except (json.JSONDecodeError, KeyError, TypeError):
+                    except (json.JSONDecodeError, KeyError, TypeError) as e:
                         # Skip malformed messages
+                        import logging
+                        logging.getLogger(__name__).warning(f"Skipping malformed message: {e}")
                         continue
 
         except KeyboardInterrupt:
             pass
 
-    def get_message(self, timeout: float = 0.1) -> Optional[tuple[Topic, Dict[str, Any]]]:
+    def get_message(self, timeout: float = 0.1) -> Optional[tuple[Topic, Union[BaseModel, Dict[str, Any]]]]:
         """Get a single message without blocking (non-blocking mode).
 
         Args:
@@ -289,6 +335,7 @@ class RedisMessageBroker(MessageBroker):
 
         Returns:
             (topic, message_data) if message received, None otherwise
+            message_data will be a Pydantic model if topic has registered schema, otherwise dict
         """
         if not self.pubsub:
             import logging
@@ -309,6 +356,18 @@ class RedisMessageBroker(MessageBroker):
                 # Find matching topic enum
                 for topic in self._subscribed_topics:
                     if str(topic) == topic_str:
+                        # Try to deserialize to Pydantic model if registered
+                        if topic in self.TOPIC_MODEL_MAP:
+                            try:
+                                model_class = self.TOPIC_MODEL_MAP[topic]
+                                message_data = model_class(**message_data)
+                            except Exception as e:
+                                import logging
+                                logging.getLogger(__name__).warning(
+                                    f"Failed to deserialize message to {model_class.__name__}: {e}. "
+                                    f"Falling back to dict."
+                                )
+
                         # Invoke callback if registered
                         if self._callback:
                             self._callback(topic, message_data)

@@ -539,3 +539,17 @@ export function useDeleteOptimization() {
     },
   });
 }
+
+export function useDeleteAllOptimizations() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const response = await apiClient.delete('/optimization/');
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['optimization-history'] });
+    },
+  });
+}

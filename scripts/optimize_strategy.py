@@ -146,6 +146,18 @@ PARAM_GRIDS = {
         # - stop_loss_pct (stop loss strategy)
         # - trailing_stop_pct, trailing_stop_threshold (trailing stop)
     },
+    "hail_mary": {
+        # Hail Mary: Buy OTM calls in final 15min of trading
+        # Key parameters to optimize:
+        "strike_otm_min_pct": [0.03, 0.05, 0.07],  # 3%, 5%, 7% above current price
+        "strike_otm_max_pct": [0.08, 0.10, 0.15],  # 8%, 10%, 15% above current price
+        "trailing_stop_pct": [0.05, 0.10, 0.15],  # 5%, 10%, 15% trailing stop
+        "num_contracts": [5, 10, 20],  # Number of contracts
+        # Fixed parameters set in FIXED_PARAMS:
+        # - entry_time_before_close (15 min = strategy concept)
+        # - min_volume, max_bid_ask_spread_pct (liquidity filters)
+        # - max_trades_daily (risk management)
+    },
 }
 
 # Fixed parameters for each strategy
@@ -193,6 +205,15 @@ FIXED_PARAMS = {
         "stop_loss_pct": 0.50,  # 50% stop loss
         "order_expiry_minutes": 60,  # 1 hour limit order expiry
         "max_trades_daily": 5,
+    },
+    "hail_mary": {
+        # Fixed strategy concept parameters
+        "entry_time_before_close": 15,  # 15 minutes before close (strategy concept)
+        # Liquidity filters
+        "min_volume": 50,
+        "max_bid_ask_spread_pct": 15.0,
+        # Risk management
+        "max_trades_daily": 1,  # Only one hail mary per day
     },
 }
 
