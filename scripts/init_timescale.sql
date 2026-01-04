@@ -701,6 +701,105 @@ $$ LANGUAGE plpgsql;
 -- SELECT add_retention_policy('underlying_bars', INTERVAL '90 days', if_not_exists => TRUE);
 
 -- ============================================================================
+-- LIVE TRADING TABLES
+-- ============================================================================
+-- Stores state and audit logs for live trading engine
+-- ============================================================================
+
+-- Live engine state
+CREATE TABLE IF NOT EXISTS live_engine_state (
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    id SERIAL PRIMARY KEY,
+    state TEXT NOT NULL,
+    metadata JSONB,
+    UNIQUE(timestamp)
+);
+
+-- Active positions
+CREATE TABLE IF NOT EXISTS live_positions (
+    position_id TEXT PRIMARY KEY,
+    strategy_name TEXT NOT NULL,
+    spread_type TEXT NOT NULL,
+    entry_time TIMESTAMPTZ NOT NULL,
+    entry_cost NUMERIC NOT NULL,
+    underlying_price_at_entry NUMERIC NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    current_value NUMERIC,
+    exit_time TIMESTAMPTZ,
+    exit_value NUMERIC,
+    exit_reason TEXT,
+    legs JSONB NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_positions_status
+    ON live_positions(status, strategy_name);
+
+-- Orders
+CREATE TABLE IF NOT EXISTS live_orders (
+    order_id TEXT PRIMARY KEY,
+    position_id TEXT REFERENCES live_positions(position_id),
+    strategy_name TEXT NOT NULL,
+    order_type TEXT NOT NULL,
+    action_type TEXT,  -- 'opening' or 'closing'
+    side TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    submitted_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    filled_time TIMESTAMPTZ,
+    expected_price NUMERIC,
+    filled_price NUMERIC,
+    filled_quantity INTEGER,
+    broker_order_id TEXT,
+    error_message TEXT,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Strategy state (daily resets, etc.)
+CREATE TABLE IF NOT EXISTS live_strategy_state (
+    strategy_name TEXT PRIMARY KEY,
+    state JSONB NOT NULL,
+    last_reset TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Events/audit log (hypertable)
+-- Note: timestamp must be first column in PRIMARY KEY for TimescaleDB
+CREATE TABLE IF NOT EXISTS live_events (
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    id SERIAL,
+    event_type TEXT NOT NULL,
+    strategy_name TEXT,
+    position_id TEXT,
+    order_id TEXT,
+    severity TEXT NOT NULL DEFAULT 'info',
+    message TEXT NOT NULL,
+    details JSONB,
+    PRIMARY KEY (timestamp, id)
+);
+
+-- Convert to hypertable for time-series optimization
+SELECT create_hypertable('live_events', 'timestamp',
+    migrate_data => TRUE,
+    if_not_exists => TRUE
+);
+
+-- Indexes for efficient queries
+CREATE INDEX IF NOT EXISTS idx_live_events_strategy
+    ON live_events(strategy_name, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_live_events_position
+    ON live_events(position_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_live_events_severity
+    ON live_events(severity, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_live_events_type
+    ON live_events(event_type, timestamp DESC);
+
+-- ============================================================================
 -- GRANT PERMISSIONS
 -- ============================================================================
 
@@ -727,6 +826,13 @@ BEGIN
     RAISE NOTICE '  - backtest_trades (individual trade records)';
     RAISE NOTICE '  - backtest_equity_curve (hypertable, portfolio value over time)';
     RAISE NOTICE '';
+    RAISE NOTICE 'Live Trading Tables:';
+    RAISE NOTICE '  - live_engine_state (engine state tracking)';
+    RAISE NOTICE '  - live_positions (active positions)';
+    RAISE NOTICE '  - live_orders (order tracking)';
+    RAISE NOTICE '  - live_strategy_state (strategy state)';
+    RAISE NOTICE '  - live_events (hypertable, audit log)';
+    RAISE NOTICE '';
     RAISE NOTICE 'Continuous Aggregates:';
     RAISE NOTICE '  - 5min, 15min, 1hour, daily (for both options and underlying)';
     RAISE NOTICE '';
@@ -736,6 +842,7 @@ BEGIN
     RAISE NOTICE 'Indexes:';
     RAISE NOTICE '  - Ticker, time range, expiration, strike price, contract type';
     RAISE NOTICE '  - Backtest runs, trades, and equity curve indexes';
+    RAISE NOTICE '  - Live events by strategy, position, severity, and type';
     RAISE NOTICE '';
     RAISE NOTICE 'Helper Functions:';
     RAISE NOTICE '  - get_latest_option_data(ticker)';

@@ -89,8 +89,8 @@ class StateStore:
         # Table for engine state
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS live_engine_state (
-                id SERIAL PRIMARY KEY,
                 timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                id SERIAL PRIMARY KEY,
                 state TEXT NOT NULL,
                 metadata JSONB,
                 UNIQUE(timestamp)
@@ -160,10 +160,11 @@ class StateStore:
         """)
 
         # Table for events/audit log
+        # Note: For TimescaleDB hypertables, timestamp must be first column in PK
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS live_events (
-                id SERIAL,
                 timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                id SERIAL,
                 event_type TEXT NOT NULL,
                 strategy_name TEXT,
                 position_id TEXT,
@@ -173,6 +174,25 @@ class StateStore:
                 details JSONB,
                 PRIMARY KEY (timestamp, id)
             );
+        """)
+        self.conn.commit()
+
+        # Create indexes for efficient queries
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_live_events_strategy
+            ON live_events(strategy_name, timestamp DESC);
+        """)
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_live_events_position
+            ON live_events(position_id, timestamp DESC);
+        """)
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_live_events_severity
+            ON live_events(severity, timestamp DESC);
+        """)
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_live_events_type
+            ON live_events(event_type, timestamp DESC);
         """)
         self.conn.commit()
 

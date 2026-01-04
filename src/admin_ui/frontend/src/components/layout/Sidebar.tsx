@@ -1,6 +1,5 @@
 import { NavLink } from 'react-router-dom';
 import {
-  HomeIcon,
   CpuChipIcon,
   KeyIcon,
   ChartBarIcon,

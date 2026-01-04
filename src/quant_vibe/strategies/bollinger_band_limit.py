@@ -16,6 +16,7 @@ from typing import Dict, Optional, Any, List
 from dataclasses import dataclass, field
 from enum import Enum
 
+import pandas as pd
 import pytz
 
 from quant_vibe.indicators.technical import calculate_bollinger_bands

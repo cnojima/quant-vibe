@@ -13,7 +13,7 @@ This strategy:
 
 from datetime import datetime, time, timedelta
 from typing import Dict, Optional, Any
-
+import pandas as pd
 import pytz
 
 from quant_vibe.indicators.technical import calculate_bollinger_bands

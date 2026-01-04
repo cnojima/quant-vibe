@@ -6,13 +6,11 @@ import { Card } from '../common/Card';
 interface MarkdownSectionProps {
   title: string;
   content: string;
-  defaultExpanded?: boolean;
 }
 
 export const MarkdownSection: React.FC<MarkdownSectionProps> = ({
   title,
   content,
-  defaultExpanded = true,
 }) => {
   return (
     <Card>

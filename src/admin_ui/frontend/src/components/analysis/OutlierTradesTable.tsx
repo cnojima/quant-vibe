@@ -66,7 +66,7 @@ const OutlierRow: React.FC<{ trade: TradeInsight; type: 'winner' | 'loser' }> = 
         <td className="px-4 py-3 text-sm text-right">{formatPercentage(trade.pnl_pct)}</td>
         <td className="px-4 py-3 text-sm text-right">{trade.std_devs_from_mean.toFixed(2)}σ</td>
         <td className="px-4 py-3">
-          <Badge variant={getGeneralizationColor(trade.generalization_potential)} size="sm">
+          <Badge variant={getGeneralizationColor(trade.generalization_potential)}>
             {trade.generalization_potential}
           </Badge>
         </td>
@@ -174,12 +174,13 @@ const OutlierRow: React.FC<{ trade: TradeInsight; type: 'winner' | 'loser' }> = 
                       <strong>Was Optimal:</strong>{' '}
                       {trade.insights.exit_timing.was_optimal ? 'Yes' : 'No'}
                     </p>
-                    {trade.insights.exit_timing.profit_captured_pct !== null && (
-                      <p>
-                        <strong>Profit Captured:</strong>{' '}
-                        {trade.insights.exit_timing.profit_captured_pct.toFixed(1)}%
-                      </p>
-                    )}
+                    {trade.insights.exit_timing.profit_captured_pct !== null &&
+                      trade.insights.exit_timing.profit_captured_pct !== undefined && (
+                        <p>
+                          <strong>Profit Captured:</strong>{' '}
+                          {trade.insights.exit_timing.profit_captured_pct.toFixed(1)}%
+                        </p>
+                      )}
                     <p>
                       <strong>Holding Period:</strong>{' '}
                       {(trade.insights.exit_timing.held_pct_of_max_duration * 100).toFixed(1)}% of
