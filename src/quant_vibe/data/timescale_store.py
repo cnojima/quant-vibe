@@ -668,7 +668,9 @@ class TimescaleStore:
                 bar = OptionsBar.model_validate(record)
                 bars.append(bar)
             except Exception as e:
-                logging.warning(f"Failed to create OptionsBar from record: {e}")
+                # Skip invalid records (e.g., NULL strike_price from bad data collection)
+                # This is expected for ~5% of records with incomplete data
+                logging.debug(f"Skipped invalid OptionsBar record: {e}")
                 continue
 
         return bars
@@ -1315,13 +1317,16 @@ class TimescaleStore:
 
         Args:
             backtest_id: Backtest identifier
-            trades_df: DataFrame with trade records
+            trades_df: DataFrame with trade records (matches Trade Pydantic model)
 
-        Expected columns:
-            - position_id, spread_type, entry_time, exit_time, duration_minutes
-            - entry_cost, exit_value, pnl, pnl_percent
-            - entry_trigger, exit_reason, underlying_entry, underlying_exit
-            - max_profit, peak_value, legs (as dict or JSON string)
+        Expected columns (matching Trade model in src/quant_vibe/models/market_data.py):
+            - position_id, strategy_name, spread_type
+            - entry_time, exit_time, duration_minutes (optional)
+            - entry_premium, exit_premium, pnl, pnl_pct
+            - entry_trigger, exit_reason
+            - entry_underlying_price, exit_underlying_price
+            - max_risk, max_profit, peak_value
+            - legs (as list of dicts or JSON string)
         """
         import json
 
@@ -1330,27 +1335,48 @@ class TimescaleStore:
 
         query = """
         INSERT INTO backtest_trades (
-            backtest_id, position_id, spread_type, entry_time, exit_time,
-            duration_minutes, entry_cost, exit_value, pnl, pnl_percent,
-            entry_trigger, exit_reason, underlying_entry, underlying_exit,
-            max_profit, peak_value, legs
+            backtest_id, position_id, strategy_name, spread_type, entry_time, exit_time,
+            duration_minutes, entry_premium, exit_premium, pnl, pnl_pct,
+            entry_trigger, exit_reason, entry_underlying_price, exit_underlying_price,
+            max_risk, max_profit, peak_value, legs
         ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
         )
         """
 
         def convert_to_serializable(obj):
-            """Convert pandas/numpy types to JSON-serializable types."""
+            """
+            Convert pandas/numpy/datetime types to JSON-serializable types.
+
+            This follows the Pydantic pattern for handling complex types at data boundaries.
+            See: docs/SIMPLIFICATION_PLAN.md for the long-term Pydantic migration plan.
+            """
+            from datetime import datetime, date
+            from decimal import Decimal
+
             if obj is None:
                 return None
+
+            # Handle datetime types (timestamp normalization)
             if isinstance(obj, pd.Timestamp):
                 return obj.isoformat()
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            if isinstance(obj, date):
+                return obj.isoformat()
+
+            # Handle numeric types
+            if isinstance(obj, Decimal):
+                return float(obj)
             if hasattr(obj, 'item'):  # NumPy scalar
                 return obj.item()
+
+            # Recursively handle collections
             if isinstance(obj, dict):
                 return {k: convert_to_serializable(v) for k, v in obj.items()}
             if isinstance(obj, (list, tuple)):
                 return [convert_to_serializable(item) for item in obj]
+
             return obj
 
         # Prepare records for batch insert
@@ -1367,18 +1393,20 @@ class TimescaleStore:
             records.append((
                 backtest_id,
                 row.get('position_id'),
+                row.get('strategy_name'),
                 row.get('spread_type'),
                 row.get('entry_time'),
                 row.get('exit_time'),
                 row.get('duration_minutes'),
-                row.get('entry_cost'),
-                row.get('exit_value'),
+                row.get('entry_premium'),
+                row.get('exit_premium'),
                 row.get('pnl'),
-                row.get('pnl_percent'),
+                row.get('pnl_pct'),
                 row.get('entry_trigger'),
                 row.get('exit_reason'),
-                row.get('underlying_entry'),
-                row.get('underlying_exit'),
+                row.get('entry_underlying_price'),
+                row.get('exit_underlying_price'),
+                row.get('max_risk'),
                 row.get('max_profit'),
                 row.get('peak_value'),
                 json.dumps(legs_json),
@@ -1470,14 +1498,14 @@ class TimescaleStore:
             backtest_id: Backtest identifier
 
         Returns:
-            DataFrame with trade records
+            DataFrame with trade records (matching Trade Pydantic model)
         """
         query = """
         SELECT
-            trade_id, position_id, spread_type, entry_time, exit_time,
-            duration_minutes, entry_cost, exit_value, pnl, pnl_percent,
-            entry_trigger, exit_reason, underlying_entry, underlying_exit,
-            max_profit, peak_value, legs
+            trade_id, position_id, strategy_name, spread_type, entry_time, exit_time,
+            duration_minutes, entry_premium, exit_premium, pnl, pnl_pct,
+            entry_trigger, exit_reason, entry_underlying_price, exit_underlying_price,
+            max_risk, max_profit, peak_value, legs
         FROM backtest_trades
         WHERE backtest_id = %s
         ORDER BY entry_time ASC

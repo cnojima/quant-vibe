@@ -152,15 +152,27 @@ export interface EquityPoint {
   cash: number;
 }
 
+// Matches Trade Pydantic model (src/quant_vibe/models/market_data.py)
 export interface Trade {
   trade_id: string;
+  position_id: string;
+  strategy_name: string;
+  spread_type: string;
   entry_time: string;
   exit_time: string;
-  entry_cost: number;
-  exit_value: number;
+  entry_premium: number;  // Renamed from entry_cost
+  exit_premium: number;   // Renamed from exit_value
   pnl: number;
+  pnl_pct: number;        // Renamed from pnl_percent
+  entry_trigger?: string;
   exit_reason: string;
+  entry_underlying_price: number;  // Renamed from underlying_entry
+  exit_underlying_price: number;   // Renamed from underlying_exit
+  max_risk: number;
+  max_profit?: number;
+  peak_value?: number;
   legs: OptionLeg[];
+  duration_minutes?: number;  // Optional for backward compatibility
 }
 
 export interface UnderlyingBar {

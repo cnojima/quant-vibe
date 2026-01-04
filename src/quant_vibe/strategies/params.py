@@ -501,13 +501,13 @@ class NaiveBullishPutParams(BaseStrategyParams):
 class HailMaryParams(BaseStrategyParams):
     """Parameters for Hail Mary strategy."""
 
-    strike_otm_min_pct: float = Field(
+    otm_percent_min: float = Field(
         default=-0.01,
         ge=0.0,
         le=1.0,
         description="Minimum percentage OTM for strike selection (0.05 = 5%)"
     )
-    strike_otm_max_pct: float = Field(
+    otm_percent_max: float = Field(
         default=0.01,
         ge=0.0,
         le=1.0,

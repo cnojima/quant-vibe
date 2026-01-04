@@ -14,16 +14,16 @@ import {
 import { Button } from '../common/Button';
 
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: HomeIcon },
-  { name: 'Services', href: '/services', icon: CpuChipIcon },
-  { name: 'Token Manager', href: '/tokens', icon: KeyIcon },
+  // { name: 'Dashboard', href: '/', icon: HomeIcon },
   { name: 'Live Trading', href: '/live', icon: ChartBarIcon },
   { name: 'Strategies', href: '/strategies', icon: PuzzlePieceIcon },
+  { name: 'Configuration', href: '/config', icon: Cog6ToothIcon },
   { name: 'Backtest', href: '/backtest', icon: BeakerIcon },
   { name: 'Optimize', href: '/optimize', icon: SparklesIcon },
   { name: 'Notification Settings', href: '/notifications', icon: BellIcon },
   { name: 'Notification History', href: '/notification-history', icon: BellIcon },
-  { name: 'Configuration', href: '/config', icon: Cog6ToothIcon },
+  { name: 'Token Manager', href: '/tokens', icon: KeyIcon },
+  { name: 'Services', href: '/services', icon: CpuChipIcon },
 ];
 
 interface SidebarProps {

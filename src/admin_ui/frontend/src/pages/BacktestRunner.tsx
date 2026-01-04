@@ -719,7 +719,7 @@ export function BacktestRunner() {
                     <tbody className="divide-y divide-gray-200">
                       {backtestResults.trades?.slice(0, 50).map((trade: any, idx: number) => {
                         const pnl = parseFloat(trade.pnl) || 0;
-                        const returnPct = parseFloat(trade.pnl_percent || trade.return_pct) || 0;
+                        const returnPct = parseFloat(trade.pnl_pct || trade.pnl_percent || trade.return_pct) || 0;
 
                         return (
                           <tr key={idx} className="hover:bg-gray-50">

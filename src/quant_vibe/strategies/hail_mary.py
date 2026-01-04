@@ -39,21 +39,22 @@ class HailMaryStrategy(OptionsStrategy):
 
     def __init__(
         self,
-        strike_otm_min_pct: float = -0.05,  # 5% OTM minimum
-        strike_otm_max_pct: float = 0.05,  # 10% OTM maximum
+        otm_percent_min: float = -0.05,  # 5% OTM minimum
+        otm_percent_max: float = 0.05,  # 10% OTM maximum
         entry_time_before_close: int = 15,  # minutes before close (3:45 PM ET)
         num_contracts: int = 10,  # number of contracts to buy
         trailing_stop_pct: float = 0.05,  # 5% trailing stop
         min_volume: int = 50,  # minimum volume per contract
         max_bid_ask_spread_pct: float = 15.0,  # maximum bid/ask spread percentage
         max_trades_daily: int = 3,  # maximum trades per day
+        **kwargs,
     ) -> None:
         """
         Initialize Hail Mary Strategy.
 
         Args:
-            strike_otm_min_pct: Minimum percentage OTM for strike selection (default: 0.05 = 5%)
-            strike_otm_max_pct: Maximum percentage OTM for strike selection (default: 0.10 = 10%)
+            otm_percent_min: Minimum percentage OTM for strike selection (default: 0.05 = 5%)
+            otm_percent_max: Maximum percentage OTM for strike selection (default: 0.10 = 10%)
             entry_time_before_close: Minutes before close to enter position (default: 15)
             num_contracts: Number of contracts to buy (default: 10)
             trailing_stop_pct: Trailing stop percentage (default: 0.05 = 5%)
@@ -61,13 +62,22 @@ class HailMaryStrategy(OptionsStrategy):
             max_bid_ask_spread_pct: Maximum bid/ask spread percentage (default: 15%)
             max_trades_daily: Maximum trades allowed per day (default: 1)
         """
-        super().__init__(name="HailMary", max_trades_daily=max_trades_daily)
-        self.strike_otm_min_pct = strike_otm_min_pct
-        self.strike_otm_max_pct = strike_otm_max_pct
-        self.entry_time_before_close = entry_time_before_close
+        super().__init__(
+            name="HailMary",
+            max_trades_daily=max_trades_daily,
+            quantity=num_contracts,
+            otm_percent_min=otm_percent_min,
+            otm_percent_max=otm_percent_max,
+            trailing_stop_pct=trailing_stop_pct,
+            min_volume=min_volume,
+            **kwargs
+        )
+
+        # Strategy-specific parameters (not in base class)
+        self.otm_percent_min = otm_percent_min
+        self.otm_percent_max = otm_percent_max
         self.num_contracts = num_contracts
-        self.trailing_stop_pct = trailing_stop_pct
-        self.min_volume = min_volume
+        self.entry_time_before_close = entry_time_before_close
         self.max_bid_ask_spread_pct = max_bid_ask_spread_pct
 
         # State tracking
@@ -237,8 +247,8 @@ class HailMaryStrategy(OptionsStrategy):
             return None
 
         # Calculate target strike range (5-10% OTM)
-        min_strike = current_price * (1 + self.strike_otm_min_pct)
-        max_strike = current_price * (1 + self.strike_otm_max_pct)
+        min_strike = current_price * (1 + self.otm_percent_min)
+        max_strike = current_price * (1 + self.otm_percent_max)
 
         # Filter for CALL options expiring next trading day (1 DTE)
         # Filter options by DTE range using base class utility (1-2 days for hail mary)
@@ -260,29 +270,19 @@ class HailMaryStrategy(OptionsStrategy):
             print(f"  ⚠️  No call options found in strike range ${min_strike:.2f}-${max_strike:.2f}")
             return None
 
-        # Apply liquidity filters
-        liquid_options = valid_options[valid_options['volume'] >= self.min_volume]
+        # Apply liquidity filters using base class utility method
+        liquid_options = self._filter_by_liquidity(
+            options_data=valid_options,
+            min_volume=self.min_volume,
+            max_bid_ask_spread_pct=self.max_bid_ask_spread_pct
+        )
 
         if liquid_options.empty:
-            print(f"  ⚠️  No options with volume >= {self.min_volume}")
+            print(f"  ⚠️  No liquid options found (volume >= {self.min_volume}, spread <= {self.max_bid_ask_spread_pct}%)")
             return None
 
-        # Bid/ask spread filter
-        if 'bid' in liquid_options.columns and 'ask' in liquid_options.columns:
-            liquid_options = liquid_options.copy()
-            liquid_options['bid_ask_spread_pct'] = (
-                (liquid_options['ask'] - liquid_options['bid']) / liquid_options['mark'] * 100
-            )
-            liquid_options = liquid_options[
-                liquid_options['bid_ask_spread_pct'] <= self.max_bid_ask_spread_pct
-            ]
-
-            if liquid_options.empty:
-                print(f"  ⚠️  No options with bid/ask spread <= {self.max_bid_ask_spread_pct}%")
-                return None
-
         # Select strike closest to middle of range (7.5% OTM)
-        target_strike_pct = (self.strike_otm_min_pct + self.strike_otm_max_pct) / 2
+        target_strike_pct = (self.otm_percent_min + self.otm_percent_max) / 2
         target_strike = current_price * (1 + target_strike_pct)
 
         # Find closest strike
@@ -302,7 +302,7 @@ class HailMaryStrategy(OptionsStrategy):
         print(f"\n  📋 Selected Contract:")
         print(f"     {strike} CALL (expiring {expiration.strftime('%Y-%m-%d')})")
         print(f"     Volume: {selected_option['volume']:.0f}")
-        if 'bid' in selected_option and 'ask' in selected_option:
+        if 'bid' in selected_option and 'ask' in selected_option and selected_option['mark'] > 0:
             spread_pct = (
                 (selected_option['ask'] - selected_option['bid']) / selected_option['mark'] * 100
             )
@@ -337,7 +337,7 @@ class HailMaryStrategy(OptionsStrategy):
             entry_time=current_time,
             entry_cost=entry_cost,  # Debit (we pay)
             underlying_price_at_entry=current_price,
-            profit_target=None,  # No profit target, only trailing stop
+            profit_target_pct=None,  # No profit target, only trailing stop
             trailing_stop=self.trailing_stop_pct
         )
 

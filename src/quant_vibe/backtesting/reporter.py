@@ -64,7 +64,7 @@ class BacktestReporter:
             print("\n📥 ENTRY")
             print(f"  Time:     {trade['entry_time'].strftime('%Y-%m-%d %H:%M:%S ET')}")
             print(f"  Trigger:  {trade.get('entry_trigger', 'N/A')}")
-            print(f"  SPX @ Entry: ${trade['underlying_entry']:.2f}")
+            print(f"  SPX @ Entry: ${trade['entry_underlying_price']:.2f}")
 
             # Position Details
             print("\n📋 POSITION")
@@ -127,23 +127,23 @@ class BacktestReporter:
                 f"({trade['duration_minutes']/60:.1f} hours)"
             )
             print(f"  Reason:   {trade['exit_reason']}")
-            if trade.get("underlying_exit"):
-                print(f"  SPX @ Exit:  ${trade['underlying_exit']:.2f}")
-                spx_move = trade["underlying_exit"] - trade["underlying_entry"]
-                spx_move_pct = (spx_move / trade["underlying_entry"]) * 100
+            if trade.get("exit_underlying_price"):
+                print(f"  SPX @ Exit:  ${trade['exit_underlying_price']:.2f}")
+                spx_move = trade["exit_underlying_price"] - trade["entry_underlying_price"]
+                spx_move_pct = (spx_move / trade["entry_underlying_price"]) * 100
                 print(f"  SPX Move:    ${spx_move:+.2f} ({spx_move_pct:+.2f}%)")
 
             # Performance
             print("\n💰 PERFORMANCE")
-            print(f"  Entry Cost:   ${trade['entry_cost']:,.2f}")
-            print(f"  Exit Value:   ${trade['exit_value']:,.2f}")
-            print(f"  Profit/Loss:  ${trade['pnl']:+,.2f} ({trade['pnl_percent']:+.2f}%)")
+            print(f"  Entry Premium: ${trade['entry_premium']:,.2f}")
+            print(f"  Exit Premium:  ${trade['exit_premium']:,.2f}")
+            print(f"  Profit/Loss:   ${trade['pnl']:+,.2f} ({trade['pnl_pct']:+.2f}%)")
 
             # Additional metrics if available
             if trade.get("peak_value"):
-                peak_pnl = trade["peak_value"] - trade["entry_cost"]
+                peak_pnl = trade["peak_value"] - trade["entry_premium"]
                 peak_pnl_pct = (
-                    (peak_pnl / abs(trade["entry_cost"])) * 100 if trade["entry_cost"] != 0 else 0
+                    (peak_pnl / abs(trade["entry_premium"])) * 100 if trade["entry_premium"] != 0 else 0
                 )
                 print(f"  Peak P&L:     ${peak_pnl:+,.2f} ({peak_pnl_pct:+.2f}%)")
 
@@ -323,7 +323,7 @@ class BacktestReporter:
 
         # 9. Return on Capital
         print("\n💰 RETURN METRICS")
-        total_capital_deployed = trades_df["entry_cost"].abs().sum()
+        total_capital_deployed = trades_df["entry_premium"].abs().sum()
         total_pnl = trades_df["pnl"].sum()
         if total_capital_deployed > 0:
             roi = (total_pnl / total_capital_deployed) * 100

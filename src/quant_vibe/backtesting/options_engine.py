@@ -32,6 +32,7 @@ class OptionsBacktestEngine:
         initial_capital: float = 100000.0,
         max_positions: int = 1,
         log_trades: bool = True,
+        progress_callback: Optional[callable] = None,
     ) -> None:
         """
         Initialize options backtest engine.
@@ -40,10 +41,12 @@ class OptionsBacktestEngine:
             initial_capital: Starting capital
             max_positions: Maximum concurrent positions (default: 1)
             log_trades: Whether to log trade entries/exits (default: True)
+            progress_callback: Optional callback function(progress_pct, message, current_metrics)
         """
         self.initial_capital = initial_capital
         self.max_positions = max_positions
         self.log_trades = log_trades
+        self.progress_callback = progress_callback
 
         # Performance tracking
         self.results: Dict[str, Any] = {}
@@ -132,9 +135,33 @@ class OptionsBacktestEngine:
         # Initialize tracking
         cash = self.initial_capital
         current_day = None
+        total_timestamps = len(timestamps)
+        last_progress_report = 0
 
         # Main backtest loop - iterate through each timestamp
         for i, current_time in enumerate(timestamps):
+            # Report progress every 5%
+            progress_pct = (i / total_timestamps) * 100
+            if progress_pct - last_progress_report >= 5.0 and self.progress_callback:
+                portfolio_value = cash
+                if strategy.active_position and strategy.active_position.current_value:
+                    portfolio_value += strategy.active_position.current_value
+
+                current_metrics = {
+                    "timestamp": current_time.isoformat(),
+                    "portfolio_value": float(portfolio_value),
+                    "cash": float(cash),
+                    "total_trades": len(self.trades),
+                    "active_position": strategy.active_position is not None,
+                }
+
+                self.progress_callback(
+                    progress_pct,
+                    f"Processing {current_time.strftime('%Y-%m-%d %H:%M')}",
+                    current_metrics
+                )
+                last_progress_report = progress_pct
+
             # Get data up to current time
             underlying_slice = underlying_data[underlying_data.index <= current_time]
             options_slice = options_data[options_data['timestamp'] == current_time]
@@ -191,7 +218,7 @@ class OptionsBacktestEngine:
                     # current_value is positive for debit spreads (we sell it)
                     # current_value is negative for credit spreads (we buy it back)
                     # So adding it works correctly for both cases
-                    cash += position.exit_value
+                    cash += float(position.exit_value)
 
             # Step 3: Check for new entry (if no active position)
             if strategy.active_position is None:
@@ -233,7 +260,7 @@ class OptionsBacktestEngine:
                             # Store entry trigger on position for later reference
                             new_position.entry_trigger = entry_trigger
                             # Update cash based on actual entry cost (negative = receive, positive = pay)
-                            cash -= new_position.entry_cost
+                            cash -= float(new_position.entry_cost)
 
                             if self.log_trades:
                                 self._log_position_entry(new_position, cash)
@@ -270,7 +297,7 @@ class OptionsBacktestEngine:
                 cash,
                 final_underlying_price
             )
-            cash += position.exit_value
+            cash += float(position.exit_value)
 
         # Calculate final results
         self._calculate_results(strategy, cash)
@@ -338,23 +365,28 @@ class OptionsBacktestEngine:
             }
             leg_details.append(leg_info)
 
+        # Use Trade model field names (see src/quant_vibe/models/market_data.py)
         trade_record = {
+            'trade_id': position.position_id,  # Use position_id as trade_id for now
             'position_id': position.position_id,
+            'strategy_name': strategy.name,  # Add strategy name
             'spread_type': position.spread_type.value,
             'entry_time': position.entry_time,
             'exit_time': position.exit_time,
-            'entry_cost': position.entry_cost,
-            'exit_value': position.exit_value,
+            'entry_premium': position.entry_cost,  # Renamed from entry_cost
+            'exit_premium': position.exit_value,  # Renamed from exit_value
             'pnl': pnl,
-            'pnl_percent': pnl_pct,
+            'pnl_pct': pnl_pct,  # Renamed from pnl_percent
             'entry_trigger': getattr(position, 'entry_trigger', 'N/A'),
             'exit_reason': exit_reason,
-            'duration_minutes': (position.exit_time - position.entry_time).total_seconds() / 60,
-            'underlying_entry': position.underlying_price_at_entry,
-            'underlying_exit': getattr(position, 'underlying_price_at_exit', None),
+            'entry_underlying_price': position.underlying_price_at_entry,  # Renamed from underlying_entry
+            'exit_underlying_price': getattr(position, 'underlying_price_at_exit', None),  # Renamed from underlying_exit
+            'max_risk': abs(position.entry_cost),  # Add max_risk (entry cost for credit spreads)
             'legs': leg_details,
             'max_profit': getattr(position, 'max_profit', None),
             'peak_value': getattr(position, 'peak_value', None),
+            # Deprecated fields for backward compatibility (can be removed after CSV migration)
+            'duration_minutes': (position.exit_time - position.entry_time).total_seconds() / 60,
         }
 
         self.trades.append(trade_record)

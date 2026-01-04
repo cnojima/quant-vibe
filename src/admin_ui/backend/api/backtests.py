@@ -111,6 +111,8 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
     # Update status
     _running_backtests[backtest_id]["status"] = "running"
     _running_backtests[backtest_id]["started_at"] = now_utc()
+    _running_backtests[backtest_id]["progress"] = 10
+    _running_backtests[backtest_id]["message"] = "Loading data..."
     _save_backtests(_running_backtests)
 
     try:
@@ -150,12 +152,48 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
             cwd=str(settings.project_root),
         )
 
+        # Update progress while running
+        _running_backtests[backtest_id]["progress"] = 30
+        _running_backtests[backtest_id]["message"] = "Running backtest..."
+        _save_backtests(_running_backtests)
+
+        # Create a task to update progress periodically while process runs
+        async def update_progress():
+            """Simulate progress updates while backtest runs"""
+            start_time = now_utc()
+            while process.returncode is None:
+                await asyncio.sleep(2)  # Update every 2 seconds
+
+                # Calculate elapsed time
+                elapsed = (now_utc() - start_time).total_seconds()
+
+                # Estimate progress (30% to 70% over ~60 seconds)
+                # After 60 seconds, slow down to avoid hitting 100%
+                if elapsed < 60:
+                    progress = 30 + (elapsed / 60) * 40  # 30% -> 70%
+                else:
+                    progress = 70 + min((elapsed - 60) / 120 * 10, 10)  # 70% -> 80% slowly
+
+                _running_backtests[backtest_id]["progress"] = int(progress)
+                _save_backtests(_running_backtests)
+
+        # Start progress updater
+        progress_task = asyncio.create_task(update_progress())
+
         # Wait for process to complete (with timeout for long-running backtests)
         try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=600.0  # 10 minute timeout for longer backtests
-            )
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=600.0  # 10 minute timeout for longer backtests
+                )
+            finally:
+                # Cancel progress updater
+                progress_task.cancel()
+                try:
+                    await progress_task
+                except asyncio.CancelledError:
+                    pass
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
@@ -168,6 +206,11 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
         if process.returncode == 0:
             # Success - find result files
             result_files = find_latest_backtest_results(request.strategy_name)
+
+            # Update progress
+            _running_backtests[backtest_id]["progress"] = 80
+            _running_backtests[backtest_id]["message"] = "Saving results to database..."
+            _save_backtests(_running_backtests)
 
             # Wait for database writes to complete before marking as completed
             # This prevents race condition where frontend fetches incomplete data
@@ -207,6 +250,8 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
 
             _running_backtests[backtest_id]["status"] = "completed"
             _running_backtests[backtest_id]["completed_at"] = now_utc()
+            _running_backtests[backtest_id]["progress"] = 100
+            _running_backtests[backtest_id]["message"] = "Backtest completed successfully"
             _running_backtests[backtest_id]["result_files"] = result_files
             _save_backtests(_running_backtests)
         else:
@@ -296,6 +341,8 @@ async def run_backtest(
     _running_backtests[backtest_id] = {
         "backtest_id": backtest_id,
         "status": "pending",
+        "progress": 0,
+        "message": "Initializing backtest...",
         "request": request.dict(),
     }
     _save_backtests(_running_backtests)

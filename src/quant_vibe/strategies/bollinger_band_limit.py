@@ -87,6 +87,7 @@ class BollingerBandLimitStrategy(OptionsStrategy):
         bb_period: int = 20,  # Bollinger Band period
         bb_std: float = 2.0,  # Bollinger Band standard deviations
         bb_threshold: float = 0.0,  # How close to band to trigger (0 = at band)
+        **kwargs,
     ):
         """
         Initialize BollingerBandLimitStrategy.
@@ -108,23 +109,29 @@ class BollingerBandLimitStrategy(OptionsStrategy):
             bb_std: Bollinger Band standard deviations (2.0 default)
             bb_threshold: How close to band to trigger signal (0 = at band)
         """
-        super().__init__(name="BollingerBandLimit", max_trades_daily=max_trades_daily)
+        # Calculate profit target percentage for position tracking
+        # Buy at $1, sell at $2 = 100% profit
+        calculated_profit_target_pct = (profit_target_price - limit_buy_price) / limit_buy_price
 
+        super().__init__(
+            name="BollingerBandLimit",
+            max_trades_daily=max_trades_daily,
+            quantity=quantity,
+            min_dte=min_dte,
+            max_dte=max_dte,
+            otm_percent_min=otm_percent_min,
+            otm_percent_max=otm_percent_max,
+            profit_target_pct=calculated_profit_target_pct,
+            stop_loss_pct=stop_loss_pct,
+            **kwargs,
+        )
+
+        # Strategy-specific parameters (not in base class)
         self.target_contract_price = target_contract_price
         self.limit_buy_price = limit_buy_price
         self.profit_target_price = profit_target_price
-        self.otm_percent_min = otm_percent_min
-        self.otm_percent_max = otm_percent_max
         self.price_tolerance = price_tolerance
-        self.quantity = quantity
-        self.min_dte = min_dte
-        self.max_dte = max_dte
-        self.stop_loss_pct = stop_loss_pct
         self.order_expiry_minutes = order_expiry_minutes
-
-        # Calculate profit target percentage for position tracking
-        # Buy at $1, sell at $2 = 100% profit
-        self.profit_target_pct = (profit_target_price - limit_buy_price) / limit_buy_price
 
         # Bollinger Band parameters
         self.bb_period = bb_period
@@ -636,7 +643,7 @@ class BollingerBandLimitStrategy(OptionsStrategy):
             entry_time=current_time,
             entry_cost=entry_cost,
             underlying_price_at_entry=underlying_price,
-            profit_target=self.profit_target_pct,
+            profit_target_pct=self.profit_target_pct,
             stop_loss=self.stop_loss_pct,
         )
 

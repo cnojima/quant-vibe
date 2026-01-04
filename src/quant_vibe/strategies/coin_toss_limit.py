@@ -80,6 +80,7 @@ class CoinTossLimitStrategy(OptionsStrategy):
         max_dte: int = 45,
         stop_loss_pct: Optional[float] = 0.50,  # 50% stop loss
         order_expiry_minutes: int = 60,  # Cancel unfilled orders after 60 min
+        **kwargs,
     ):
         """
         Initialize CoinTossLimitStrategy.
@@ -98,23 +99,29 @@ class CoinTossLimitStrategy(OptionsStrategy):
             stop_loss_pct: Stop loss as percentage (0.50 = 50%)
             order_expiry_minutes: Cancel unfilled orders after this many minutes
         """
-        super().__init__(name="CoinTossLimit", max_trades_daily=max_trades_daily)
+        # Calculate profit target percentage for position tracking
+        # Buy at $1, sell at $2 = 100% profit
+        calculated_profit_target_pct = (profit_target_price - limit_buy_price) / limit_buy_price
 
+        super().__init__(
+            name="CoinTossLimit",
+            max_trades_daily=max_trades_daily,
+            quantity=quantity,
+            min_dte=min_dte,
+            max_dte=max_dte,
+            otm_percent_min=otm_percent_min,
+            otm_percent_max=otm_percent_max,
+            profit_target_pct=calculated_profit_target_pct,
+            stop_loss_pct=stop_loss_pct,
+            **kwargs,
+        )
+
+        # Strategy-specific parameters (not in base class)
         self.target_contract_price = target_contract_price
         self.limit_buy_price = limit_buy_price
         self.profit_target_price = profit_target_price
-        self.otm_percent_min = otm_percent_min
-        self.otm_percent_max = otm_percent_max
         self.price_tolerance = price_tolerance
-        self.quantity = quantity
-        self.min_dte = min_dte
-        self.max_dte = max_dte
-        self.stop_loss_pct = stop_loss_pct
         self.order_expiry_minutes = order_expiry_minutes
-
-        # Calculate profit target percentage for position tracking
-        # Buy at $1, sell at $2 = 100% profit
-        self.profit_target_pct = (profit_target_price - limit_buy_price) / limit_buy_price
 
         # Track current day for reset detection
         self.current_day: Optional[datetime] = None
@@ -551,7 +558,7 @@ class CoinTossLimitStrategy(OptionsStrategy):
             entry_time=current_time,
             entry_cost=entry_cost,
             underlying_price_at_entry=underlying_price,
-            profit_target=self.profit_target_pct,
+            profit_target_pct=self.profit_target_pct,
             stop_loss=self.stop_loss_pct,
         )
 

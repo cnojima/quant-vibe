@@ -36,6 +36,20 @@ class OptionLeg:
     entry_price: float
     current_price: Optional[float] = None
 
+    def __post_init__(self):
+        """Ensure numeric fields are converted from Decimal to float if needed."""
+        # Convert strike_price from Decimal to float if necessary
+        if not isinstance(self.strike_price, float):
+            self.strike_price = float(self.strike_price)
+
+        # Convert entry_price from Decimal to float if necessary
+        if not isinstance(self.entry_price, float):
+            self.entry_price = float(self.entry_price)
+
+        # Convert current_price from Decimal to float if necessary
+        if self.current_price is not None and not isinstance(self.current_price, float):
+            self.current_price = float(self.current_price)
+
 
 @dataclass
 class OptionsPosition:
@@ -48,7 +62,7 @@ class OptionsPosition:
     underlying_price_at_entry: float
 
     # Risk management
-    profit_target: float  # Percentage (e.g., 0.5 for 50%)
+    profit_target_pct: float  # Percentage (e.g., 0.5 for 50%)
     stop_loss: Optional[float] = None  # Percentage
     trailing_stop: Optional[float] = None  # Percentage
 
@@ -59,6 +73,24 @@ class OptionsPosition:
     exit_value: Optional[float] = None
     exit_reason: Optional[str] = None
     has_valid_market_data: bool = True  # Track if current_value is from actual market data
+
+    def __post_init__(self):
+        """Ensure numeric fields are converted from Decimal to float if needed."""
+        # Convert entry_cost from Decimal to float if necessary
+        if not isinstance(self.entry_cost, float):
+            self.entry_cost = float(self.entry_cost)
+
+        # Convert underlying_price_at_entry from Decimal to float if necessary
+        if not isinstance(self.underlying_price_at_entry, float):
+            self.underlying_price_at_entry = float(self.underlying_price_at_entry)
+
+        # Convert current_value from Decimal to float if necessary
+        if self.current_value is not None and not isinstance(self.current_value, float):
+            self.current_value = float(self.current_value)
+
+        # Convert exit_value from Decimal to float if necessary
+        if self.exit_value is not None and not isinstance(self.exit_value, float):
+            self.exit_value = float(self.exit_value)
 
     @property
     def pnl(self) -> Optional[float]:
@@ -99,8 +131,25 @@ class OptionsStrategy(ABC):
     def __init__(
         self,
         name: str,
-        max_trades_daily: int = 1,
         observation_period: Optional[int] = None,
+        max_trades_daily: int = 1,
+
+        ## start: COLLECTED FROM CURRENT STRATEGIES
+        min_volume: int = 0,
+        max_dte: int = 2,
+        min_dte: int = 0,
+        num_spreads: int = 1,
+        otm_percent_max: float = 0.05,
+        otm_percent_min: float = -0.05,
+        profit_target_pct: float = 0.5,
+        profit_target_min: float = 1.0,
+        profit_target_max: float = 5.0,
+        stop_loss_pct: Optional[float] = None,
+        trailing_stop_pct: Optional[float] = None,
+        quantity: int = 10,
+        ## end: COLLECTED FROM CURRENT STRATEGIES
+
+
         **kwargs  # Accept any additional parameters for child classes
     ) -> None:
         """
@@ -118,7 +167,20 @@ class OptionsStrategy(ABC):
         self.trades_today = 0  # Track number of trades entered today
         self.positions: List[OptionsPosition] = []
         self.active_position: Optional[OptionsPosition] = None
-        self.stop_loss_pct: Optional[float] = None
+
+        # Store common strategy parameters
+        self.min_volume = min_volume
+        self.max_dte = max_dte
+        self.min_dte = min_dte
+        self.num_spreads = num_spreads
+        self.otm_percent_max = otm_percent_max
+        self.otm_percent_min = otm_percent_min
+        self.profit_target_pct = profit_target_pct
+        self.profit_target_min = profit_target_min
+        self.profit_target_max = profit_target_max
+        self.stop_loss_pct = stop_loss_pct
+        self.trailing_stop_pct = trailing_stop_pct
+        self.quantity = quantity
 
     def _filter_by_dte(
         self,
@@ -159,6 +221,63 @@ class OptionsStrategy(ABC):
             (options_data["expiration_date"] >= target_date) &
             (options_data["expiration_date"] <= max_date)
         ].copy()
+
+    def _filter_by_liquidity(
+        self,
+        options_data: pd.DataFrame,
+        min_volume: int,
+        max_bid_ask_spread_pct: Optional[float] = None
+    ) -> pd.DataFrame:
+        """
+        Filter options by liquidity criteria.
+
+        This method applies volume and bid-ask spread filters to ensure adequate
+        liquidity for trading. It safely handles None/zero mark prices that would
+        cause division errors when calculating bid-ask spread percentages.
+
+        Args:
+            options_data: Options DataFrame with volume, bid, ask, and mark columns
+            min_volume: Minimum volume required per contract
+            max_bid_ask_spread_pct: Maximum bid-ask spread as percentage of mark price
+                                   (e.g., 10.0 for 10%). If None, no spread filter is applied.
+
+        Returns:
+            Filtered DataFrame with liquid options only
+        """
+        # Filter by minimum volume
+        liquid_options = options_data[options_data['volume'] >= min_volume].copy()
+
+        if liquid_options.empty:
+            return liquid_options
+
+        # Apply bid-ask spread filter if requested and data is available
+        if (max_bid_ask_spread_pct is not None and
+            'bid' in liquid_options.columns and
+            'ask' in liquid_options.columns and
+            'mark' in liquid_options.columns):
+
+            # First filter out rows with invalid mark prices (None or zero)
+            # This prevents TypeError when dividing by None or division by zero
+            liquid_options = liquid_options[
+                (liquid_options['mark'].notna()) & (liquid_options['mark'] > 0)
+            ].copy()
+
+            if liquid_options.empty:
+                return liquid_options
+
+            # Calculate spread percentage safely
+            # Convert to float to handle decimal.Decimal types from database
+            liquid_options['bid_ask_spread_pct'] = (
+                (liquid_options['ask'].astype(float) - liquid_options['bid'].astype(float)) /
+                liquid_options['mark'].astype(float) * 100
+            )
+
+            # Filter out wide spreads
+            liquid_options = liquid_options[
+                liquid_options['bid_ask_spread_pct'] <= max_bid_ask_spread_pct
+            ].copy()
+
+        return liquid_options
 
     @abstractmethod
     def analyze_market(
@@ -298,10 +417,15 @@ class OptionsStrategy(ABC):
 
             if not leg_data.empty:
                 # Use mark price (mid of bid/ask)
-                current_price = leg_data.iloc[0]['mark']
+                mark_value = leg_data.iloc[0]['mark']
 
-                # Validate mark price
-                if pd.isna(current_price) or current_price < 0:
+                # Validate mark price (check for None/NaN before converting)
+                if mark_value is None or pd.isna(mark_value):
+                    current_price = None
+                else:
+                    current_price = float(mark_value)
+
+                if current_price is None or current_price < 0:
                     # Mark price invalid - try to calculate intrinsic value
                     missing_legs.append(leg.contract_symbol)
                     used_fallback = True  # Using fallback pricing
@@ -343,18 +467,24 @@ class OptionsStrategy(ABC):
                         strike_above = strikes_above.iloc[0]
                         strike_below = strikes_below.iloc[0]
 
-                        # Interpolate mark price
-                        strike_diff = strike_above['strike_price'] - strike_below['strike_price']
-                        if strike_diff > 0:
-                            weight = (leg.strike_price - strike_below['strike_price']) / strike_diff
-                            estimated_price = strike_below['mark'] + weight * (strike_above['mark'] - strike_below['mark'])
+                        # Check if mark prices are valid before interpolating
+                        mark_above = strike_above['mark']
+                        mark_below = strike_below['mark']
 
-                            leg.current_price = estimated_price
-                            leg_value = leg.quantity * estimated_price * 100
-                            current_value += leg_value
+                        if (mark_above is not None and mark_below is not None and
+                            not pd.isna(mark_above) and not pd.isna(mark_below)):
+                            # Interpolate mark price (convert Decimals to floats)
+                            strike_diff = float(strike_above['strike_price']) - float(strike_below['strike_price'])
+                            if strike_diff > 0:
+                                weight = (leg.strike_price - float(strike_below['strike_price'])) / strike_diff
+                                estimated_price = float(mark_below) + weight * (float(mark_above) - float(mark_below))
 
-                            print(f"      ⚠️  Interpolated {leg.contract_symbol}: ${estimated_price:.2f} (from ${strike_below['mark']:.2f} @ {strike_below['strike_price']} and ${strike_above['mark']:.2f} @ {strike_above['strike_price']})")
-                            continue
+                                leg.current_price = estimated_price
+                                leg_value = leg.quantity * estimated_price * 100
+                                current_value += leg_value
+
+                                print(f"      ⚠️  Interpolated {leg.contract_symbol}: ${estimated_price:.2f} (from ${mark_below:.2f} @ {strike_below['strike_price']} and ${mark_above:.2f} @ {strike_above['strike_price']})")
+                                continue
 
                 # Fallback: use intrinsic value if we have underlying price, else entry price
                 if underlying_price is not None:
@@ -373,7 +503,8 @@ class OptionsStrategy(ABC):
         if missing_legs:
             print(f"   ⚠️  Missing/invalid data for legs: {', '.join(missing_legs)}")
 
-        position.current_value = current_value
+        # Ensure current_value is float (in case of Decimal arithmetic)
+        position.current_value = float(current_value) if current_value is not None else None
         position.has_valid_market_data = not used_fallback  # Mark if using real market data
 
         # Validate current_value is reasonable for the spread
@@ -404,7 +535,7 @@ class OptionsStrategy(ABC):
         """
         if position.pnl_percent is None:
             return False
-        return position.pnl_percent >= position.profit_target
+        return position.pnl_percent >= position.profit_target_pct
 
     def check_stop_loss(self, position: OptionsPosition) -> bool:
         """

@@ -75,18 +75,20 @@ class CoinTossStrategy(OptionsStrategy):
         super().__init__(
             name="CoinToss",
             max_trades_daily=max_trades_daily,
-            observation_period=observation_period
+            observation_period=observation_period,
+            quantity=quantity,
+            min_dte=min_dte,
+            max_dte=max_dte,
+            profit_target_pct=profit_target_pct,
+            stop_loss_pct=stop_loss_pct,
+            **kwargs,
         )
 
+        # Strategy-specific parameters (not in base class)
         self.target_price = target_price
         self.buy_limit = buy_limit
         self.sell_target = sell_target
         self.price_tolerance = price_tolerance
-        self.quantity = quantity
-        self.min_dte = min_dte
-        self.max_dte = max_dte
-        self.profit_target_pct = profit_target_pct
-        self.stop_loss_pct = stop_loss_pct
 
         # Track current day for reset detection
         self.current_day: Optional[datetime] = None
@@ -263,7 +265,7 @@ class CoinTossStrategy(OptionsStrategy):
             entry_time=current_time,
             entry_cost=entry_cost,
             underlying_price_at_entry=current_underlying,
-            profit_target=self.profit_target_pct,
+            profit_target_pct=self.profit_target_pct,
             stop_loss=self.stop_loss_pct,
         )
 
@@ -319,7 +321,7 @@ class CoinTossStrategy(OptionsStrategy):
         mark_price = position.current_value / (abs(position.legs[0].quantity) * 100)
 
         # Check profit target (from position.profit_target)
-        if pnl_pct >= position.profit_target:
+        if pnl_pct >= position.profit_target_pct:
             # Override position value to use bid price (what we'd actually get when selling)
             # This prevents P&L distortion from wide bid/ask spreads
             leg = position.legs[0]
@@ -334,7 +336,7 @@ class CoinTossStrategy(OptionsStrategy):
             pnl = position.current_value - position.entry_cost
             pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
 
-            return True, f"Profit target ({position.profit_target*100:.0f}%) reached - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
+            return True, f"Profit target ({position.profit_target_pct*100:.0f}%) reached - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 
         # Check stop loss if configured (from position.stop_loss)
         # stop_loss should be positive (e.g., 0.30 for 30% stop)

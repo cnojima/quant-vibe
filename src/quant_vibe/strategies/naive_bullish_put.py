@@ -33,11 +33,12 @@ class NaiveBullishPutStrategy(OptionsStrategy):
     def __init__(
         self,
         spread_width: float = 20.0,
-        profit_target: float = 0.5,  # 50%
+        profit_target_pct: float = 0.5,  # 50%
         min_dte: int = 7,
         max_dte: int = 45,
         num_spreads: int = 10,
         max_trades_daily: int = 1,
+        **kwargs  # Accept any additional parameters from base class
     ) -> None:
         """
         Initialize Naive Bullish Put Strategy.
@@ -49,13 +50,20 @@ class NaiveBullishPutStrategy(OptionsStrategy):
             max_dte: Maximum days to expiration (default: 45)
             num_spreads: Number of spreads to open (default: 10)
             max_trades_daily: Maximum trades per day (default: 1)
+            **kwargs: Additional parameters passed to OptionsStrategy base class
         """
-        super().__init__(name=f"NaiveBullishPut_{spread_width}", max_trades_daily=max_trades_daily)
+        super().__init__(
+            name=f"NaiveBullishPut_{spread_width}",
+            max_trades_daily=max_trades_daily,
+            min_dte=min_dte,
+            max_dte=max_dte,
+            num_spreads=num_spreads,
+            profit_target_pct=profit_target_pct,
+            **kwargs  # Forward additional parameters to base class
+        )
+
+        # Strategy-specific parameters (not in base class)
         self.spread_width = spread_width
-        self.profit_target = profit_target
-        self.min_dte = min_dte
-        self.max_dte = max_dte
-        self.num_spreads = num_spreads
 
         # State tracking
         self.market_open_time: Optional[datetime] = None
@@ -302,7 +310,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
             entry_time=current_time,
             entry_cost=-net_credit,  # Negative = we receive credit
             underlying_price_at_entry=current_price,
-            profit_target=self.profit_target,
+            profit_target_pct=self.profit_target_pct,
         )
 
         print(f"NBP ✅ [CONSTRUCT_SPREAD] Position created: {position_id}")

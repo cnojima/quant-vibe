@@ -3,6 +3,7 @@
 from typing import Optional, Dict, Tuple
 from datetime import datetime, timedelta
 import numpy as np
+import pandas as pd
 
 from .options_base import (
     OptionsStrategy,
@@ -48,6 +49,7 @@ class BullishVerticalCallStrategy(OptionsStrategy):
         max_dte: int = 45,  # maximum days to expiration
         num_spreads: int = 10,  # number of spreads to open per signal
         max_trades_daily: int = 1,  # maximum trades per day
+        **kwargs  # Accept any additional parameters from base class
     ) -> None:
         """
         Initialize Bullish Vertical Call Strategy.
@@ -63,17 +65,24 @@ class BullishVerticalCallStrategy(OptionsStrategy):
             max_dte: Maximum days to expiration for options (default: 45)
             num_spreads: Number of spreads to open per buy signal (default: 10)
             max_trades_daily: Maximum trades allowed per day (default: 1)
+            **kwargs: Additional parameters passed to OptionsStrategy base class
         """
-        super().__init__(name=f"BullishVerticalCall_{spread_width}", max_trades_daily=max_trades_daily)
+        super().__init__(
+            name=f"BullishVerticalCall_{spread_width}",
+            max_trades_daily=max_trades_daily,
+            observation_period=observation_period,
+            min_dte=min_dte,
+            max_dte=max_dte,
+            num_spreads=num_spreads,
+            profit_target_min=profit_target_min,
+            profit_target_max=profit_target_max,
+            trailing_stop_pct=trailing_stop_pct,
+            **kwargs  # Forward additional parameters to base class
+        )
+
+        # Strategy-specific parameters (not in base class)
         self.spread_width = spread_width
-        self.observation_period = observation_period
         self.pullback_amount = pullback_amount
-        self.profit_target_min = profit_target_min
-        self.profit_target_max = profit_target_max
-        self.trailing_stop_pct = trailing_stop_pct
-        self.min_dte = min_dte
-        self.max_dte = max_dte
-        self.num_spreads = num_spreads
 
         # State tracking
         self.market_open_time: Optional[datetime] = None
@@ -342,11 +351,6 @@ class BullishVerticalCallStrategy(OptionsStrategy):
 
         # Filter for CALL options
         valid_options = dte_filtered[dte_filtered['contract_type'] == 'call']
-        valid_options = options_data[
-            (options_data['expiration_date'] >= target_date) &
-            (options_data['expiration_date'] <= max_date) &
-            (options_data['contract_type'] == 'call')
-        ]
 
         if valid_options.empty:
             return None
@@ -426,7 +430,7 @@ class BullishVerticalCallStrategy(OptionsStrategy):
             entry_time=current_time,
             entry_cost=net_debit,
             underlying_price_at_entry=current_price,
-            profit_target=self.profit_target_max,  # Use max profit target
+            profit_target_pct=self.profit_target_max,  # Use max profit target
             trailing_stop=self.trailing_stop_pct
         )
 

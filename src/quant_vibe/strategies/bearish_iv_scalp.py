@@ -77,6 +77,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
         max_trades_daily: int = 2,  # Allow 1-2 scalps per day
         momentum_lookback: int = 5,  # Bars to look back for momentum
         iv_lookback: int = 30,  # Bars to look back for IV average
+        **kwargs  # Accept any additional parameters from base class
     ) -> None:
         """
         Initialize Bearish IV Scalp Strategy.
@@ -98,23 +99,27 @@ class BearishIVScalpStrategy(OptionsStrategy):
             max_trades_daily: Maximum trades per day (default: 2)
             momentum_lookback: Bars to analyze for momentum (default: 5)
             iv_lookback: Bars to analyze for IV average (default: 30)
+            **kwargs: Additional parameters passed to OptionsStrategy base class
         """
         super().__init__(
             name=f"BearishIVScalp_{spread_width}",
-            max_trades_daily=max_trades_daily
+            max_trades_daily=max_trades_daily,
+            observation_period=observation_period,
+            min_dte=min_dte,
+            max_dte=max_dte,
+            num_spreads=num_spreads,
+            min_volume=min_volume,
+            profit_target_min=profit_target_min,
+            profit_target_max=profit_target_max,
+            stop_loss_pct=stop_loss_pct,
+            trailing_stop_pct=trailing_stop_pct,
+            **kwargs  # Forward additional parameters to base class
         )
+
+        # Strategy-specific parameters (not in base class)
         self.spread_width = spread_width
-        self.observation_period = observation_period
         self.iv_threshold = iv_threshold
         self.iv_spike_pct = iv_spike_pct
-        self.profit_target_min = profit_target_min
-        self.profit_target_max = profit_target_max
-        self.trailing_stop_pct = trailing_stop_pct
-        self.stop_loss_pct = stop_loss_pct
-        self.min_dte = min_dte
-        self.max_dte = max_dte
-        self.num_spreads = num_spreads
-        self.min_volume = min_volume
         self.min_bid_ask_spread_pct = min_bid_ask_spread_pct
         self.momentum_lookback = momentum_lookback
         self.iv_lookback = iv_lookback
@@ -611,7 +616,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
             entry_time=current_time,
             entry_cost=-net_credit,  # Negative (credit received)
             underlying_price_at_entry=current_price,
-            profit_target=self.profit_target_max,
+            profit_target_pct=self.profit_target_max,
             trailing_stop=self.trailing_stop_pct,
             stop_loss=self.stop_loss_pct
         )

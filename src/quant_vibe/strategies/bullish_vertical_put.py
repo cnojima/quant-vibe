@@ -57,6 +57,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         min_bid_ask_spread_pct: float = 10.0,  # maximum bid/ask spread percentage
         max_trades_daily: int = 1,  # maximum trades per day
         stop_loss_pct: Optional[float] = None,
+        **kwargs  # Accept any additional parameters from base class
     ) -> None:
         """
         Initialize Bullish Vertical Put Strategy.
@@ -74,18 +75,26 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             min_volume: Minimum volume per contract for liquidity filter (default: 50)
             min_bid_ask_spread_pct: Maximum bid/ask spread percentage (default: 10%)
             max_trades_daily: Maximum trades allowed per day (default: 1)
+            **kwargs: Additional parameters passed to OptionsStrategy base class
         """
-        super().__init__(name=f"BullishVerticalPut_{spread_width}", max_trades_daily=max_trades_daily)
+        super().__init__(
+            name=f"BullishVerticalPut_{spread_width}",
+            max_trades_daily=max_trades_daily,
+            observation_period=observation_period,
+            min_dte=min_dte,
+            max_dte=max_dte,
+            num_spreads=num_spreads,
+            min_volume=min_volume,
+            profit_target_min=profit_target_min,
+            profit_target_max=profit_target_max,
+            trailing_stop_pct=trailing_stop_pct,
+            stop_loss_pct=stop_loss_pct,
+            **kwargs  # Forward additional parameters to base class
+        )
+
+        # Strategy-specific parameters (not in base class)
         self.spread_width = spread_width
-        self.observation_period = observation_period
         self.pullback_amount = pullback_amount
-        self.profit_target_min = profit_target_min
-        self.profit_target_max = profit_target_max
-        self.trailing_stop_pct = trailing_stop_pct
-        self.min_dte = min_dte
-        self.max_dte = max_dte
-        self.num_spreads = num_spreads
-        self.min_volume = min_volume
         self.min_bid_ask_spread_pct = min_bid_ask_spread_pct
 
         # State tracking
@@ -375,30 +384,16 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             print(f"  ⚠️  No options found in DTE range {self.min_dte}-{self.max_dte}")
             return None
 
-        # Apply liquidity filters
-        # 1. Minimum volume filter
-        liquid_options = valid_options[valid_options['volume'] >= self.min_volume]
+        # Apply liquidity filters using base class utility method
+        liquid_options = self._filter_by_liquidity(
+            options_data=valid_options,
+            min_volume=self.min_volume,
+            max_bid_ask_spread_pct=self.min_bid_ask_spread_pct
+        )
 
         if liquid_options.empty:
-            print(f"  ⚠️  No options with volume >= {self.min_volume}")
+            print(f"  ⚠️  No liquid options found (volume >= {self.min_volume}, spread <= {self.min_bid_ask_spread_pct}%)")
             return None
-
-        # 2. Bid/ask spread filter (only if we have bid/ask data)
-        if 'bid' in liquid_options.columns and 'ask' in liquid_options.columns:
-            # Calculate spread percentage
-            liquid_options = liquid_options.copy()
-            liquid_options['bid_ask_spread_pct'] = (
-                (liquid_options['ask'] - liquid_options['bid']) / liquid_options['mark'] * 100
-            )
-
-            # Filter out wide spreads
-            liquid_options = liquid_options[
-                liquid_options['bid_ask_spread_pct'] <= self.min_bid_ask_spread_pct
-            ]
-
-            if liquid_options.empty:
-                print(f"  ⚠️  No options with bid/ask spread <= {self.min_bid_ask_spread_pct}%")
-                return None
 
         # Use liquid_options for strike selection
         valid_options = liquid_options
@@ -449,13 +444,13 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         print(f"\n  📋 Selected Contracts (passed liquidity filters):")
         print(f"     Short {short_strike} PUT:")
         print(f"       Volume: {short_put_data['volume']:.0f}")
-        if 'bid' in short_put_data and 'ask' in short_put_data:
+        if 'bid' in short_put_data and 'ask' in short_put_data and short_put_data['mark'] > 0:
             spread_pct = (short_put_data['ask'] - short_put_data['bid']) / short_put_data['mark'] * 100
             print(f"       Bid/Ask: ${short_put_data['bid']:.2f}/${short_put_data['ask']:.2f} (spread: {spread_pct:.2f}%)")
         print(f"       Mark: ${short_put_data['mark']:.2f}")
         print(f"     Long {long_strike} PUT:")
         print(f"       Volume: {long_put_data['volume']:.0f}")
-        if 'bid' in long_put_data and 'ask' in long_put_data:
+        if 'bid' in long_put_data and 'ask' in long_put_data and long_put_data['mark'] > 0:
             spread_pct = (long_put_data['ask'] - long_put_data['bid']) / long_put_data['mark'] * 100
             print(f"       Bid/Ask: ${long_put_data['bid']:.2f}/${long_put_data['ask']:.2f} (spread: {spread_pct:.2f}%)")
         print(f"       Mark: ${long_put_data['mark']:.2f}")
@@ -491,8 +486,8 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             return None
 
         # Calculate net credit (premium received) per spread, then multiply by number of spreads
-        short_put_price = short_put_data['mark']
-        long_put_price = long_put_data['mark']
+        short_put_price = float(short_put_data['mark'])
+        long_put_price = float(long_put_data['mark'])
         net_credit_per_spread = (short_put_price - long_put_price) * 100  # Per contract
         net_credit = net_credit_per_spread * self.num_spreads  # Total for all spreads
 
@@ -507,7 +502,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             OptionLeg(
                 contract_symbol=short_put_data['contract_symbol'],
                 option_type=OptionType.PUT,
-                strike_price=short_strike,
+                strike_price=float(short_strike),
                 expiration_date=nearest_expiration,
                 quantity=-self.num_spreads,  # Short (negative = sell)
                 entry_price=short_put_price
@@ -515,7 +510,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             OptionLeg(
                 contract_symbol=long_put_data['contract_symbol'],
                 option_type=OptionType.PUT,
-                strike_price=long_strike,
+                strike_price=float(long_strike),
                 expiration_date=nearest_expiration,
                 quantity=self.num_spreads,  # Long (positive = buy)
                 entry_price=long_put_price
@@ -531,7 +526,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             entry_time=current_time,
             entry_cost=-net_credit,  # Negative because it's a credit
             underlying_price_at_entry=current_price,
-            profit_target=self.profit_target_max,  # Use max profit target
+            profit_target_pct=self.profit_target_max,  # Use max profit target
             trailing_stop=self.trailing_stop_pct
         )
 
