@@ -143,6 +143,14 @@ For more information, see:
         help='Backtest ID to use for database storage. Auto-generated if not provided.'
     )
 
+    parser.add_argument(
+        '--timeframe',
+        type=str,
+        default=None,
+        choices=['1min', '5min', '15min', '1hour', 'daily'],
+        help='Data aggregation timeframe (default: 1min). Use 5min for backtests >30 days to reduce memory by ~95%%.'
+    )
+
     return parser.parse_args()
 
 
@@ -189,6 +197,7 @@ def main():
             max_trades_daily=args.max_trades_daily,
             initial_capital=args.initial_capital,
             backtest_id=args.backtest_id,
+            timeframe=args.timeframe,
         )
 
         # Exit with success

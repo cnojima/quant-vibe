@@ -60,6 +60,14 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
+  const formatDateTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return {
+      date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      time: date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    };
+  };
+
   const formatPrice = (value: number) => {
     return new Intl.NumberFormat('en-US', {
       minimumFractionDigits: 2,
@@ -89,9 +97,14 @@ export function EquityCurveChart({ data, underlyingData = [], trades = [] }: Equ
       }
     }
 
+    const { date, time } = formatDateTime(timestamp);
+
     return (
       <div className="bg-white p-3 border border-gray-300 rounded shadow-lg">
-        <p className="font-semibold text-gray-700 mb-1">{formatDate(timestamp)}</p>
+        <div className="mb-1">
+          <p className="font-semibold text-gray-700">{date}</p>
+          <p className="text-xs text-gray-600">{time}</p>
+        </div>
         {payload.map((entry: any, index: number) => (
           <p key={index} className="text-sm" style={{ color: entry.color }}>
             {entry.name}: {entry.name === 'Portfolio Value' ? formatCurrency(entry.value) : formatPrice(entry.value)}

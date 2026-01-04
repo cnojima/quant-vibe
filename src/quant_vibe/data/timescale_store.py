@@ -125,7 +125,14 @@ class TimescaleStore:
                 f"{self.host}:{self.port}/{self.database}"
             )
             # Use NullPool to avoid connection pool conflicts with psycopg2 pool
-            self._engine = create_engine(connection_string, poolclass=NullPool)
+            # Add connection options for query timeout (10 minutes for large queries)
+            self._engine = create_engine(
+                connection_string,
+                poolclass=NullPool,
+                connect_args={
+                    "options": "-c statement_timeout=600000"  # 10 minutes in milliseconds
+                }
+            )
         return self._engine
 
     @contextmanager
@@ -576,6 +583,9 @@ class TimescaleStore:
 
         table_name = table_map.get(timeframe, "options_bars")
 
+        # Log which timeframe and table is being used
+        logging.info(f"Loading options data with timeframe='{timeframe}' from table '{table_name}'")
+
         # For aggregated views, use 'bucket' column; for base table use 'timestamp'
         time_column = "bucket" if timeframe != "1min" else "timestamp"
 
@@ -614,7 +624,43 @@ class TimescaleStore:
         logging.debug("Executing options backtest query with params: %s", params);
         logging.debug("Query: %s", query);
 
-        df = pd.read_sql_query(query, self.engine, params=tuple(params), parse_dates=['timestamp', 'expiration_date'])
+        # Estimate query size and warn if it might be slow
+        import time
+        from sqlalchemy.exc import OperationalError
+
+        logging.info(f"Fetching data for {underlying_ticker} from {start_time.date()} to {end_time.date()} (DTE: {min_dte}-{max_dte})...")
+        query_start = time.time()
+
+        try:
+            df = pd.read_sql_query(query, self.engine, params=tuple(params), parse_dates=['timestamp', 'expiration_date'])
+        except OperationalError as e:
+            if "statement timeout" in str(e).lower():
+                elapsed = time.time() - query_start
+                raise TimeoutError(
+                    f"Query timeout after {elapsed:.1f}s loading data from {start_time.date()} to {end_time.date()}.\n"
+                    f"Try one of these solutions:\n"
+                    f"  1. Use a smaller date range (currently {(end_time - start_time).days} days)\n"
+                    f"  2. Use aggregated timeframe: timeframe='5min' (reduces data by ~95%)\n"
+                    f"  3. Increase statement_timeout in TimescaleStore.engine property"
+                ) from e
+            raise
+
+        query_elapsed = time.time() - query_start
+
+        # Log how much data was loaded
+        if not df.empty:
+            estimated_mb = len(df) * 200 / 1024 / 1024  # Rough estimate: 200 bytes per row
+            logging.info(f"Loaded {len(df):,} rows (~{estimated_mb:.1f} MB) from {table_name} in {query_elapsed:.1f}s")
+
+            # Warn if dataset is very large and suggest using aggregated timeframe
+            if len(df) > 500000 and timeframe == "1min":
+                logging.warning(
+                    f"Large dataset detected ({len(df):,} rows). "
+                    f"Consider using timeframe='5min' to reduce memory usage by ~95% "
+                    f"(reduces {len(df):,} rows to ~{len(df)//5:,} rows)"
+                )
+        else:
+            logging.warning(f"No data found in {table_name}")
 
         # Convert DataFrame to list of Pydantic models using vectorized operations
         from quant_vibe.models import OptionsBar

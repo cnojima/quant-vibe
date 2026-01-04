@@ -39,6 +39,7 @@ export function BacktestRunner() {
   const [minDte, setMinDte] = useState<number>(0);
   const [maxDte, setMaxDte] = useState<number>(2);
   const [maxTradesDaily, setMaxTradesDaily] = useState<number>(1);
+  const [timeframe, setTimeframe] = useState<string>('1min');
   const [currentBacktestId, setCurrentBacktestId] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState<'run' | 'results' | 'analysis' | 'history'>('run');
 
@@ -76,11 +77,13 @@ export function BacktestRunner() {
           min_dte: minDte,
           max_dte: maxDte,
           max_trades_daily: maxTradesDaily,
+          timeframe: timeframe,
         },
         parameters: {
           min_dte: minDte,
           max_dte: maxDte,
           max_trades_daily: maxTradesDaily,
+          timeframe: timeframe,
         },
       });
 
@@ -414,6 +417,30 @@ export function BacktestRunner() {
                 </p>
               </div>
 
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <label className="label mb-0">Data Timeframe</label>
+                  <InfoIcon
+                    content="Time aggregation for historical data. 1min = highest resolution (use for backtests <30 days). 5min = recommended for backtests >30 days, reduces memory by ~95%. 15min/1hour/daily = even more efficient for very long backtests."
+                    placement="right"
+                  />
+                </div>
+                <select
+                  className="input"
+                  value={timeframe}
+                  onChange={(e) => setTimeframe(e.target.value)}
+                >
+                  <option value="1min">1 Minute (high resolution, use for under 30 days)</option>
+                  <option value="5min">5 Minutes (recommended for over 30 days, 95% less memory)</option>
+                  <option value="15min">15 Minutes (98% less memory)</option>
+                  <option value="1hour">1 Hour (99% less memory)</option>
+                  <option value="daily">Daily (99.9% less memory)</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  For backtests over 30 days, use 5min to prevent timeouts and reduce memory usage
+                </p>
+              </div>
+
               <Button
                 variant="primary"
                 className="w-full"
@@ -429,7 +456,7 @@ export function BacktestRunner() {
             <div className="flex items-center gap-2 mb-4">
               <h3 className="text-lg font-semibold">Quick Date Presets</h3>
               <InfoIcon
-                content="One-click date range selection for common backtest periods. All dates use US Eastern Time (EST) and only include trading days (Mon-Fri, excluding holidays)."
+                content="One-click date range selection for common backtest periods. Automatically sets the optimal timeframe for the date range (1min for <1 week, 5min for 1-3 months, 15min for >3 months). All dates use US Eastern Time (EST) and only include trading days (Mon-Fri, excluding holidays)."
                 placement="right"
               />
             </div>
@@ -441,6 +468,7 @@ export function BacktestRunner() {
                   const dateStr = getTodayEST();
                   setStartDate(dateStr);
                   setEndDate(dateStr);
+                  setTimeframe('1min'); // 1 day = 1min resolution
                 }}
               >
                 Today
@@ -452,6 +480,7 @@ export function BacktestRunner() {
                   const dateStr = getYesterdayEST();
                   setStartDate(dateStr);
                   setEndDate(dateStr);
+                  setTimeframe('1min'); // 1 day = 1min resolution
                 }}
               >
                 Yesterday
@@ -463,6 +492,7 @@ export function BacktestRunner() {
                   const { start, end } = getThisWeekEST();
                   setStartDate(start);
                   setEndDate(end);
+                  setTimeframe('1min'); // ~5 days = 1min resolution
                 }}
               >
                 This Week
@@ -474,6 +504,7 @@ export function BacktestRunner() {
                   const { start, end } = getLastWeekEST();
                   setStartDate(start);
                   setEndDate(end);
+                  setTimeframe('1min'); // ~5 days = 1min resolution
                 }}
               >
                 Last Week
@@ -485,6 +516,7 @@ export function BacktestRunner() {
                   const { start, end } = getLastNMonthsEST(1);
                   setStartDate(start);
                   setEndDate(end);
+                  setTimeframe('5min'); // ~20 trading days = 5min recommended
                 }}
               >
                 Last Month
@@ -496,6 +528,7 @@ export function BacktestRunner() {
                   const { start, end } = getLastNMonthsEST(3);
                   setStartDate(start);
                   setEndDate(end);
+                  setTimeframe('5min'); // ~60 trading days = 5min recommended
                 }}
               >
                 Last 3 Months
@@ -507,6 +540,7 @@ export function BacktestRunner() {
                   const { start, end } = getLastNYearsEST(1);
                   setStartDate(start);
                   setEndDate(end);
+                  setTimeframe('15min'); // ~250 trading days = 15min recommended
                 }}
               >
                 Last Year

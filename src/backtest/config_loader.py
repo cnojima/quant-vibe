@@ -186,6 +186,18 @@ class BacktestConfig:
         """Check if verbose output is enabled."""
         return bool(self.config['data_source'].get('verbose', True))
 
+    def get_timeframe(self) -> str:
+        """
+        Get timeframe for data aggregation.
+
+        Returns:
+            Timeframe string: "1min" (default), "5min", "15min", "1hour", "daily"
+
+        Note:
+            For backtests >30 days, use "5min" to reduce memory by ~95%
+        """
+        return self.config['data_source'].get('timeframe', '1min')
+
     def should_print_trade_details(self) -> bool:
         """Check if trade details should be printed."""
         return bool(self.config.get('reporting', {}).get('print_trade_details', True))

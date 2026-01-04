@@ -159,6 +159,7 @@ data_source:
   min_dte: 0
   max_dte: 2
   verbose: true
+  timeframe: 1min
 reporting:
   print_trade_details: true
   print_educational_metrics: true

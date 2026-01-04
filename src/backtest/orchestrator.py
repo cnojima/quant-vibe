@@ -282,7 +282,7 @@ class BacktestOrchestrator:
             if self.config.should_tee_output():
                 tee.close()
 
-    def run(self, start_date=None, end_date=None, min_dte=None, max_dte=None, max_trades_daily=None, initial_capital=None, backtest_id=None) -> List[Dict[str, Any]]:
+    def run(self, start_date=None, end_date=None, min_dte=None, max_dte=None, max_trades_daily=None, initial_capital=None, backtest_id=None, timeframe=None) -> List[Dict[str, Any]]:
         """
         Run all configured backtests.
 
@@ -294,6 +294,7 @@ class BacktestOrchestrator:
             max_trades_daily: Optional max trades per day override (int)
             initial_capital: Optional initial capital override (float)
             backtest_id: Optional backtest ID for database storage (str)
+            timeframe: Optional timeframe override (str): "1min", "5min", "15min", "1hour", "daily"
 
         Returns:
             List of result dictionaries for each strategy
@@ -343,6 +344,14 @@ class BacktestOrchestrator:
 
         self.logger.info(f"Initial Capital: ${initial_capital:,.2f}")
 
+        # Get timeframe (CLI arg overrides config)
+        if timeframe is None:
+            timeframe = self.config.get_timeframe()
+        else:
+            self.logger.info(f"Overriding timeframe: {timeframe}")
+
+        self.logger.info(f"Data Timeframe: {timeframe}")
+
         # Load data once (shared across all strategies)
         self.logger.info("=" * 70)
         self.logger.info("LOADING DATA")
@@ -356,6 +365,7 @@ class BacktestOrchestrator:
             max_dte=int(max_dte),
             verbose=self.config.is_verbose(),
             db_profile=self.config.get_db_profile(),
+            timeframe=timeframe,
         )
 
         self.logger.info(f"Loaded {len(options_data):,} options bars")

@@ -143,6 +143,8 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
                 cmd.extend(["--max-dte", str(request.parameters["max_dte"])])
             if "max_trades_daily" in request.parameters:
                 cmd.extend(["--max-trades-daily", str(request.parameters["max_trades_daily"])])
+            if "timeframe" in request.parameters:
+                cmd.extend(["--timeframe", str(request.parameters["timeframe"])])
 
         # Run backtest as subprocess
         process = await asyncio.create_subprocess_exec(
