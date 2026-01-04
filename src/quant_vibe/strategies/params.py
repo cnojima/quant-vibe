@@ -545,6 +545,59 @@ class HailMaryParams(BaseStrategyParams):
     )
 
 
+class ThrockmortonCreditLadderParams(BaseStrategyParams):
+    """Parameters for ThrockmortenMD Credit Ladder strategy."""
+
+    spread_width: float = Field(
+        default=50.0,
+        ge=1.0,
+        le=200.0,
+        description="Width of the vertical spread in points"
+    )
+    wait_period_minutes: int = Field(
+        default=60,
+        ge=1,
+        le=240,
+        description="Minutes to wait after market open (typically 60 for 10:30 ET)"
+    )
+    initial_ladder_count: int = Field(
+        default=1,
+        ge=1,
+        le=10,
+        description="Number of spreads to place initially"
+    )
+    ladder_increment: int = Field(
+        default=1,
+        ge=1,
+        le=5,
+        description="Additional spreads to add per touch"
+    )
+    max_ladders: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Maximum total ladder positions"
+    )
+    profit_target_pct: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=10.0,
+        description="Profit target (0.7 = 70%)"
+    )
+    num_spreads: int = Field(
+        default=1,
+        ge=1,
+        le=100,
+        description="Number of contracts per ladder"
+    )
+    min_volume: int = Field(
+        default=50,
+        ge=0,
+        le=100000,
+        description="Minimum volume per contract for liquidity"
+    )
+
+
 # Registry mapping strategy names to their parameter models
 STRATEGY_PARAMS_MAP = {
     'bullish_vertical_put': BullishVerticalPutParams,
@@ -556,6 +609,7 @@ STRATEGY_PARAMS_MAP = {
     'bollinger_band_limit': BollingerBandLimitParams,
     'naive_bullish_put': NaiveBullishPutParams,
     'hail_mary': HailMaryParams,
+    'throckmorton_credit_ladder': ThrockmortonCreditLadderParams,
 }
 
 

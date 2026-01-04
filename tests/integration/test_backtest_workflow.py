@@ -1,13 +1,28 @@
 """Integration tests for complete backtest workflow."""
 
-from quant_vibe.strategies import SMACrossoverStrategy
-from quant_vibe.backtesting import BacktestEngine, PerformanceMetrics
+import pandas as pd
+import numpy as np
+from backtest import BacktestEngine, PerformanceMetrics
+from quant_vibe.strategies.base import Strategy, Signal
+
+
+class SimpleBuyAndHold(Strategy):
+    """Simple buy-and-hold strategy for testing."""
+
+    def __init__(self):
+        super().__init__("BuyAndHold")
+
+    def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+        """Generate buy signal on first day, hold thereafter."""
+        signals = pd.Series(Signal.HOLD.value, index=data.index)
+        signals.iloc[0] = Signal.BUY.value  # Buy on first day
+        return signals
 
 
 def test_complete_backtest_workflow(sample_ohlcv_data):
     """Test complete workflow from strategy to performance analysis."""
-    # Create strategy
-    strategy = SMACrossoverStrategy(fast_period=10, slow_period=20)
+    # Create simple test strategy
+    strategy = SimpleBuyAndHold()
 
     # Run backtest
     engine = BacktestEngine(initial_capital=100000.0, commission=0.001)

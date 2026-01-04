@@ -4,7 +4,7 @@ from typing import Dict, Any
 
 import pandas as pd
 
-from ..strategies.base import Strategy, Signal
+from quant_vibe.strategies.base import Strategy, Signal
 
 
 class BacktestEngine:

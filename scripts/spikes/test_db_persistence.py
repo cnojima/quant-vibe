@@ -52,7 +52,7 @@ def main():
     print("   Date range: 2025-12-23 to 2025-12-23 (1 day)")
 
     try:
-        from backtest.engine import BacktestOrchestrator
+        from backtest import BacktestOrchestrator
 
         # Create orchestrator
         orchestrator = BacktestOrchestrator(

@@ -49,6 +49,7 @@ from quant_vibe.strategies.bollinger_band import BollingerBandStrategy
 from quant_vibe.strategies.bollinger_band_limit import BollingerBandLimitStrategy
 from quant_vibe.strategies.naive_bullish_put import NaiveBullishPutStrategy
 from quant_vibe.strategies.hail_mary import HailMaryStrategy
+from quant_vibe.strategies.throckmorton_credit_ladder import ThrockmortonCreditLadderStrategy
 
 
 class StrategyRegistry:
@@ -74,6 +75,7 @@ class StrategyRegistry:
         'bollinger_band_limit': BollingerBandLimitStrategy,
         'naive_bullish_put': NaiveBullishPutStrategy,
         'hail_mary': HailMaryStrategy,
+        'throckmorton_credit_ladder': ThrockmortonCreditLadderStrategy,
     }
 
     # Map strategy names to module paths (for dynamic import)
@@ -87,6 +89,7 @@ class StrategyRegistry:
         'bollinger_band_limit': 'quant_vibe.strategies.bollinger_band_limit.BollingerBandLimitStrategy',
         'naive_bullish_put': 'quant_vibe.strategies.naive_bullish_put.NaiveBullishPutStrategy',
         'hail_mary': 'quant_vibe.strategies.hail_mary.HailMaryStrategy',
+        'throckmorton_credit_ladder': 'quant_vibe.strategies.throckmorton_credit_ladder.ThrockmortonCreditLadderStrategy',
     }
 
     # Strategy descriptions for UI
@@ -100,6 +103,7 @@ class StrategyRegistry:
         'bollinger_band_limit': 'Uses Bollinger Bands for direction (calls at lower band, puts at upper band) with limit orders: buy at $1, sell at $2 (educational/experimental)',
         'naive_bullish_put': 'Simple vertical put spread - opens at market open for UI testing (educational/experimental)',
         'hail_mary': 'Speculative overnight call buying: buys 10 far OTM (5-10%) calls 15min before close, holds overnight with 5% trailing stop',
+        'throckmorton_credit_ladder': 'Credit spread laddering strategy: waits 60min after open, calculates 1SD/2SD zones from ATM straddle, sells 50-wide spreads when 2SD touched, adds ladders as price moves',
     }
 
     @classmethod

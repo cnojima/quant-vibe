@@ -11,7 +11,8 @@ from quant_vibe.utils import now_utc
 from typing import Any, Dict, List, Optional
 
 from .config_loader import BacktestConfig
-from quant_vibe.backtesting import BacktestReporter, OptionsBacktestEngine
+from .reporter import BacktestReporter
+from .options_engine import OptionsBacktestEngine
 from quant_vibe.utils import (
     get_date_range,
     load_options_backtest_data,

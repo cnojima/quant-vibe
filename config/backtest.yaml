@@ -12,6 +12,13 @@ date_range:
   market_hours_only: true
 strategies:
   enabled:
+  - name: throckmorton_credit_ladder
+    enabled: true
+    params:
+      max_trades_daily: 2
+      min_dte: 0
+      max_dte: 0
+      num_spreads: 5
   - name: bullish_vertical_put
     enabled: true
     params:

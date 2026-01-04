@@ -15,7 +15,7 @@ import pandas as pd
 import numpy as np
 import pytz
 
-from ..strategies.options_base import OptionsStrategy, OptionsPosition
+from quant_vibe.strategies.options_base import OptionsStrategy, OptionsPosition
 
 
 class OptionsBacktestEngine:

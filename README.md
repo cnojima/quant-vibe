@@ -201,7 +201,7 @@ python scripts/run_backtest.py --config config/my_backtest.yaml
 **Programmatic Approach:**
 
 ```python
-from quant_vibe.backtesting import OptionsBacktestEngine, BacktestReporter
+from backtest import OptionsBacktestEngine, BacktestReporter
 from quant_vibe.strategies.bullish_vertical_put import BullishVerticalPutStrategy
 from quant_vibe.utils import load_options_backtest_data
 from datetime import datetime

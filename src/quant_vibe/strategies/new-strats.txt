@@ -1,0 +1,9 @@
+# throckmortenMD_reddit_credit_spread_laddering_strategy
+  • Strategy Name: ThrockmortenMD Reddit Credit Spread Laddering Strategy
+  • Wait 60 Minutes: No order placed until 10:30 ET
+  • Check Catalysts: Ensure no major economic news (CPI, FOMC) is scheduled
+  • Calculate Zones: Calculate the ATM Straddle at 10:30 AM to define 1SD and 2SD from this point.
+  • Set GTC order: Place limit orders to sell 1x 50-wide spreads at the 2SD strike for the current credit of the same spread at the 1SD strike.
+  • Deploy the Ladder: If the 2SD is touched, immediately sell a second spread 1SD further out (potentially could increase number of contracts given the PoP).
+  • Trust the Math: Use the spread width as your hard stop; do not manually close trades early or chase price. The risk is baked in to the timed entry, not stop loss management.
+  • If a sudden catalyst emerges (tariffs, war, covid etc) immediately exit all positions to the downside .

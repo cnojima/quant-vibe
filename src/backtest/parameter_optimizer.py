@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Type, Callable
 from datetime import datetime
 import logging
 
-from quant_vibe.backtesting.options_engine import OptionsBacktestEngine
+from .options_engine import OptionsBacktestEngine
 from quant_vibe.strategies.options_base import OptionsStrategy
 from quant_vibe.config.logging_config import setup_normalized_logging
 from quant_vibe.utils.timestamp_utils import now_utc

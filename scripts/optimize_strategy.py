@@ -26,7 +26,7 @@ import pandas as pd
 import json
 from pathlib import Path
 
-from quant_vibe.optimization import ParameterOptimizer, WalkForwardAnalysis
+from backtest import ParameterOptimizer, WalkForwardAnalysis
 from quant_vibe.strategies.registry import StrategyRegistry
 from quant_vibe.utils import load_options_backtest_data
 from quant_vibe.config.logging_config import setup_normalized_logging

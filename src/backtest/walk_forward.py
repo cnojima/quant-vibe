@@ -13,9 +13,9 @@ from typing import Any, Dict, List, Optional, Type
 from datetime import datetime, timedelta
 import logging
 
-from quant_vibe.backtesting.options_engine import OptionsBacktestEngine
+from .options_engine import OptionsBacktestEngine
 from quant_vibe.strategies.options_base import OptionsStrategy
-from quant_vibe.optimization.parameter_optimizer import ParameterOptimizer
+from .parameter_optimizer import ParameterOptimizer
 from quant_vibe.config.logging_config import setup_normalized_logging
 
 logger = setup_normalized_logging("walk_forward", "INFO", "logs/optimization")
