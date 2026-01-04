@@ -270,3 +270,131 @@ export interface ActiveStrategiesResponse {
   strategies: ActiveStrategy[];
   count: number;
 }
+
+// ==================== Backtest Analysis Types ====================
+
+export interface GreeksAnalysis {
+  dominant_factor: string;
+  delta_contribution: number;
+  theta_contribution: number;
+  vega_contribution: number;
+  gamma_contribution: number;
+  entry_delta?: number | null;
+  exit_delta?: number | null;
+  theta_decay_total?: number | null;
+}
+
+export interface MarketConditions {
+  underlying_move_pct: number;
+  underlying_move_direction: 'up' | 'down' | 'flat';
+  volatility_change_pct?: number | null;
+  market_regime: 'trending_up' | 'trending_down' | 'choppy' | 'volatile_spike';
+  intraday_range_pct?: number | null;
+}
+
+export interface StrategyAdherence {
+  within_all_rules: boolean;
+  rule_violations: string[];
+  edge_case_flags: string[];
+  entry_quality_score: number;
+}
+
+export interface ExitTiming {
+  exit_reason: string;
+  held_pct_of_max_duration: number;
+  was_optimal: boolean;
+  profit_captured_pct?: number | null;
+  could_have_exited_better: boolean;
+  timing_notes?: string | null;
+}
+
+export interface MacroEvent {
+  event_type: string;
+  event_date: string;
+  description: string;
+  proximity_to_trade: string;
+  likely_impact: 'high' | 'medium' | 'low';
+}
+
+export interface TradeInsights {
+  greeks: GreeksAnalysis;
+  market_conditions: MarketConditions;
+  strategy_adherence: StrategyAdherence;
+  exit_timing: ExitTiming;
+  macro_events: MacroEvent[];
+}
+
+export interface TradeInsight {
+  trade_id: string;
+  pnl: number;
+  pnl_pct: number;
+  std_devs_from_mean: number;
+  insights: TradeInsights;
+  generalization_potential: 'high' | 'medium' | 'low';
+  key_takeaway: string;
+}
+
+export interface EntryTimingPattern {
+  best_hour: number;
+  worst_hour: number;
+  hourly_stats: Record<number, {
+    avg_pnl: number;
+    win_rate: number;
+    count: number;
+  }>;
+}
+
+export interface ExitReasonPattern {
+  profit_target_win_rate: number;
+  stop_loss_win_rate: number;
+  expiration_win_rate: number;
+  trailing_stop_win_rate: number;
+  exit_reason_counts: Record<string, number>;
+  exit_reason_avg_pnl: Record<string, number>;
+}
+
+export interface DTEPerformance {
+  dte_buckets: Record<string, {
+    avg_pnl: number;
+    win_rate: number;
+    count: number;
+  }>;
+  optimal_dte_range: string;
+}
+
+export interface StrikeSelectionPattern {
+  otm_pct_buckets: Record<string, {
+    avg_pnl: number;
+    win_rate: number;
+    count: number;
+  }>;
+  optimal_otm_pct: number;
+}
+
+export interface Patterns {
+  entry_timing?: EntryTimingPattern | null;
+  exit_reasons?: ExitReasonPattern | null;
+  dte_performance?: DTEPerformance | null;
+  strike_selection?: StrikeSelectionPattern | null;
+  additional_patterns?: Record<string, any>;
+}
+
+export interface AnalysisFindings {
+  big_winners: TradeInsight[];
+  big_losers: TradeInsight[];
+  patterns: Patterns;
+}
+
+export interface AnalysisResult {
+  analysis_id?: number | null;
+  backtest_id: string;
+  analyzed_at: string;
+  total_trades: number;
+  outlier_threshold_pct: number;
+  num_big_winners: number;
+  num_big_losers: number;
+  findings: AnalysisFindings;
+  summary_markdown: string;
+  recommendations_markdown: string;
+  analyzer_version?: string;
+}

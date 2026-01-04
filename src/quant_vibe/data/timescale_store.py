@@ -1637,3 +1637,225 @@ class TimescaleStore:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         self.close()
+
+    # ==================== Backtest Analysis Methods ====================
+
+    def save_backtest_analysis(
+        self,
+        backtest_id: str,
+        total_trades: int,
+        outlier_threshold_pct: float,
+        num_big_winners: int,
+        num_big_losers: int,
+        findings: Dict[str, Any],
+        summary_markdown: str,
+        recommendations_markdown: str,
+        analyzer_version: str = "1.0.0",
+    ) -> int:
+        """
+        Save backtest analysis results to database.
+
+        Args:
+            backtest_id: Backtest identifier
+            total_trades: Total number of trades analyzed
+            outlier_threshold_pct: Standard deviation threshold used
+            num_big_winners: Number of outlier winners found
+            num_big_losers: Number of outlier losers found
+            findings: JSONB structured findings
+            summary_markdown: Markdown summary
+            recommendations_markdown: Markdown recommendations
+            analyzer_version: Version of analyzer
+
+        Returns:
+            analysis_id: Database ID of created analysis record
+
+        Raises:
+            psycopg2.Error: If database operation fails
+        """
+        import json
+
+        query = """
+            INSERT INTO backtest_analysis (
+                backtest_id,
+                total_trades,
+                outlier_threshold_pct,
+                num_big_winners,
+                num_big_losers,
+                findings,
+                summary_markdown,
+                recommendations_markdown,
+                analyzer_version
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s
+            )
+            RETURNING analysis_id;
+        """
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    query,
+                    (
+                        backtest_id,
+                        total_trades,
+                        outlier_threshold_pct,
+                        num_big_winners,
+                        num_big_losers,
+                        json.dumps(findings),
+                        summary_markdown,
+                        recommendations_markdown,
+                        analyzer_version,
+                    ),
+                )
+                analysis_id = cursor.fetchone()[0]
+                conn.commit()
+                logger.info(f"Saved analysis {analysis_id} for backtest {backtest_id}")
+                return analysis_id
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to save backtest analysis: {e}")
+                raise
+
+    def get_backtest_analysis(self, backtest_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get backtest analysis results from database.
+
+        Args:
+            backtest_id: Backtest identifier
+
+        Returns:
+            Dictionary with analysis data, or None if not found
+        """
+        query = """
+            SELECT
+                analysis_id,
+                backtest_id,
+                analyzed_at,
+                total_trades,
+                outlier_threshold_pct,
+                num_big_winners,
+                num_big_losers,
+                findings,
+                summary_markdown,
+                recommendations_markdown,
+                analyzer_version,
+                created_at,
+                updated_at
+            FROM backtest_analysis
+            WHERE backtest_id = %s
+            ORDER BY analyzed_at DESC
+            LIMIT 1;
+        """
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            try:
+                cursor.execute(query, (backtest_id,))
+                result = cursor.fetchone()
+                if result:
+                    # Convert to regular dict and handle datetime objects
+                    analysis = dict(result)
+                    # Convert datetime objects to ISO format strings
+                    for key in ["analyzed_at", "created_at", "updated_at"]:
+                        if key in analysis and analysis[key]:
+                            analysis[key] = analysis[key].isoformat()
+                    return analysis
+                return None
+            except Exception as e:
+                logger.error(f"Failed to get backtest analysis: {e}")
+                raise
+
+    def delete_backtest_analysis(self, backtest_id: str) -> int:
+        """
+        Delete backtest analysis for a specific backtest.
+
+        Note: This is also handled automatically by ON DELETE CASCADE
+        when a backtest is deleted.
+
+        Args:
+            backtest_id: Backtest identifier
+
+        Returns:
+            Number of analysis records deleted
+        """
+        query = "DELETE FROM backtest_analysis WHERE backtest_id = %s;"
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(query, (backtest_id,))
+                deleted_count = cursor.rowcount
+                conn.commit()
+                logger.info(f"Deleted {deleted_count} analysis records for backtest {backtest_id}")
+                return deleted_count
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to delete backtest analysis: {e}")
+                raise
+
+    def update_backtest_analysis(
+        self,
+        analysis_id: int,
+        findings: Optional[Dict[str, Any]] = None,
+        summary_markdown: Optional[str] = None,
+        recommendations_markdown: Optional[str] = None,
+    ) -> bool:
+        """
+        Update an existing backtest analysis.
+
+        Args:
+            analysis_id: Analysis record ID
+            findings: Optional updated findings JSONB
+            summary_markdown: Optional updated summary
+            recommendations_markdown: Optional updated recommendations
+
+        Returns:
+            True if update successful, False if record not found
+        """
+        import json
+
+        # Build dynamic UPDATE query based on provided fields
+        updates = []
+        params = []
+
+        if findings is not None:
+            updates.append("findings = %s")
+            params.append(json.dumps(findings))
+
+        if summary_markdown is not None:
+            updates.append("summary_markdown = %s")
+            params.append(summary_markdown)
+
+        if recommendations_markdown is not None:
+            updates.append("recommendations_markdown = %s")
+            params.append(recommendations_markdown)
+
+        if not updates:
+            logger.warning("No fields to update in backtest analysis")
+            return False
+
+        # Add analysis_id to params
+        params.append(analysis_id)
+
+        query = f"""
+            UPDATE backtest_analysis
+            SET {', '.join(updates)}
+            WHERE analysis_id = %s;
+        """
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(query, params)
+                updated = cursor.rowcount > 0
+                conn.commit()
+                if updated:
+                    logger.info(f"Updated analysis {analysis_id}")
+                else:
+                    logger.warning(f"Analysis {analysis_id} not found for update")
+                return updated
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to update backtest analysis: {e}")
+                raise

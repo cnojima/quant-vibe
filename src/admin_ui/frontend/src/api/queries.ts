@@ -17,6 +17,7 @@ import type {
   StrategyInfo,
   StrategyListResponse,
   ActiveStrategiesResponse,
+  AnalysisResult,
 } from '../types/api';
 
 // Auth queries
@@ -335,6 +336,52 @@ export function useDeleteAllBacktests() {
     onSuccess: () => {
       // Invalidate backtest history to refresh the list
       queryClient.invalidateQueries({ queryKey: ['backtest-history'] });
+    },
+  });
+}
+
+// Backtest Analysis queries
+export function useAnalyzeBacktest() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ backtestId, outlierStdDevs = 2.0 }: { backtestId: string; outlierStdDevs?: number }) => {
+      const response = await apiClient.post<AnalysisResult>(`/backtests/${backtestId}/analyze`, null, {
+        params: { outlier_std_devs: outlierStdDevs },
+      });
+      return response.data;
+    },
+    onSuccess: (_data, variables) => {
+      // Invalidate analysis query to refresh results
+      queryClient.invalidateQueries({ queryKey: ['backtest-analysis', variables.backtestId] });
+    },
+  });
+}
+
+export function useBacktestAnalysis(backtestId: string | null) {
+  return useQuery({
+    queryKey: ['backtest-analysis', backtestId],
+    queryFn: async () => {
+      if (!backtestId) throw new Error('No backtest ID');
+      const response = await apiClient.get<AnalysisResult>(`/backtests/${backtestId}/analysis`);
+      return response.data;
+    },
+    enabled: !!backtestId,
+    retry: false, // Don't retry if analysis doesn't exist (404)
+  });
+}
+
+export function useDeleteBacktestAnalysis() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (backtestId: string) => {
+      const response = await apiClient.delete(`/backtests/${backtestId}/analysis`);
+      return response.data;
+    },
+    onSuccess: (_data, backtestId) => {
+      // Invalidate analysis query
+      queryClient.invalidateQueries({ queryKey: ['backtest-analysis', backtestId] });
     },
   });
 }

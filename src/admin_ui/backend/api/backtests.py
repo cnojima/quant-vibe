@@ -1017,3 +1017,148 @@ def load_csv_file(file_path: str, max_rows: int = 1000) -> list[dict]:
             status_code=500,
             detail=f"Failed to load CSV file: {str(e)}"
         )
+
+
+# ==================== Analysis Endpoints ====================
+
+
+@router.post("/{backtest_id}/analyze")
+async def analyze_backtest(
+    backtest_id: str,
+    outlier_std_devs: float = 2.0,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Trigger analysis for a completed backtest.
+
+    This endpoint analyzes trade performance, identifies outlier wins/losses,
+    extracts patterns, and generates actionable recommendations.
+
+    Args:
+        backtest_id: Backtest identifier
+        outlier_std_devs: Standard deviation threshold for outlier detection (default: 2.0)
+
+    Returns:
+        Complete analysis result with structured findings and narrative summaries
+    """
+    from quant_vibe.analytics.backtest_analyzer import BacktestAnalyzer
+
+    try:
+        # Verify backtest exists
+        ts_store = _get_timescale_store()
+        backtest_run = ts_store.get_backtest_run(backtest_id)
+        if not backtest_run:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Backtest {backtest_id} not found"
+            )
+
+        # Check if backtest is completed
+        if backtest_run.get("status") != "completed":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Backtest {backtest_id} is not completed (status: {backtest_run.get('status')})"
+            )
+
+        # Run analysis
+        analyzer = BacktestAnalyzer(backtest_id)
+        result = await analyzer.analyze(outlier_std_devs)
+
+        # Save to database
+        analysis_id = ts_store.save_backtest_analysis(
+            backtest_id=result.backtest_id,
+            total_trades=result.total_trades,
+            outlier_threshold_pct=result.outlier_threshold_pct,
+            num_big_winners=result.num_big_winners,
+            num_big_losers=result.num_big_losers,
+            findings=result.findings.model_dump(mode='json'),
+            summary_markdown=result.summary_markdown,
+            recommendations_markdown=result.recommendations_markdown,
+            analyzer_version=result.analyzer_version,
+        )
+
+        # Add analysis_id to result
+        result.analysis_id = analysis_id
+
+        return result.model_dump(mode='json')
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Analysis failed: {str(e)}"
+        )
+
+
+@router.get("/{backtest_id}/analysis")
+async def get_backtest_analysis(
+    backtest_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get saved analysis results for a backtest.
+
+    Args:
+        backtest_id: Backtest identifier
+
+    Returns:
+        Analysis results if available, 404 if not found
+    """
+    ts_store = _get_timescale_store()
+
+    try:
+        analysis = ts_store.get_backtest_analysis(backtest_id)
+
+        if not analysis:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No analysis found for backtest {backtest_id}. Run analysis first."
+            )
+
+        return analysis
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve analysis: {str(e)}"
+        )
+
+
+@router.delete("/{backtest_id}/analysis")
+async def delete_backtest_analysis(
+    backtest_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Delete analysis results for a backtest.
+
+    Note: Analysis is also automatically deleted when the backtest is deleted
+    due to CASCADE delete constraint.
+
+    Args:
+        backtest_id: Backtest identifier
+
+    Returns:
+        Deletion status
+    """
+    ts_store = _get_timescale_store()
+
+    try:
+        deleted_count = ts_store.delete_backtest_analysis(backtest_id)
+
+        return {
+            "status": "deleted",
+            "backtest_id": backtest_id,
+            "deleted_count": deleted_count,
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete analysis: {str(e)}"
+        )

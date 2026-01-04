@@ -1,6 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useStrategies, useRunBacktest, useBacktestStatus, useBacktestResults, useBacktestHistory, useDeleteBacktest, useDeleteAllBacktests } from '../api/queries';
+import {
+  useStrategies,
+  useRunBacktest,
+  useBacktestStatus,
+  useBacktestResults,
+  useBacktestHistory,
+  useDeleteBacktest,
+  useDeleteAllBacktests,
+  useAnalyzeBacktest,
+  useBacktestAnalysis,
+} from '../api/queries';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
@@ -8,6 +18,9 @@ import { InfoIcon } from '../components/common/InfoIcon';
 import { EquityCurveChart } from '../components/charts/EquityCurveChart';
 import { PnLDistributionChart } from '../components/charts/PnLDistributionChart';
 import { DrawdownChart } from '../components/charts/DrawdownChart';
+import { OutlierTradesTable } from '../components/analysis/OutlierTradesTable';
+import { PatternInsights } from '../components/analysis/PatternInsights';
+import { MarkdownSection } from '../components/analysis/MarkdownSection';
 import { formatDistanceToNow } from 'date-fns';
 import {
   getTodayEST,
@@ -27,7 +40,7 @@ export function BacktestRunner() {
   const [maxDte, setMaxDte] = useState<number>(2);
   const [maxTradesDaily, setMaxTradesDaily] = useState<number>(1);
   const [currentBacktestId, setCurrentBacktestId] = useState<string | null>(null);
-  const [selectedTab, setSelectedTab] = useState<'run' | 'results' | 'history'>('run');
+  const [selectedTab, setSelectedTab] = useState<'run' | 'results' | 'analysis' | 'history'>('run');
 
   const queryClient = useQueryClient();
   const { data: strategies, isLoading: strategiesLoading } = useStrategies();
@@ -37,6 +50,8 @@ export function BacktestRunner() {
   const { data: history } = useBacktestHistory(50);
   const deleteBacktest = useDeleteBacktest();
   const deleteAllBacktests = useDeleteAllBacktests();
+  const analyzeBacktest = useAnalyzeBacktest();
+  const { data: analysisResults, isError: analysisError } = useBacktestAnalysis(currentBacktestId);
 
   // Invalidate history when backtest completes
   useEffect(() => {
@@ -227,6 +242,17 @@ export function BacktestRunner() {
             }`}
           >
             Results
+          </button>
+          <button
+            onClick={() => setSelectedTab('analysis')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              selectedTab === 'analysis'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Analysis
+            {analysisResults && <span className="ml-1 text-green-600">●</span>}
           </button>
           <button
             onClick={() => setSelectedTab('history')}
@@ -756,6 +782,130 @@ export function BacktestRunner() {
                 No backtest results available. Run a backtest to see results.
               </div>
             </Card>
+          )}
+        </div>
+      )}
+
+      {/* Analysis Tab */}
+      {selectedTab === 'analysis' && (
+        <div className="space-y-6">
+          {!currentBacktestId && (
+            <Card>
+              <div className="text-center text-gray-600 py-12">
+                No backtest selected. Run a backtest and view results to enable analysis.
+              </div>
+            </Card>
+          )}
+
+          {currentBacktestId && backtestStatus?.status !== 'completed' && (
+            <Card>
+              <div className="text-center text-gray-600 py-12">
+                Backtest must be completed before analysis can be performed.
+                <br />
+                Current status: <Badge variant="warning">{backtestStatus?.status || 'unknown'}</Badge>
+              </div>
+            </Card>
+          )}
+
+          {currentBacktestId && backtestStatus?.status === 'completed' && (
+            <>
+              {/* Analysis Actions */}
+              <Card>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold mb-2">Backtest Analysis</h3>
+                    <p className="text-sm text-gray-600">
+                      Analyze outlier trades, identify patterns, and get actionable recommendations.
+                    </p>
+                  </div>
+                  <Button
+                    variant="primary"
+                    onClick={async () => {
+                      if (!currentBacktestId) return;
+                      try {
+                        await analyzeBacktest.mutateAsync({ backtestId: currentBacktestId });
+                      } catch (error: any) {
+                        alert(`Analysis failed: ${error.message || 'Unknown error'}`);
+                      }
+                    }}
+                    disabled={analyzeBacktest.isPending}
+                  >
+                    {analyzeBacktest.isPending
+                      ? 'Analyzing...'
+                      : analysisResults
+                      ? 'Re-run Analysis'
+                      : 'Run Analysis'}
+                  </Button>
+                </div>
+
+                {analysisResults && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div>
+                        <p className="text-sm text-gray-600">Total Trades</p>
+                        <p className="text-2xl font-bold">{analysisResults.total_trades}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Big Winners</p>
+                        <p className="text-2xl font-bold text-green-600">
+                          {analysisResults.num_big_winners}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Big Losers</p>
+                        <p className="text-2xl font-bold text-red-600">
+                          {analysisResults.num_big_losers}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Outlier Threshold</p>
+                        <p className="text-2xl font-bold">
+                          {analysisResults.outlier_threshold_pct}σ
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Card>
+
+              {/* Analysis Results */}
+              {analysisResults && (
+                <>
+                  <OutlierTradesTable
+                    title="Big Winners"
+                    trades={analysisResults.findings.big_winners}
+                    type="winner"
+                  />
+
+                  <OutlierTradesTable
+                    title="Big Losers"
+                    trades={analysisResults.findings.big_losers}
+                    type="loser"
+                  />
+
+                  <PatternInsights patterns={analysisResults.findings.patterns} />
+
+                  <MarkdownSection
+                    title="Summary"
+                    content={analysisResults.summary_markdown}
+                  />
+
+                  <MarkdownSection
+                    title="Recommendations"
+                    content={analysisResults.recommendations_markdown}
+                  />
+                </>
+              )}
+
+              {analysisError && !analysisResults && (
+                <Card>
+                  <div className="text-center text-gray-600 py-8">
+                    <p className="mb-4">No analysis available for this backtest.</p>
+                    <p className="text-sm">Click "Run Analysis" to generate insights.</p>
+                  </div>
+                </Card>
+              )}
+            </>
           )}
         </div>
       )}
