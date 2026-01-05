@@ -6,7 +6,7 @@ from .backtest_helpers import (
     save_backtest_to_db,
     setup_backtest_output,
 )
-from .dataframe_utils import convert_string_columns_to_numeric
+from .dataframe_utils import convert_string_columns_to_numeric, convert_decimals_to_float
 from .datetime_utils import get_date_range, make_utc_datetime
 from .decimal_utils import safe_decimal
 from .output import TeeOutput
@@ -27,6 +27,7 @@ from .timestamp_utils import (
 )
 
 __all__ = [
+    "convert_decimals_to_float",
     "convert_string_columns_to_numeric",
     "ensure_utc_aware",
     "from_timestamp",

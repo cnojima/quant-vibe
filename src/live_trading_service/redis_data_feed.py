@@ -13,11 +13,13 @@ from typing import Dict, List, Optional, Callable
 import math
 
 import pandas as pd
+from pydantic import ValidationError
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from quant_vibe.messaging import RedisMessageBroker, Topic
+from quant_vibe.models import OptionsBar, UnderlyingBar
 from quant_vibe.utils import (
     convert_string_columns_to_numeric,
     parse_expiration_from_ticker,
@@ -172,103 +174,53 @@ class RedisDataFeed:
         except Exception as e:
             self.logger.error(f"Error handling message: {e}", exc_info=True)
 
-    def _handle_option_bar(self, bar: Dict):
-        """Handle incoming option bar.
+    def _handle_option_bar(self, bar_data: Dict):
+        """Handle incoming option bar using Pydantic validation.
 
         Args:
-            bar: Option bar data
+            bar_data: Raw option bar data from Redis
         """
-        symbol = bar.get('contract_symbol')
-        if not symbol:
-            self.logger.warning(f"Option bar missing 'contract_symbol': {list(bar.keys())[:10]}")
-            return
+        try:
+            # Convert NaN values to None (pandas serialization issue)
+            for key, value in bar_data.items():
+                if pd.isna(value):
+                    bar_data[key] = None
 
-        # Debug: Log first bar to see what fields we're getting
-        if self.bars_received == 0:
-            self.logger.info(f"First option bar received: {list(bar.keys())}")
-            self.logger.info(f"  Symbol: {symbol}")
-            self.logger.info(f"  Has expiration_date: {'expiration_date' in bar}")
-            self.logger.info(f"  expiration_date value: {bar.get('expiration_date')}")
-            self.logger.info(f"  Has contract_type: {'contract_type' in bar}")
-            self.logger.info(f"  contract_type value: {bar.get('contract_type')}")
-            self.logger.info(f"  Has strike_price: {'strike_price' in bar}")
+            # Validate with Pydantic model
+            # This automatically:
+            # - Enriches missing fields from contract_symbol
+            # - Converts expiration_date to date object
+            # - Normalizes contract_type to lowercase
+            # - Ensures UTC-aware timestamps
+            # - Validates OHLC constraints
+            validated_bar = OptionsBar(**bar_data)
 
-        # Enrich bar with missing fields by parsing from symbol
-        # This handles cases where remote streaming service doesn't enrich data
-        needs_enrichment = False
+            # Convert back to dict for storage
+            # Use mode='python' to convert Decimals to float for pandas compatibility
+            bar = validated_bar.model_dump(mode='python')
 
-        # Normalize symbol for parsing (remove spaces)
-        normalized_symbol = normalize_option_ticker(symbol)
+            symbol = bar['contract_symbol']
 
-        # Check expiration_date (handle None, nan, and missing)
-        exp_value = bar.get('expiration_date')
+            # Log first few bars
+            if self.bars_received < 3:
+                self.logger.info(f"✓ Validated bar: {symbol}")
+                self.logger.info(f"  expiration_date: {bar['expiration_date']} (type: {type(bar['expiration_date'])})")
+                self.logger.info(f"  contract_type: {bar['contract_type']}")
+                self.logger.info(f"  strike_price: {bar['strike_price']}")
+                if bar.get('mark'):
+                    self.logger.info(f"  mark: ${float(bar['mark']):.2f}")
 
-        # Log what we're checking
-        if self.bars_received < 3:
-            self.logger.info(f"Checking expiration_date: in_bar={'expiration_date' in bar}, value={exp_value}, type={type(exp_value)}")
-            self.logger.info(f"  Normalized symbol: {normalized_symbol}")
+            # Add to deque
+            self.option_bars[symbol].append(bar)
+            self.bars_received += 1
 
-        # Use pd.isna() which handles all types of missing values
-        if 'expiration_date' not in bar or pd.isna(exp_value):
-            expiration = parse_expiration_from_ticker(normalized_symbol)
-            if expiration:
-                # Convert to pd.Timestamp for consistency with strategy comparisons
-                bar['expiration_date'] = pd.Timestamp(expiration)
-                needs_enrichment = True
-                if self.bars_received < 3:  # Log first few
-                    self.logger.info(f"✓ Enriched expiration_date: {normalized_symbol} -> {expiration}")
-            else:
-                if self.bars_received < 3:
-                    self.logger.warning(f"Failed to parse expiration_date from symbol: {normalized_symbol}")
+            # Notify callbacks
+            self._notify_callbacks([bar])
 
-        # Check contract_type (handle None, nan, and missing)
-        ct_value = bar.get('contract_type')
-
-        # Log what we're checking
-        if self.bars_received < 3:
-            self.logger.info(f"Checking contract_type: in_bar={'contract_type' in bar}, value={ct_value}, type={type(ct_value)}")
-
-        # Use pd.isna() which handles all types of missing values
-        if 'contract_type' not in bar or pd.isna(ct_value):
-            contract_type = parse_contract_type_from_ticker(normalized_symbol)
-            if contract_type:
-                bar['contract_type'] = contract_type
-                needs_enrichment = True
-                if self.bars_received < 3:  # Log first few
-                    self.logger.info(f"✓ Enriched contract_type: {normalized_symbol} -> {contract_type}")
-            else:
-                if self.bars_received < 3:
-                    self.logger.warning(f"Failed to parse contract_type from symbol: {normalized_symbol}")
-
-        if needs_enrichment and self.bars_received == 0:
-            self.logger.info(f"Enriched bar now has: expiration_date={bar.get('expiration_date')}, contract_type={bar.get('contract_type')}")
-
-        # Calculate mark price if not present (bid/ask midpoint)
-        if 'mark' not in bar or pd.isna(bar.get('mark')):
-            bid = bar.get('bid')
-            ask = bar.get('ask')
-            if bid and ask and not pd.isna(bid) and not pd.isna(ask):
-                bar['mark'] = (bid + ask) / 2
-                if self.bars_received < 3:  # Log first few
-                    self.logger.info(f"✓ Calculated mark price: {symbol} -> ${bar['mark']:.2f} (bid={bid}, ask={ask})")
-            elif bid and not pd.isna(bid):
-                bar['mark'] = bid
-                if self.bars_received < 3:
-                    self.logger.info(f"✓ Using bid as mark: {symbol} -> ${bar['mark']:.2f}")
-            elif ask and not pd.isna(ask):
-                bar['mark'] = ask
-                if self.bars_received < 3:
-                    self.logger.info(f"✓ Using ask as mark: {symbol} -> ${bar['mark']:.2f}")
-            else:
-                if self.bars_received < 3:
-                    self.logger.warning(f"Cannot calculate mark price for {symbol}: bid={bid}, ask={ask}")
-
-        # Add to deque
-        self.option_bars[symbol].append(bar)
-        self.bars_received += 1
-
-        # Notify callbacks
-        self._notify_callbacks([bar])
+        except ValidationError as e:
+            self.logger.warning(f"Bar validation failed: {e}")
+        except Exception as e:
+            self.logger.error(f"Error handling option bar: {e}", exc_info=True)
 
     def _handle_underlying_bar(self, bar: Dict):
         """Handle incoming underlying bar.

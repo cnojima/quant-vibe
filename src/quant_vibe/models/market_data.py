@@ -303,6 +303,47 @@ class OptionsBar(BaseModel):
 
     @model_validator(mode='before')
     @classmethod
+    def enrich_from_contract_symbol(cls, data: dict) -> dict:
+        """
+        Enrich missing fields by parsing contract_symbol.
+
+        This allows creating OptionsBar from incomplete data (e.g., from Redis)
+        where only contract_symbol is reliable, and other fields might be missing.
+
+        Automatically fills:
+        - strike_price (from contract_symbol if missing)
+        - contract_type (from contract_symbol if missing)
+        - expiration_date (from contract_symbol if missing)
+        """
+        contract_symbol = data.get('contract_symbol') or data.get('option_ticker')
+
+        if contract_symbol:
+            # Rename option_ticker to contract_symbol if needed
+            if 'option_ticker' in data and 'contract_symbol' not in data:
+                data['contract_symbol'] = data.pop('option_ticker')
+
+            # Enrich strike_price if missing
+            if data.get('strike_price') is None:
+                strike = parse_strike_from_ticker(contract_symbol)
+                if strike is not None:
+                    data['strike_price'] = strike
+
+            # Enrich contract_type if missing
+            if data.get('contract_type') is None:
+                contract_type = parse_contract_type_from_ticker(contract_symbol)
+                if contract_type is not None:
+                    data['contract_type'] = contract_type
+
+            # Enrich expiration_date if missing
+            if data.get('expiration_date') is None:
+                exp_date = parse_expiration_from_ticker(contract_symbol)
+                if exp_date is not None:
+                    data['expiration_date'] = exp_date
+
+        return data
+
+    @model_validator(mode='before')
+    @classmethod
     def fix_inverted_spread(cls, data: dict) -> dict:
         """
         Fix inverted bid-ask spreads by swapping them.

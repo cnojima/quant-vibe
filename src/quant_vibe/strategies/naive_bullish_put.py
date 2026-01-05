@@ -97,9 +97,11 @@ class NaiveBullishPutStrategy(OptionsStrategy):
 
         # Convert to ET to check market hours
         et_tz = pytz.timezone('America/New_York')
-        if hasattr(current_time, 'tz') and current_time.tz is not None:
+        if current_time.tzinfo is not None:
+            # Already timezone-aware, just convert to ET
             current_time_et = current_time.astimezone(et_tz)
         else:
+            # Naive datetime, assume UTC and localize
             current_time_et = pytz.UTC.localize(current_time).astimezone(et_tz)
 
         # Market hours: 9:30 AM - 4:00 PM ET

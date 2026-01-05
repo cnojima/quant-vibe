@@ -152,21 +152,13 @@ class BullishVerticalCallStrategy(OptionsStrategy):
             import pytz
             market_date = current_time.date()
 
-            # If current_time is timezone-aware (UTC), create market open in ET then convert
-            if hasattr(current_time, 'tz') and current_time.tz is not None:
-                # Create 9:30 AM ET
-                et_tz = pytz.timezone('America/New_York')
-                market_open_et = et_tz.localize(
-                    datetime.combine(market_date, datetime.strptime("09:30", "%H:%M").time())
-                )
-                # Convert to UTC
-                self.market_open_time = market_open_et.astimezone(pytz.UTC)
-            else:
-                # Naive datetime - assume local time
-                self.market_open_time = datetime.combine(
-                    market_date,
-                    datetime.strptime("09:30", "%H:%M").time()
-                )
+            # Create 9:30 AM ET and convert to UTC
+            et_tz = pytz.timezone('America/New_York')
+            market_open_et = et_tz.localize(
+                datetime.combine(market_date, datetime.strptime("09:30", "%H:%M").time())
+            )
+            # Always convert to UTC for timezone-aware comparison
+            self.market_open_time = market_open_et.astimezone(pytz.UTC)
 
         # Calculate time since market open
         time_since_open = (current_time - self.market_open_time).total_seconds() / 60

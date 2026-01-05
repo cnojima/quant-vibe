@@ -21,9 +21,15 @@ def convert_decimals_to_float(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     for col in df.columns:
-        # Check if column contains Decimal objects
-        if len(df) > 0 and isinstance(df[col].iloc[0], Decimal):
-            df[col] = df[col].astype(float)
+        # Check if column contains any Decimal objects
+        if len(df) > 0:
+            # Apply conversion that handles Decimal, None, and other types
+            def safe_float_convert(x):
+                if isinstance(x, Decimal):
+                    return float(x)
+                return x
+
+            df[col] = df[col].apply(safe_float_convert)
 
     return df
 
@@ -68,5 +74,10 @@ def convert_string_columns_to_numeric(df: pd.DataFrame) -> pd.DataFrame:
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    # pydantic migration should take care of this
+    # Convert expiration_date to date objects (handles strings, timestamps, etc.)
+    # if 'expiration_date' in df.columns:
+    #     df['expiration_date'] = pd.to_datetime(df['expiration_date'], errors='coerce').dt.date
 
     return df

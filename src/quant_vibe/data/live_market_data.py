@@ -10,11 +10,13 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, List, TYPE_CHECKING
 from collections import deque, defaultdict
+from pydantic import ValidationError
 from quant_vibe.utils.timestamp_utils import now_utc
 from quant_vibe.utils.dataframe_utils import convert_string_columns_to_numeric
 
 if TYPE_CHECKING:
     from ..live.data_feed import RealtimeDataFeed
+    from quant_vibe.models import OptionsBar, UnderlyingBar
 
 
 class LiveMarketDataProvider:
@@ -112,17 +114,23 @@ class LiveMarketDataProvider:
         This provides the full options chain needed for spread construction
         (selecting strikes, checking liquidity, calculating Greeks, etc.).
 
+        Uses Pydantic OptionsBar model for validation to ensure:
+        - Type safety (expiration_date is date, not string/timestamp)
+        - Schema consistency (contract_symbol, not option_ticker)
+        - UTC-aware timestamps
+        - Normalized symbols and contract types
+
         Args:
             underlying_ticker: Underlying ticker (default: SPX)
 
         Returns:
             DataFrame with columns:
-                - timestamp: Bar timestamp
+                - timestamp: Bar timestamp (UTC-aware)
                 - contract_symbol: Option contract symbol (e.g., SPXW251226C06875000)
                 - underlying_ticker: Underlying ticker (SPX)
                 - strike_price: Strike price
                 - contract_type: 'call' or 'put' (lowercase, matches DB schema)
-                - expiration_date: Expiration date
+                - expiration_date: Expiration date (date object, not string)
                 - open, high, low, close: OHLC prices
                 - volume: Trading volume
                 - bid, ask, mark: Bid/ask prices and mark (midpoint)
@@ -150,90 +158,93 @@ class LiveMarketDataProvider:
                 'implied_volatility', 'transactions'
             ])
 
-        # Filter by underlying ticker if needed
-        if 'underlying_ticker' in all_bars.columns:
-            all_bars = all_bars[all_bars['underlying_ticker'] == underlying_ticker].copy()
+        # Import OptionsBar at runtime to avoid circular import
+        from quant_vibe.models import OptionsBar
 
-        # Rename option_ticker to contract_symbol for consistency with backtest data
-        if not all_bars.empty and 'option_ticker' in all_bars.columns:
-            all_bars = all_bars.rename(columns={'option_ticker': 'contract_symbol'})
+        # Validate and normalize all bars using Pydantic OptionsBar model
+        # This ensures:
+        # - Correct types (expiration_date is date, not string)
+        # - Schema consistency (contract_symbol, not option_ticker)
+        # - UTC-aware timestamps
+        # - Normalized symbols and contract types
+        validated_bars = []
+        validation_errors = 0
 
-        # Enrich missing columns from contract_symbol if present
-        if not all_bars.empty and 'contract_symbol' in all_bars.columns:
-            from quant_vibe.utils.symbol_utils import (
-                parse_expiration_from_ticker,
-                parse_strike_from_ticker,
-                parse_contract_type_from_ticker,
-            )
+        for idx, row in all_bars.iterrows():
+            try:
+                # Convert DataFrame row to dict
+                row_dict = row.to_dict()
 
-            # Add missing contract_type
-            if 'contract_type' not in all_bars.columns or all_bars['contract_type'].isna().any():
-                if 'contract_type' not in all_bars.columns:
-                    self.logger.debug("contract_type column missing, enriching from ticker")
-                    all_bars['contract_type'] = None
+                # Handle option_ticker -> contract_symbol renaming
+                if 'option_ticker' in row_dict and 'contract_symbol' not in row_dict:
+                    row_dict['contract_symbol'] = row_dict.pop('option_ticker')
 
-                # Fill missing contract_type from symbol
-                mask = all_bars['contract_type'].isna()
-                if mask.any():
-                    num_enriched = mask.sum()
-                    all_bars.loc[mask, 'contract_type'] = all_bars.loc[mask, 'contract_symbol'].apply(
-                        lambda x: parse_contract_type_from_ticker(x) if pd.notna(x) else None
-                    )
-                    self.logger.debug(f"Enriched contract_type for {num_enriched} rows")
+                # Skip if no contract_symbol (underlying bars)
+                if 'contract_symbol' not in row_dict or pd.isna(row_dict.get('contract_symbol')):
+                    continue
 
-            # Add missing strike_price
-            if 'strike_price' not in all_bars.columns or all_bars['strike_price'].isna().any():
-                if 'strike_price' not in all_bars.columns:
-                    all_bars['strike_price'] = None
+                # Convert pandas NaN to None for optional fields
+                # Pydantic rejects NaN but accepts None
+                for key, value in row_dict.items():
+                    if pd.isna(value):
+                        row_dict[key] = None
 
-                # Fill missing strike_price from symbol
-                mask = all_bars['strike_price'].isna()
-                if mask.any():
-                    all_bars.loc[mask, 'strike_price'] = all_bars.loc[mask, 'contract_symbol'].apply(
-                        lambda x: parse_strike_from_ticker(x) if pd.notna(x) else None
-                    )
+                # Validate with Pydantic model
+                # This automatically:
+                # - Parses expiration_date from contract_symbol if missing
+                # - Converts expiration_date to date object
+                # - Normalizes contract_type to lowercase
+                # - Ensures UTC-aware timestamps
+                # - Validates OHLC constraints
+                bar = OptionsBar(**row_dict)
 
-            # Add missing expiration_date
-            if 'expiration_date' not in all_bars.columns or all_bars['expiration_date'].isna().any():
-                if 'expiration_date' not in all_bars.columns:
-                    all_bars['expiration_date'] = None
+                # Filter by underlying ticker
+                if bar.underlying_ticker == underlying_ticker:
+                    validated_bars.append(bar)
 
-                # Fill missing expiration_date from symbol
-                mask = all_bars['expiration_date'].isna()
-                if mask.any():
-                    all_bars.loc[mask, 'expiration_date'] = all_bars.loc[mask, 'contract_symbol'].apply(
-                        lambda x: pd.Timestamp(parse_expiration_from_ticker(x)) if pd.notna(x) and parse_expiration_from_ticker(x) else None
-                    )
+            except ValidationError as e:
+                validation_errors += 1
+                if validation_errors <= 5:  # Log first 5 errors
+                    self.logger.warning(f"Bar validation failed for row {idx}: {e}")
+            except Exception as e:
+                validation_errors += 1
+                if validation_errors <= 5:
+                    self.logger.error(f"Unexpected error validating row {idx}: {e}")
 
-        # Filter out underlying bars (keep only options bars)
-        # Options bars should have expiration_date, strike_price, and contract_type
-        if not all_bars.empty:
-            # Keep only rows that have option-specific fields
-            if 'strike_price' in all_bars.columns:
-                all_bars = all_bars[all_bars['strike_price'].notna()].copy()
+        if validation_errors > 5:
+            self.logger.warning(f"Total validation errors: {validation_errors} (showing first 5)")
 
-        # Get most recent bar for each contract (for snapshot)
-        if not all_bars.empty and 'contract_symbol' in all_bars.columns:
-            # Sort by timestamp to get latest
-            all_bars = all_bars.sort_values('timestamp')
-
-            # Get last bar for each symbol
-            snapshot = all_bars.groupby('contract_symbol', as_index=False).last()
-        else:
-            # If no data, return empty DataFrame with required columns
-            if all_bars.empty:
-                self.logger.debug("No options data after filtering (all_bars empty)")
-            else:
-                self.logger.warning(f"No contract_symbol column in data. Columns: {list(all_bars.columns)}")
-
-            snapshot = pd.DataFrame(columns=[
+        # Convert validated bars back to DataFrame
+        if not validated_bars:
+            self.logger.debug("No valid options bars after Pydantic validation")
+            return pd.DataFrame(columns=[
                 'timestamp', 'contract_symbol', 'underlying_ticker',
                 'strike_price', 'contract_type', 'expiration_date',
                 'open', 'high', 'low', 'close', 'volume', 'vwap',
                 'bid', 'ask', 'mark', 'bid_size', 'ask_size',
                 'delta', 'gamma', 'theta', 'vega', 'rho',
-                'implied_volatility', 'transactions'
+                'implied_volatility', 'transactions', 'data_source'
             ])
+
+        # Convert to DataFrame
+        # Use mode='python' to convert Decimals to float for pandas compatibility
+        snapshot_df = pd.DataFrame([bar.model_dump(mode='python') for bar in validated_bars])
+
+        # Ensure numeric columns are float (not Decimal)
+        # This is needed because model_dump(mode='python') may not fully convert
+        # nested Decimal objects in all edge cases
+        from quant_vibe.utils.dataframe_utils import convert_decimals_to_float
+        snapshot_df = convert_decimals_to_float(snapshot_df)
+
+        # Get most recent bar for each contract (for snapshot)
+        if 'contract_symbol' in snapshot_df.columns:
+            # Sort by timestamp to get latest
+            snapshot_df = snapshot_df.sort_values('timestamp')
+
+            # Get last bar for each symbol
+            snapshot = snapshot_df.groupby('contract_symbol', as_index=False).last()
+        else:
+            snapshot = snapshot_df
 
         # Calculate 'mark' price (midpoint of bid/ask) if not present or has NaN values
         if not snapshot.empty and 'bid' in snapshot.columns and 'ask' in snapshot.columns:
