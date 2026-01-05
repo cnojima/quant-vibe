@@ -77,6 +77,7 @@ class StreamDataBackfiller:
             os.getenv("SCHWAB_API_SECRET"),
             os.getenv("SCHWAB_CALLBACK_URL"),
             tokens_db=tokens_db,
+            timeout=30,
         )
 
         self.enricher = OptionContractEnricher(self.schwab_client)
