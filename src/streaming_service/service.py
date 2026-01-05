@@ -375,12 +375,27 @@ class StreamingService:
                                         # Normalize symbol
                                         normalized_symbol = normalize_option_ticker(enriched_quote['symbol'])
 
-                                        # Calculate mark
+                                        # Calculate mark and determine current price
                                         bid = enriched_quote.get('bid')
                                         ask = enriched_quote.get('ask')
                                         mark = None
                                         if bid is not None and ask is not None:
                                             mark = (bid + ask) / 2.0
+
+                                        # For real-time quotes, use available price for OHLC if not provided
+                                        # Priority: last > mark > close > bid > ask
+                                        current_price = enriched_quote.get('last')
+                                        if current_price is None:
+                                            current_price = mark
+                                        if current_price is None:
+                                            current_price = enriched_quote.get('close')
+                                        if current_price is None:
+                                            current_price = bid or ask
+
+                                        if current_price is None:
+                                            continue  # Skip if no price available
+
+                                        current_price_decimal = Decimal(str(current_price))
 
                                         # Create OptionsBar Pydantic model
                                         try:
@@ -391,10 +406,10 @@ class StreamingService:
                                                 strike_price=Decimal(str(strike_price)),
                                                 contract_type=contract_type,
                                                 expiration_date=exp_date,
-                                                open=Decimal(str(enriched_quote.get('open'))) if enriched_quote.get('open') is not None else Decimal('0'),
-                                                high=Decimal(str(enriched_quote.get('high'))) if enriched_quote.get('high') is not None else Decimal('0'),
-                                                low=Decimal(str(enriched_quote.get('low'))) if enriched_quote.get('low') is not None else Decimal('0'),
-                                                close=Decimal(str(enriched_quote.get('close'))) if enriched_quote.get('close') is not None else Decimal('0'),
+                                                open=Decimal(str(enriched_quote.get('open'))) if enriched_quote.get('open') is not None else current_price_decimal,
+                                                high=Decimal(str(enriched_quote.get('high'))) if enriched_quote.get('high') is not None else current_price_decimal,
+                                                low=Decimal(str(enriched_quote.get('low'))) if enriched_quote.get('low') is not None else current_price_decimal,
+                                                close=Decimal(str(enriched_quote.get('close'))) if enriched_quote.get('close') is not None else current_price_decimal,
                                                 volume=enriched_quote.get('volume') or 0,
                                                 bid=Decimal(str(bid)) if bid is not None else None,
                                                 ask=Decimal(str(ask)) if ask is not None else None,
