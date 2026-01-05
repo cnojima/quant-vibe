@@ -1,6 +1,7 @@
 """Utility functions."""
 
 from .backtest_helpers import (
+    convert_string_columns_to_numeric,
     load_options_backtest_data,
     save_backtest_results,
     save_backtest_to_db,
@@ -26,6 +27,7 @@ from .timestamp_utils import (
 )
 
 __all__ = [
+    "convert_string_columns_to_numeric",
     "ensure_utc_aware",
     "from_timestamp",
     "generate_position_id",

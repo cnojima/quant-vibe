@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Optional, Dict, List, TYPE_CHECKING
 from collections import deque, defaultdict
 from quant_vibe.utils.timestamp_utils import now_utc
+from quant_vibe.utils import convert_string_columns_to_numeric
 
 if TYPE_CHECKING:
     from ..live.data_feed import RealtimeDataFeed
@@ -82,6 +83,9 @@ class LiveMarketDataProvider:
 
         # Convert to DataFrame
         df = pd.DataFrame(bars)
+
+        # Convert string columns to numeric types (from Redis JSON deserialization)
+        df = convert_string_columns_to_numeric(df)
 
         # Apply lookback limit
         if lookback_bars is not None and len(df) > lookback_bars:

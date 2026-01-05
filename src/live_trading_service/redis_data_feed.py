@@ -19,12 +19,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from quant_vibe.messaging import RedisMessageBroker, Topic
 from quant_vibe.utils import (
+    convert_string_columns_to_numeric,
     parse_expiration_from_ticker,
     parse_contract_type_from_ticker,
     normalize_option_ticker,
+    now_utc,
 )
 from .utils import setup_logging
-from quant_vibe.utils import now_utc
 
 
 class RedisDataFeed:
@@ -359,6 +360,9 @@ class RedisDataFeed:
 
             df = pd.DataFrame(all_bars)
 
+            # Convert string columns to numeric types (from Redis JSON deserialization)
+            df = convert_string_columns_to_numeric(df)
+
             if num_bars and len(df) > num_bars:
                 df = df.tail(num_bars)
 
@@ -375,7 +379,12 @@ class RedisDataFeed:
         if num_bars:
             bars = bars[-num_bars:]
 
-        return pd.DataFrame(bars)
+        df = pd.DataFrame(bars)
+
+        # Convert string columns to numeric types (from Redis JSON deserialization)
+        df = convert_string_columns_to_numeric(df)
+
+        return df
 
     def get_underlying_price(self, ticker: str) -> Optional[float]:
         """Get current underlying price.
