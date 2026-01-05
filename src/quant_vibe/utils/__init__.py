@@ -1,12 +1,12 @@
 """Utility functions."""
 
 from .backtest_helpers import (
-    convert_string_columns_to_numeric,
     load_options_backtest_data,
     save_backtest_results,
     save_backtest_to_db,
     setup_backtest_output,
 )
+from .dataframe_utils import convert_string_columns_to_numeric
 from .datetime_utils import get_date_range, make_utc_datetime
 from .decimal_utils import safe_decimal
 from .output import TeeOutput
