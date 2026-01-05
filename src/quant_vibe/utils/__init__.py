@@ -7,6 +7,7 @@ from .backtest_helpers import (
     setup_backtest_output,
 )
 from .datetime_utils import get_date_range, make_utc_datetime
+from .decimal_utils import safe_decimal
 from .output import TeeOutput
 from .position_utils import generate_position_id
 from .retry import RetryConfig, RetryContext, retry_with_backoff
@@ -40,6 +41,7 @@ __all__ = [
     "RetryConfig",
     "RetryContext",
     "retry_with_backoff",
+    "safe_decimal",
     "save_backtest_results",
     "save_backtest_to_db",
     "setup_backtest_output",

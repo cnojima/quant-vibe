@@ -472,13 +472,15 @@ class StreamingService:
 
                                     if last is not None:
                                         try:
+                                            from quant_vibe.utils import safe_decimal
+
                                             underlying_bar = UnderlyingBar(
                                                 timestamp=timestamp,
                                                 ticker=normalized_symbol,
-                                                open=Decimal(str(quote.get('open'))) if quote.get('open') is not None else Decimal(str(last)),
-                                                high=Decimal(str(quote.get('high'))) if quote.get('high') is not None else Decimal(str(last)),
-                                                low=Decimal(str(quote.get('low'))) if quote.get('low') is not None else Decimal(str(last)),
-                                                close=Decimal(str(quote.get('close'))) if quote.get('close') is not None else Decimal(str(last)),
+                                                open=safe_decimal(quote.get('open'), last),
+                                                high=safe_decimal(quote.get('high'), last),
+                                                low=safe_decimal(quote.get('low'), last),
+                                                close=safe_decimal(quote.get('close'), last),
                                                 volume=quote.get('volume') or 0,
                                                 data_source='schwabdev_stream',
                                             )
