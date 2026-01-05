@@ -43,6 +43,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 from quant_vibe.data.massive_client import MassiveClient
 from quant_vibe.data.timescale_store import TimescaleStore
 from quant_vibe.models import OptionsBar
+from quant_vibe.utils.timestamp_utils import to_utc
 import pandas as pd
 
 
@@ -549,7 +550,7 @@ Examples:
 
                         # Create OptionsBar Pydantic model
                         options_bar = OptionsBar(
-                            timestamp=bar_dict['timestamp'],
+                            timestamp=to_utc(bar_dict['timestamp']),
                             contract_symbol=normalized_symbol,
                             underlying_ticker='SPX',
                             strike_price=Decimal(str(contract_details['strike_price'])),

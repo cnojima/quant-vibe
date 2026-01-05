@@ -364,7 +364,7 @@ class BollingerBandLimitStrategy(OptionsStrategy):
         if contract_data.iloc[0]["ask"]:
             current_ask = float(contract_data.iloc[0]["ask"])
         else:
-            print("Warning: No ask price available for contract", order.contract_symbol, current_time, contract_data.__len__())
+            print("Warning: No ask price available for contract", order.contract_symbol, contract_data.iloc[0]["ask"], current_time.astimezone(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %H:%M"))
             return False
 
         # Buy order fills when ask <= limit price
