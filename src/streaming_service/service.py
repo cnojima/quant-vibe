@@ -395,7 +395,7 @@ class StreamingService:
                                                 high=Decimal(str(enriched_quote.get('high'))) if enriched_quote.get('high') is not None else Decimal('0'),
                                                 low=Decimal(str(enriched_quote.get('low'))) if enriched_quote.get('low') is not None else Decimal('0'),
                                                 close=Decimal(str(enriched_quote.get('close'))) if enriched_quote.get('close') is not None else Decimal('0'),
-                                                volume=enriched_quote.get('volume', 0),
+                                                volume=enriched_quote.get('volume') or 0,
                                                 bid=Decimal(str(bid)) if bid is not None else None,
                                                 ask=Decimal(str(ask)) if ask is not None else None,
                                                 mark=Decimal(str(mark)) if mark is not None else None,
