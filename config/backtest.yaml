@@ -145,8 +145,8 @@ strategies:
   - name: hail_mary
     enabled: true
     params:
-      strike_otm_min_pct: 0.05
-      strike_otm_max_pct: 0.1
+      otm_percent_min: -0.05
+      otm_percent_max: 0.05
       entry_time_before_close: 15
       num_contracts: 10
       trailing_stop_pct: 0.05

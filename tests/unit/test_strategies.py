@@ -84,16 +84,16 @@ def test_strategy_validate_data():
 def test_hail_mary_initialization():
     """Test Hail Mary strategy initialization."""
     strategy = HailMaryStrategy(
-        strike_otm_min_pct=0.05,
-        strike_otm_max_pct=0.10,
+        otm_percent_min=0.05,
+        otm_percent_max=0.10,
         entry_time_before_close=15,
         num_contracts=10,
         trailing_stop_pct=0.05,
     )
 
     assert strategy.name == "HailMary"
-    assert strategy.strike_otm_min_pct == 0.05
-    assert strategy.strike_otm_max_pct == 0.10
+    assert strategy.otm_percent_min == 0.05
+    assert strategy.otm_percent_max == 0.10
     assert strategy.entry_time_before_close == 15
     assert strategy.num_contracts == 10
     assert strategy.trailing_stop_pct == 0.05

@@ -310,7 +310,7 @@ class BollingerBandLimitStrategy(OptionsStrategy):
 
         # Calculate how close each option is to our target price ($2)
         options_filtered["price_diff"] = abs(
-            options_filtered["ask"] - self.target_contract_price
+            options_filtered["ask"].astype(float) - float(self.target_contract_price)
         )
 
         # Sort by price difference (closest to $2 first)
@@ -325,7 +325,7 @@ class BollingerBandLimitStrategy(OptionsStrategy):
             "strike_price": selected["strike_price"],
             "expiration_date": selected["expiration_date"],
             "current_ask": selected["ask"],
-            "current_bid": selected.get("bid", selected["ask"] * 0.9),
+            "current_bid": selected.get("bid", float(selected["ask"]) * 0.9),
             "direction": direction,
         }
 
@@ -361,7 +361,11 @@ class BollingerBandLimitStrategy(OptionsStrategy):
         if contract_data.empty:
             return False
 
-        current_ask = contract_data.iloc[0]["ask"]
+        if contract_data.iloc[0]["ask"]:
+            current_ask = float(contract_data.iloc[0]["ask"])
+        else:
+            print("Warning: No ask price available for contract", order.contract_symbol, current_time, contract_data.__len__())
+            return False
 
         # Buy order fills when ask <= limit price
         if current_ask <= order.limit_price:

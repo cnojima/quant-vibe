@@ -149,8 +149,8 @@ PARAM_GRIDS = {
     "hail_mary": {
         # Hail Mary: Buy OTM calls in final 15min of trading
         # Key parameters to optimize:
-        "strike_otm_min_pct": [0.03, 0.05, 0.07],  # 3%, 5%, 7% above current price
-        "strike_otm_max_pct": [0.08, 0.10, 0.15],  # 8%, 10%, 15% above current price
+        "otm_percent_min": [0.03, 0.05, 0.07],  # 3%, 5%, 7% above current price
+        "otm_percent_max": [0.08, 0.10, 0.15],  # 8%, 10%, 15% above current price
         "trailing_stop_pct": [0.05, 0.10, 0.15],  # 5%, 10%, 15% trailing stop
         "num_contracts": [5, 10, 20],  # Number of contracts
         # Fixed parameters set in FIXED_PARAMS:

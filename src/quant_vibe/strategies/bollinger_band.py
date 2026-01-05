@@ -345,7 +345,7 @@ class BollingerBandStrategy(OptionsStrategy):
 
         # Sort by how close to target price and pick the closest one
         options_filtered["price_diff"] = abs(
-            options_filtered["ask"] - self.target_price
+            options_filtered["ask"].astype(float) - float(self.target_price)
         )
         options_filtered = options_filtered.sort_values("price_diff")
 

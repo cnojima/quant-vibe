@@ -304,7 +304,7 @@ class HailMaryStrategy(OptionsStrategy):
         print(f"     Volume: {selected_option['volume']:.0f}")
         if 'bid' in selected_option and 'ask' in selected_option and selected_option['mark'] > 0:
             spread_pct = (
-                (selected_option['ask'] - selected_option['bid']) / selected_option['mark'] * 100
+                (float(selected_option['ask']) - float(selected_option['bid'])) / float(selected_option['mark']) * 100
             )
             print(
                 f"     Bid/Ask: ${selected_option['bid']:.2f}/${selected_option['ask']:.2f} "

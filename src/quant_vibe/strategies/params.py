@@ -294,13 +294,13 @@ class CoinTossLimitParams(BaseStrategyParams):
     )
     otm_percent_min: float = Field(
         default=0.1,
-        ge=0.0,
+        ge=-1.0,
         le=1.0,
         description="Minimum OTM percentage"
     )
     otm_percent_max: float = Field(
         default=0.15,
-        ge=0.0,
+        ge=-1.0,
         le=1.0,
         description="Maximum OTM percentage"
     )
@@ -503,13 +503,13 @@ class HailMaryParams(BaseStrategyParams):
 
     otm_percent_min: float = Field(
         default=-0.01,
-        ge=0.0,
+        ge=-1.0,
         le=1.0,
         description="Minimum percentage OTM for strike selection (0.05 = 5%)"
     )
     otm_percent_max: float = Field(
         default=0.01,
-        ge=0.0,
+        ge=-1.0,
         le=1.0,
         description="Maximum percentage OTM for strike selection (0.10 = 10%)"
     )

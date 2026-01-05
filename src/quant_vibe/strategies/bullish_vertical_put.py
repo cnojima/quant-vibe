@@ -445,13 +445,13 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         print(f"     Short {short_strike} PUT:")
         print(f"       Volume: {short_put_data['volume']:.0f}")
         if 'bid' in short_put_data and 'ask' in short_put_data and short_put_data['mark'] > 0:
-            spread_pct = (short_put_data['ask'] - short_put_data['bid']) / short_put_data['mark'] * 100
+            spread_pct = (float(short_put_data['ask']) - float(short_put_data['bid'])) / float(short_put_data['mark']) * 100
             print(f"       Bid/Ask: ${short_put_data['bid']:.2f}/${short_put_data['ask']:.2f} (spread: {spread_pct:.2f}%)")
         print(f"       Mark: ${short_put_data['mark']:.2f}")
         print(f"     Long {long_strike} PUT:")
         print(f"       Volume: {long_put_data['volume']:.0f}")
         if 'bid' in long_put_data and 'ask' in long_put_data and long_put_data['mark'] > 0:
-            spread_pct = (long_put_data['ask'] - long_put_data['bid']) / long_put_data['mark'] * 100
+            spread_pct = (float(long_put_data['ask']) - float(long_put_data['bid'])) / float(long_put_data['mark']) * 100
             print(f"       Bid/Ask: ${long_put_data['bid']:.2f}/${long_put_data['ask']:.2f} (spread: {spread_pct:.2f}%)")
         print(f"       Mark: ${long_put_data['mark']:.2f}")
 
