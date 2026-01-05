@@ -114,7 +114,9 @@ class StreamDataBackfiller:
             SELECT DISTINCT timestamp, option_ticker
             FROM options_bars
             WHERE (
-                strike_price IS NULL
+                bid IS NULL
+                OR ask IS NULL
+                OR strike_price IS NULL
                 OR delta IS NULL
                 OR gamma IS NULL
                 OR theta IS NULL
@@ -175,7 +177,7 @@ class StreamDataBackfiller:
         limit: Optional[int] = None
     ) -> List[Tuple]:
         """
-        Find records with missing Greeks for NON-EXPIRED contracts only.
+        Find records with missing column values for NON-EXPIRED contracts only.
 
         This is much more efficient because:
         1. We only query contracts that can actually be enriched via API
@@ -203,7 +205,10 @@ class StreamDataBackfiller:
             FROM options_bars
             WHERE data_source = 'schwabdev_stream'
             AND (
-                delta IS NULL
+                bid IS NULL
+                OR ask IS NULL
+                OR strike_price IS NULL
+                OR delta IS NULL
                 OR gamma IS NULL
                 OR theta IS NULL
                 OR vega IS NULL
@@ -258,7 +263,10 @@ class StreamDataBackfiller:
             WHERE data_source = 'schwabdev_stream'
             AND option_ticker IN ({ticker_placeholders})
             AND (
-                delta IS NULL
+                bid IS NULL
+                OR ask IS NULL
+                OR strike_price IS NULL
+                OR delta IS NULL
                 OR gamma IS NULL
                 OR theta IS NULL
                 OR vega IS NULL
@@ -565,6 +573,8 @@ class StreamDataBackfiller:
         update_query = """
             UPDATE options_bars
             SET
+                bid = COALESCE(bid, %s),
+                ask = COALESCE(ask, %s),
                 strike_price = COALESCE(strike_price, %s),
                 implied_volatility = COALESCE(implied_volatility, %s),
                 delta = COALESCE(delta, %s),
@@ -578,6 +588,8 @@ class StreamDataBackfiller:
         """
 
         params = (
+            enriched_data.get('bid'),
+            enriched_data.get('ask'),
             enriched_data.get('strike_price'),
             enriched_data.get('implied_volatility'),
             enriched_data.get('delta'),
@@ -691,6 +703,8 @@ class StreamDataBackfiller:
             if cached_details:
                 # Use full cached data
                 enriched_data = {
+                    'bid': cached_details.get('bid'),
+                    'ask': cached_details.get('ask'),
                     'strike_price': cached_details.get('strike_price'),
                     'implied_volatility': cached_details.get('implied_volatility'),
                     'delta': cached_details.get('delta'),
@@ -702,6 +716,8 @@ class StreamDataBackfiller:
             elif option_ticker in fallback_strikes:
                 # Use fallback (strike only)
                 enriched_data = {
+                    'bid': None,
+                    'ask': None,
                     'strike_price': fallback_strikes[option_ticker],
                     'implied_volatility': None,
                     'delta': None,
@@ -813,6 +829,8 @@ class StreamDataBackfiller:
         query_nulls = """
             SELECT
                 COUNT(*) as total_nulls,
+                COUNT(*) FILTER (WHERE bid IS NULL) as null_bid,
+                COUNT(*) FILTER (WHERE ask IS NULL) as null_ask,
                 COUNT(*) FILTER (WHERE strike_price IS NULL) as null_strike,
                 COUNT(*) FILTER (WHERE delta IS NULL) as null_delta,
                 COUNT(*) FILTER (WHERE gamma IS NULL) as null_gamma,
@@ -823,7 +841,9 @@ class StreamDataBackfiller:
             FROM options_bars
             WHERE data_source = 'schwabdev_stream'
             AND (
-                strike_price IS NULL
+                bid IS NULL
+                OR ask IS NULL
+                OR strike_price IS NULL
                 OR delta IS NULL
                 OR gamma IS NULL
                 OR theta IS NULL
@@ -845,13 +865,15 @@ class StreamDataBackfiller:
 
         if nulls[0] > 0:
             print(f"\nRecords with missing data: {nulls[0]:,} ({nulls[0]/total*100:.1f}%)")
-            print(f"  Missing strike_price: {nulls[1]:,}")
-            print(f"  Missing delta: {nulls[2]:,}")
-            print(f"  Missing gamma: {nulls[3]:,}")
-            print(f"  Missing theta: {nulls[4]:,}")
-            print(f"  Missing vega: {nulls[5]:,}")
-            print(f"  Missing rho: {nulls[6]:,}")
-            print(f"  Missing implied_volatility: {nulls[7]:,}")
+            print(f"  Missing bid: {nulls[1]:,}")
+            print(f"  Missing ask: {nulls[2]:,}")
+            print(f"  Missing strike_price: {nulls[3]:,}")
+            print(f"  Missing delta: {nulls[4]:,}")
+            print(f"  Missing gamma: {nulls[5]:,}")
+            print(f"  Missing theta: {nulls[6]:,}")
+            print(f"  Missing vega: {nulls[7]:,}")
+            print(f"  Missing rho: {nulls[8]:,}")
+            print(f"  Missing implied_volatility: {nulls[9]:,}")
 
             # Show expired vs active breakdown for records needing Greeks
             self._show_expiration_breakdown()
