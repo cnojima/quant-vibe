@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useLiveStatus, useLivePositions, useLiveOrders, useLiveEvents, useLiveStats, useDailyReport, useRecentDailyReports, useActiveStrategies, useLiveTradesVisualization } from '../api/queries';
+import { useLiveStatus, useLivePositions, useLiveOrders, useLiveEvents, useClearEvents, useLiveStats, useDailyReport, useRecentDailyReports, useActiveStrategies, useLiveTradesVisualization } from '../api/queries';
 // import { useWebSocket } from '../hooks/useWebSocket';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
@@ -14,11 +14,18 @@ export function LiveTradingMonitor() {
   const { data: positions } = useLivePositions('open');
   const { data: orders } = useLiveOrders(50, orderStatusFilter);
   const { data: events } = useLiveEvents(50);
+  const clearEventsMutation = useClearEvents();
   const { data: stats} = useLiveStats();
   const { data: todayReport } = useDailyReport();
   const { data: recentReports } = useRecentDailyReports(7);
   const { data: activeStrategies } = useActiveStrategies();
   const { data: tradesViz, isLoading: tradesLoading } = useLiveTradesVisualization(tradesDays);
+
+  const handleClearEvents = () => {
+    if (window.confirm('Are you sure you want to clear all events? This action cannot be undone.')) {
+      clearEventsMutation.mutate();
+    }
+  };
 
   // WebSocket disabled - using REST API polling instead
   // WebSocket has issues with React StrictMode + Docker networking
@@ -606,6 +613,15 @@ export function LiveTradingMonitor() {
 
       {selectedTab === 'events' && (
         <div className="space-y-4">
+          <div className="flex justify-end mb-4">
+            <button
+              onClick={handleClearEvents}
+              disabled={clearEventsMutation.isPending || !events || events.length === 0}
+              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+            >
+              {clearEventsMutation.isPending ? 'Clearing...' : 'Clear Events'}
+            </button>
+          </div>
           {events && events.length > 0 ? (
             events.map((event, idx) => (
               <Card key={idx}>

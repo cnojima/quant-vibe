@@ -301,6 +301,24 @@ async def fetch_recent_events(
         return result
 
 
+async def clear_live_events() -> int:
+    """
+    Clear all events from the live_events table.
+
+    Returns:
+        Number of events deleted
+    """
+    pool = get_pool()
+
+    query = "DELETE FROM live_events"
+
+    async with pool.acquire() as conn:
+        result = await conn.execute(query)
+        # Parse the result string (e.g., "DELETE 42") to get the count
+        deleted_count = int(result.split()[-1]) if result.startswith("DELETE") else 0
+        return deleted_count
+
+
 async def fetch_trading_stats(
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,

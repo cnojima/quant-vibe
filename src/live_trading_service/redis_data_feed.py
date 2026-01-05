@@ -177,9 +177,9 @@ class RedisDataFeed:
         Args:
             bar: Option bar data
         """
-        symbol = bar.get('option_ticker')
+        symbol = bar.get('contract_symbol')
         if not symbol:
-            self.logger.warning(f"Option bar missing 'option_ticker': {list(bar.keys())[:10]}")
+            self.logger.warning(f"Option bar missing 'contract_symbol': {list(bar.keys())[:10]}")
             return
 
         # Debug: Log first bar to see what fields we're getting

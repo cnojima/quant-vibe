@@ -177,6 +177,21 @@ export function useLiveEvents(limit: number = 100, eventType?: string, severity?
   });
 }
 
+export function useClearEvents() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const response = await apiClient.delete<{ success: boolean; deleted_count: number; message: string }>('/live/events');
+      return response.data;
+    },
+    onSuccess: () => {
+      // Invalidate and refetch events query
+      queryClient.invalidateQueries({ queryKey: ['live-events'] });
+    },
+  });
+}
+
 export function useLiveStats(startTime?: string, endTime?: string) {
   return useQuery({
     queryKey: ['live-stats', startTime, endTime],

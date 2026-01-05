@@ -149,6 +149,26 @@ async def get_events(
     }
 
 
+@router.delete("/events")
+async def clear_events(current_user: User = Depends(get_current_user)):
+    """
+    Clear all events from the live_events table.
+
+    Args:
+        current_user: Authenticated user
+
+    Returns:
+        Success message with count of deleted events
+    """
+    deleted_count = await timescale.clear_live_events()
+
+    return {
+        "success": True,
+        "deleted_count": deleted_count,
+        "message": f"Successfully cleared {deleted_count} events",
+    }
+
+
 @router.get("/stats")
 async def get_trading_stats(
     start_time: Optional[datetime] = Query(None),
