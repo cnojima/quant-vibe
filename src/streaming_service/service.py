@@ -479,7 +479,7 @@ class StreamingService:
                                                 high=Decimal(str(quote.get('high'))) if quote.get('high') is not None else Decimal(str(last)),
                                                 low=Decimal(str(quote.get('low'))) if quote.get('low') is not None else Decimal(str(last)),
                                                 close=Decimal(str(quote.get('close'))) if quote.get('close') is not None else Decimal(str(last)),
-                                                volume=quote.get('volume', 0),
+                                                volume=quote.get('volume') or 0,
                                                 data_source='schwabdev_stream',
                                             )
                                             if self.message_broker.publish(Topic.UNDERLYING_BARS, underlying_bar):
