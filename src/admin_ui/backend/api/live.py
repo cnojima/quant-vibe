@@ -52,6 +52,7 @@ async def get_live_status(current_user: User = Depends(get_current_user)):
         "uptime_seconds": engine_state.get("uptime_seconds"),
         "last_update": engine_state.get("timestamp"),
         "metadata": engine_state.get("metadata"),
+        "data_feed_mode": engine_state.get("data_feed_mode", "live"),
     }
 
 
@@ -463,6 +464,60 @@ async def reload_strategies(current_user: User = Depends(get_current_user)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send reload command: {str(e)}")
+
+
+@router.post("/data-feed/toggle-mode")
+async def toggle_data_feed_mode(current_user: User = Depends(get_current_user)):
+    """
+    Toggle data feed mode between 'live' and 'replay'.
+
+    This updates the live_trading.yaml config and requires the engine to be restarted
+    or the data feed to be reconnected for the change to take effect.
+
+    Args:
+        current_user: Authenticated user
+
+    Returns:
+        Success message with new mode
+    """
+    try:
+        import yaml
+        from pathlib import Path
+
+        # Load live trading config
+        config_path = Path(__file__).parent.parent.parent.parent.parent / "config" / "live_trading.yaml"
+
+        if not config_path.exists():
+            raise HTTPException(status_code=404, detail="Live trading config not found")
+
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+
+        # Get current mode
+        current_mode = config.get("data_feed", {}).get("mode", "live")
+
+        # Toggle mode
+        new_mode = "replay" if current_mode == "live" else "live"
+
+        # Update config
+        if "data_feed" not in config:
+            config["data_feed"] = {}
+        config["data_feed"]["mode"] = new_mode
+
+        # Save config
+        with open(config_path, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+        return {
+            "success": True,
+            "message": f"Data feed mode changed from '{current_mode}' to '{new_mode}'",
+            "previous_mode": current_mode,
+            "new_mode": new_mode,
+            "note": "Restart the live trading engine for this change to take effect",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to toggle data feed mode: {str(e)}")
 
 
 @router.get("/trades/visualization")

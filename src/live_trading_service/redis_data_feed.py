@@ -45,6 +45,7 @@ class RedisDataFeed:
         redis_host: Optional[str] = None,
         redis_port: Optional[int] = None,
         redis_db: Optional[int] = None,
+        mode: str = "live",
     ):
         """
         Initialize Redis data feed.
@@ -55,9 +56,11 @@ class RedisDataFeed:
             redis_host: Redis host (defaults to env var)
             redis_port: Redis port (defaults to env var)
             redis_db: Redis database (defaults to env var)
+            mode: Data source mode - "live" for streaming, "replay" for testing
         """
         self.window_size = window_size
         self.callbacks = callbacks or []
+        self.mode = mode
 
         # Data storage
         # symbol -> deque of bars (most recent at end)
@@ -86,7 +89,7 @@ class RedisDataFeed:
         self._running = False
         self._thread: Optional[threading.Thread] = None
 
-        self.logger.info("RedisDataFeed initialized")
+        self.logger.info(f"RedisDataFeed initialized (mode: {mode})")
 
     def start(self):
         """Start consuming messages from Redis."""
@@ -96,9 +99,17 @@ class RedisDataFeed:
 
         self._running = True
 
+        # Select topics based on mode
+        if self.mode == "replay":
+            topics = [Topic.REPLAY_OPTIONS_BARS, Topic.REPLAY_UNDERLYING_BARS]
+            self.logger.info("Using REPLAY topics (replay.options_bars, replay.underlying_bars)")
+        else:
+            topics = [Topic.OPTIONS_BARS, Topic.UNDERLYING_BARS]
+            self.logger.info("Using LIVE topics (streaming.options_bars, streaming.underlying_bars)")
+
         # Subscribe to topics
         self.broker.subscribe(
-            topics=[Topic.OPTIONS_BARS, Topic.UNDERLYING_BARS],
+            topics=topics,
             callback=self._handle_message
         )
 
@@ -106,7 +117,7 @@ class RedisDataFeed:
         self._thread = threading.Thread(target=self._listen_loop, daemon=True)
         self._thread.start()
 
-        self.logger.info("RedisDataFeed started - listening for messages")
+        self.logger.info(f"RedisDataFeed started - listening for messages (mode: {self.mode})")
 
     def stop(self):
         """Stop consuming messages."""

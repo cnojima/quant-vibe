@@ -192,6 +192,28 @@ export function useClearEvents() {
   });
 }
 
+export function useToggleDataFeedMode() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const response = await apiClient.post<{
+        success: boolean;
+        message: string;
+        previous_mode: string;
+        new_mode: string;
+        note: string;
+      }>('/live/data-feed/toggle-mode');
+      return response.data;
+    },
+    onSuccess: () => {
+      // Refresh status to get updated mode
+      queryClient.invalidateQueries({ queryKey: ['live-status'] });
+      queryClient.invalidateQueries({ queryKey: ['config-live'] });
+    },
+  });
+}
+
 export function useLiveStats(startTime?: string, endTime?: string) {
   return useQuery({
     queryKey: ['live-stats', startTime, endTime],

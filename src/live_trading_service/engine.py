@@ -207,15 +207,20 @@ class LiveTradingEngine:
         # Initialize data feed (Redis)
         self.logger.info("  - Initializing Redis data feed...")
         redis_config = self.config.get('redis', {})
+        data_feed_mode = self.config.get('data_feed', {}).get('mode', 'live')
         self.redis_feed = RedisDataFeed(
             window_size=self.config['data_feed']['window_size'],
             callbacks=[self._on_new_bars],
             redis_host=redis_config.get('host'),
             redis_port=redis_config.get('port'),
             redis_db=redis_config.get('db'),
+            mode=data_feed_mode,
         )
         self.logger.info("    ✓ Redis data feed ready")
-        self.logger.info("    ℹ️  Using StreamingService for market data")
+        if data_feed_mode == "replay":
+            self.logger.info("    ℹ️  Using REPLAY mode for market data (replay service)")
+        else:
+            self.logger.info("    ℹ️  Using LIVE mode for market data (streaming service)")
 
         # Initialize market data provider (wraps data feed)
         self.logger.info("  - Initializing market data provider...")
@@ -367,7 +372,13 @@ class LiveTradingEngine:
         self.logger.info("✅ Redis feed connected - receiving data from StreamingService")
 
         self.state = TradingState.RUNNING
-        self.state_store.save_engine_state(self.state, {'data_source': 'redis'})
+        self.state_store.save_engine_state(
+            self.state,
+            {
+                'data_source': 'redis',
+                'data_feed_mode': data_feed_mode,
+            }
+        )
 
 
         self.logger.info("✅ Engine is RUNNING")
@@ -650,6 +661,7 @@ class LiveTradingEngine:
                 'total_signals_generated': 0,  # TODO: track signals
                 'uptime_seconds': uptime,
                 'data_source': feed_type.lower(),
+                'data_feed_mode': self.config.get('data_feed', {}).get('mode', 'live'),
             }
         )
 

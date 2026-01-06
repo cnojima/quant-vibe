@@ -39,6 +39,7 @@ export interface LiveEngineStatus {
   uptime_seconds: number | null;
   last_update: string;
   metadata: any;
+  data_feed_mode?: 'live' | 'replay';
 }
 
 export interface OptionLeg {

@@ -140,6 +140,8 @@ strategies:
       max_trades_daily: 1           # Once per day
 
 data_feed:
+  # Data source mode: "live" for streaming, "replay" for testing
+  mode: "live"  # Change to "replay" when testing with replay service
   window_size: 100
   aggregate_interval_seconds: 60
   max_dte: 45
