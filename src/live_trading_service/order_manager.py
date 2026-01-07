@@ -11,9 +11,9 @@ import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
-import logging
 
-from quant_vibe.strategies.options_base import OptionsPosition, OptionLeg, OptionType
+from quant_vibe.logging import setup_normalized_logging
+from quant_vibe.strategies.options_base import OptionsPosition, OptionLeg
 from quant_vibe.utils import now_utc
 
 
@@ -98,7 +98,6 @@ class OrderManager:
         state_store=None,
         use_oco: bool = False,
         oco_config: Optional[Dict] = None,
-        logger: Optional[logging.Logger] = None
     ):
         """
         Initialize order manager.
@@ -115,7 +114,10 @@ class OrderManager:
         self.schwab_client = schwab_client
         self.state_store = state_store
         self.use_oco = use_oco
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = setup_normalized_logging(
+            app_name="order_manager",
+            log_dir="logs/live_trading"
+        )
 
         # OCO configuration defaults
         self.oco_config = oco_config or {

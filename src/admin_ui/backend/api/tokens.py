@@ -8,7 +8,6 @@ Now proxies to the centralized token_service when available.
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -325,7 +324,6 @@ async def get_oauth_url(current_user: User = Depends(get_current_user)):
         OAuth URL to redirect user to
     """
     try:
-        import schwabdev
         from urllib.parse import urlencode
 
         # Get Schwab credentials from environment
@@ -402,7 +400,6 @@ async def handle_oauth_redirect(code: str, session: str = None):
         }
 
     try:
-        import schwabdev
 
         settings = get_settings()
         token_db_path = settings.tokens_dir / "schwabdev_tokens.db"
@@ -612,7 +609,7 @@ async def handle_oauth_callback(
 
         # Initialize schwabdev client with the authorization code
         # This will automatically exchange the code for tokens and store them
-        client = schwabdev.Client(
+        schwabdev.Client(
             app_key,
             app_secret,
             callback_url,

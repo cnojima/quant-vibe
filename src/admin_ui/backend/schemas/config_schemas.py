@@ -7,7 +7,7 @@ for both backtest.yaml and live_trading.yaml configuration files.
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 # Import strategy parameter models for validation
 from quant_vibe.strategies.params import (

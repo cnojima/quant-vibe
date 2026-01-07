@@ -11,7 +11,7 @@ The LiveTradingEngine coordinates all components:
 
 import os
 import time
-from datetime import datetime, time as dt_time
+from datetime import datetime
 from typing import Dict, List, Optional
 import signal
 import yaml
@@ -28,9 +28,9 @@ from live_trading_service.strategy_executor import StrategyExecutor
 from live_trading_service.strategy_loader import StrategyLoader
 from live_trading_service.utils import (
     TradingState, EventType,
-    is_market_open, get_market_hours
+    is_market_open
 )
-from quant_vibe.config.logging_config import setup_normalized_logging
+from quant_vibe.logging import setup_normalized_logging
 from quant_vibe.data import LiveMarketDataProvider
 from quant_vibe.messaging import RedisMessageBroker
 from quant_vibe.notifications import TradingNotifier
@@ -38,7 +38,7 @@ from quant_vibe.utils import now_utc
 
 # Import token service client
 try:
-    from token_service.client import TokenServiceClient, TokenNotFoundError, TokenExpiredError
+    from token_service.client import TokenServiceClient
     TOKEN_SERVICE_AVAILABLE = True
 except ImportError:
     TOKEN_SERVICE_AVAILABLE = False
@@ -66,11 +66,8 @@ class LiveTradingEngine:
         self.config = self._load_config(config_path)
 
         # Setup normalized logging
-        # Read log level from env: LIVE_TRADING_LOG_LEVEL or fallback to LOG_LEVEL (default: INFO)
-        log_level = os.getenv("LIVE_TRADING_LOG_LEVEL", os.getenv("LOG_LEVEL", "INFO")).upper()
         self.logger = setup_normalized_logging(
             app_name="live_trading",
-            log_level=log_level,
             log_dir="logs/live_trading",
         )
 
@@ -180,6 +177,10 @@ class LiveTradingEngine:
         self.logger.warning(f"Received signal {signum}, initiating shutdown...")
         self._shutdown_requested = True
 
+    def get_data_feed_mode(self) -> str:
+        """Get the current data feed mode."""
+        return self.config.get('data_feed', {}).get('mode', 'live')
+
     def initialize(self):
         """Initialize all components."""
         self.logger.info("Initializing components...")
@@ -207,7 +208,7 @@ class LiveTradingEngine:
         # Initialize data feed (Redis)
         self.logger.info("  - Initializing Redis data feed...")
         redis_config = self.config.get('redis', {})
-        data_feed_mode = self.config.get('data_feed', {}).get('mode', 'live')
+        data_feed_mode = self.get_data_feed_mode()
         self.redis_feed = RedisDataFeed(
             window_size=self.config['data_feed']['window_size'],
             callbacks=[self._on_new_bars],
@@ -229,7 +230,7 @@ class LiveTradingEngine:
         self.logger.info("    ✓ Market data provider ready")
 
         # Initialize token service client if enabled
-        if self.use_token_service and TOKEN_SERVICE_AVAILABLE and self.token_service_url:
+        if data_feed_mode != 'replay' and self.use_token_service and TOKEN_SERVICE_AVAILABLE and self.token_service_url:
             self.logger.info(f"  - Connecting to token service ({self.token_service_url})...")
             try:
                 self.token_service_client = TokenServiceClient(
@@ -248,20 +249,21 @@ class LiveTradingEngine:
                 self.logger.warning("    Falling back to local token management")
                 self.token_service_client = None
 
-        # Initialize Schwab client (only for order execution, not streaming)
-        self.logger.info("  - Initializing Schwab client...")
-        tokens_db = "tokens/schwabdev_tokens.db"
-        self.schwab_client = schwabdev.Client(
-            os.getenv("SCHWAB_API_KEY"),
-            os.getenv("SCHWAB_API_SECRET"),
-            os.getenv("SCHWAB_CALLBACK_URL"),
-            tokens_db=tokens_db,
-        )
+        if data_feed_mode != 'replay':
+            # Initialize Schwab client (only for order execution, not streaming)
+            self.logger.info("  - Initializing Schwab client...")
+            tokens_db = "tokens/schwabdev_tokens.db"
+            self.schwab_client = schwabdev.Client(
+                os.getenv("SCHWAB_API_KEY"),
+                os.getenv("SCHWAB_API_SECRET"),
+                os.getenv("SCHWAB_CALLBACK_URL"),
+                tokens_db=tokens_db,
+            )
 
-        if self.token_service_client:
-            self.logger.info("    ✓ Schwab client ready (order execution only, tokens via token service)")
-        else:
-            self.logger.info("    ✓ Schwab client ready (order execution only, tokens via local database)")
+            if self.token_service_client:
+                self.logger.info("    ✓ Schwab client ready (order execution only, tokens via token service)")
+            else:
+                self.logger.info("    ✓ Schwab client ready (order execution only, tokens via local database)")
 
         # Initialize OrderManager
         self.logger.info("  - Initializing OrderManager...")
@@ -278,8 +280,7 @@ class LiveTradingEngine:
         # Initialize PositionManager
         self.logger.info("  - Initializing PositionManager...")
         self.position_manager = PositionManager(
-            state_store=self.state_store,
-            logger=self.logger,
+            state_store=self.state_store
         )
         self.logger.info("    ✓ PositionManager ready")
 
@@ -306,8 +307,7 @@ class LiveTradingEngine:
         try:
             notification_config = self.config.get('notifications', {})
             self.notifier = TradingNotifier(
-                config=notification_config,
-                logger=self.logger
+                config=notification_config
             )
             # Validate credentials if enabled
             if self.notifier.pushover.enabled:
@@ -376,7 +376,7 @@ class LiveTradingEngine:
             self.state,
             {
                 'data_source': 'redis',
-                'data_feed_mode': data_feed_mode,
+                'data_feed_mode': self.get_data_feed_mode(),
             }
         )
 
@@ -648,7 +648,7 @@ class LiveTradingEngine:
         self.logger.info(f"Uptime: {hours}h {minutes}m")
         self.logger.info(f"Bars Processed: {self.total_bars_processed}")
         self.logger.info(f"Messages Received: {stats.get('message_count', 0)}")
-        self.logger.info(f"Symbols Tracked: {stats.get('option_symbols_tracked', stats.get('symbols_tracked', 0))}")
+        self.logger.info(f"Symbols Tracked: {stats.get('underlying_symbols_tracked', stats.get('symbols_tracked', 0))}")
         self.logger.info(f"Data Stale: {stats.get('data_stale', False)}")
         self.logger.info("="*70)
 
@@ -661,7 +661,7 @@ class LiveTradingEngine:
                 'total_signals_generated': 0,  # TODO: track signals
                 'uptime_seconds': uptime,
                 'data_source': feed_type.lower(),
-                'data_feed_mode': self.config.get('data_feed', {}).get('mode', 'live'),
+                'data_feed_mode': self.get_data_feed_mode(),
             }
         )
 

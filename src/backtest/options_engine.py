@@ -10,7 +10,7 @@ It handles:
 """
 
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 import pandas as pd
 import numpy as np
 import pytz
@@ -282,7 +282,7 @@ class OptionsBacktestEngine:
 
         # Close any remaining positions at end of backtest
         if strategy.active_position is not None:
-            print(f"\n⚠️  Closing position at end of backtest period")
+            print("\n⚠️  Closing position at end of backtest period")
             # Get final underlying price
             final_underlying_price = underlying_data['close'].iloc[-1] if not underlying_data.empty else None
 
@@ -435,7 +435,7 @@ class OptionsBacktestEngine:
 
     def _log_position_entry(self, position: OptionsPosition, cash_after: float) -> None:
         """Log position entry details."""
-        print(f"\n  ✅ POSITION OPENED")
+        print("\n  ✅ POSITION OPENED")
         print(f"     Position ID: {position.position_id}")
         print(f"     Spread Type: {position.spread_type.value}")
         print(f"     Entry Time: {self._format_time_et(position.entry_time)}")
@@ -528,20 +528,20 @@ class OptionsBacktestEngine:
 
         # Print summary
         print(f"\n{'='*70}")
-        print(f"BACKTEST RESULTS")
+        print("BACKTEST RESULTS")
         print(f"{'='*70}")
         print(f"Strategy: {strategy.name}")
         print(f"Initial Capital: ${self.initial_capital:,.2f}")
         print(f"Final Capital: ${final_cash:,.2f}")
         print(f"Total Return: ${final_cash - self.initial_capital:+,.2f} ({total_return:+.2f}%)")
-        print(f"\nTrade Statistics:")
+        print("\nTrade Statistics:")
         print(f"  Total Trades: {num_trades}")
         print(f"  Winning Trades: {len(winning_trades)} ({win_rate:.1f}%)")
         print(f"  Losing Trades: {len(losing_trades)}")
         print(f"  Average Win: ${avg_win:,.2f}")
         print(f"  Average Loss: ${avg_loss:,.2f}")
         print(f"  Profit Factor: {self.results['profit_factor']:.2f}")
-        print(f"\nRisk Metrics:")
+        print("\nRisk Metrics:")
         print(f"  Max Drawdown: {max_drawdown:.2f}%")
         print(f"  Sharpe Ratio: {sharpe_ratio:.2f}")
         print(f"{'='*70}\n")

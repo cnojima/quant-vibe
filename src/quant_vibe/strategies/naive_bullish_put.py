@@ -1,7 +1,7 @@
 """Naive Bullish Vertical Put Spread Strategy - Opens at Market Open."""
 
 from typing import Optional, Dict, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime
 import pandas as pd
 import pytz
 
@@ -113,13 +113,13 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         # Check if within market hours (9:30 AM - 4:00 PM ET)
         if (market_hour > 9 or (market_hour == 9 and market_minute >= 30)) and market_hour < 16:
             analysis['market_open'] = True
-            print(f"NBP ✅ [ANALYZE_MARKET] Market IS OPEN (within market hours)")
+            print("NBP ✅ [ANALYZE_MARKET] Market IS OPEN (within market hours)")
         else:
-            print(f"NBP ❌ [ANALYZE_MARKET] Market NOT open (outside market hours)")
+            print("NBP ❌ [ANALYZE_MARKET] Market NOT open (outside market hours)")
 
         # Get current price if available
         if underlying_data.empty:
-            print(f"NBP ⚠️  [ANALYZE_MARKET] No underlying data available")
+            print("NBP ⚠️  [ANALYZE_MARKET] No underlying data available")
         else:
             current_price = underlying_data['close'].iloc[-1]
             analysis['current_price'] = current_price
@@ -144,24 +144,24 @@ class NaiveBullishPutStrategy(OptionsStrategy):
 
         # Don't enter if we have an active position
         if self.active_position is not None:
-            print(f"NBP ❌ [SHOULD_ENTER] Already have active position")
+            print("NBP ❌ [SHOULD_ENTER] Already have active position")
             return False
 
         # Check daily trade limit (handled by parent class)
         if not self.can_enter_new_position():
-            print(f"NBP ❌ [SHOULD_ENTER] Cannot enter new position (daily limit reached)")
+            print("NBP ❌ [SHOULD_ENTER] Cannot enter new position (daily limit reached)")
             return False
 
         # Enter at market open
         market_open = market_analysis.get('market_open', False)
         print(f"NBP    Market open status: {market_open}")
         if not market_open:
-            print(f"NBP ❌ [SHOULD_ENTER] Market not open")
+            print("NBP ❌ [SHOULD_ENTER] Market not open")
             return False
 
         # Check if we have options data
         if options_data.empty:
-            print(f"NBP ⚠️  [SHOULD_ENTER] No options data available")
+            print("NBP ⚠️  [SHOULD_ENTER] No options data available")
             return False
 
         print(f"NBP    Options data rows: {len(options_data)}")
@@ -169,10 +169,10 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         # Check if we have current price
         current_price = market_analysis.get('current_price', 0)
         if current_price == 0:
-            print(f"NBP ❌ [SHOULD_ENTER] No current price available (underlying data missing)")
+            print("NBP ❌ [SHOULD_ENTER] No current price available (underlying data missing)")
             return False
 
-        print(f"\nNBP 🎯 [SHOULD_ENTER] ✅ ENTRY SIGNAL - Market Open")
+        print("\nNBP 🎯 [SHOULD_ENTER] ✅ ENTRY SIGNAL - Market Open")
         print(f"NBP    Current Price: ${current_price:.2f}")
 
         return True
@@ -198,7 +198,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         print(f"NBP    Current price: ${current_price:.2f}")
 
         if current_price == 0:
-            print(f"NBP ❌ [CONSTRUCT_SPREAD] Invalid current price")
+            print("NBP ❌ [CONSTRUCT_SPREAD] Invalid current price")
             return None
 
         # Filter options by DTE range using base class utility
@@ -238,7 +238,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         print(f"NBP    Short strike candidates: {len(short_strike_candidates)}")
 
         if short_strike_candidates.empty:
-            print(f"NBP ❌ [CONSTRUCT_SPREAD] No short strike candidates found")
+            print("NBP ❌ [CONSTRUCT_SPREAD] No short strike candidates found")
             return None
 
         short_strike = short_strike_candidates.iloc[0]['strike_price']
@@ -267,11 +267,11 @@ class NaiveBullishPutStrategy(OptionsStrategy):
             pd.isna(long_put_data['mark']) or
             short_put_data['mark'] <= 0 or
             long_put_data['mark'] <= 0):
-            print(f"NBP ❌ [CONSTRUCT_SPREAD] Invalid mark prices")
+            print("NBP ❌ [CONSTRUCT_SPREAD] Invalid mark prices")
             print(f"NBP    Short mark: ${short_put_data['mark']}, Long mark: ${long_put_data['mark']}")
             return None
 
-        print(f"\nNBP 📋 [CONSTRUCT_SPREAD] Opening Spread:")
+        print("\nNBP 📋 [CONSTRUCT_SPREAD] Opening Spread:")
         print(f"NBP    SELL {self.num_spreads}x {short_strike} PUT @ ${short_put_data['mark']:.2f}")
         print(f"NBP    BUY  {self.num_spreads}x {long_strike} PUT @ ${long_put_data['mark']:.2f}")
 
@@ -351,7 +351,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
 
         # Check profit target
         if self.check_profit_target(position):
-            print(f"NBP ✅ [SHOULD_EXIT] Profit target reached!")
+            print("NBP ✅ [SHOULD_EXIT] Profit target reached!")
             return True, "Profit target reached"
 
         # Check if end of day (4:00 PM ET)
@@ -364,7 +364,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         print(f"NBP    Current time ET: {current_time_et.strftime('%H:%M:%S')}")
 
         if current_time_et.hour >= 16:
-            print(f"NBP ✅ [SHOULD_EXIT] End of trading day")
+            print("NBP ✅ [SHOULD_EXIT] End of trading day")
             return True, "End of trading day"
 
         # Close early if expiring today
@@ -374,8 +374,8 @@ class NaiveBullishPutStrategy(OptionsStrategy):
             print(f"NBP    DTE: {days_to_expiration}")
 
             if days_to_expiration == 0 and current_time_et.hour >= 15 and current_time_et.minute >= 45:
-                print(f"NBP ✅ [SHOULD_EXIT] Expiration approaching")
+                print("NBP ✅ [SHOULD_EXIT] Expiration approaching")
                 return True, "Expiration approaching"
 
-        print(f"NBP ❌ [SHOULD_EXIT] No exit conditions met")
+        print("NBP ❌ [SHOULD_EXIT] No exit conditions met")
         return False, None

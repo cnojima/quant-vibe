@@ -7,7 +7,7 @@ Pushover API: https://pushover.net/api
 """
 
 import os
-import logging
+
 import json
 from enum import IntEnum
 from typing import Optional, List, Dict, Any
@@ -15,6 +15,7 @@ from datetime import datetime
 import requests
 from dotenv import load_dotenv
 
+from quant_vibe.logging import get_logger
 load_dotenv()
 
 # Import database store for logging notifications
@@ -99,7 +100,6 @@ class PushoverNotifier:
         user_key: Optional[str] = None,
         device: Optional[str] = None,
         enabled: Optional[bool] = None,
-        logger: Optional[logging.Logger] = None,
         db_logging: bool = True,
     ):
         """Initialize Pushover notifier.
@@ -109,7 +109,6 @@ class PushoverNotifier:
             user_key: Pushover user key or group key
             device: Specific device to send to (None = all devices)
             enabled: Enable/disable notifications
-            logger: Logger instance
             db_logging: Enable database logging of notifications (default: True)
         """
         self.api_token = api_token or os.getenv("PUSHOVER_API_TOKEN")
@@ -120,7 +119,7 @@ class PushoverNotifier:
         enabled_env = os.getenv("PUSHOVER_ENABLED", "true").lower()
         self.enabled = enabled if enabled is not None else (enabled_env == "true")
 
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
 
         # Database logging configuration
         self.db_logging = db_logging and DB_AVAILABLE

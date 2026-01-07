@@ -1,15 +1,19 @@
 """Publisher for replay service - publishes bars to Redis with timing control."""
-
-import logging
+import os
 import time
 from datetime import datetime
 from typing import List, Dict
+from dotenv import load_dotenv
 
 from quant_vibe.messaging import RedisMessageBroker, Topic
 from quant_vibe.models import OptionsBar, UnderlyingBar
-
-
-logger = logging.getLogger(__name__)
+from quant_vibe.logging import setup_normalized_logging
+load_dotenv()
+log_level = os.getenv("LOG_LEVEL", "INFO")
+logger = setup_normalized_logging(
+    app_name="replay",
+    log_dir="logs/replay",
+)
 
 
 class ReplayPublisher:

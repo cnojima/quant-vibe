@@ -5,10 +5,9 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any
-import logging
-
 import schwabdev
 
+from quant_vibe.logging import get_logger
 
 class TokenInfo:
     """Token information with metadata."""
@@ -109,8 +108,7 @@ class CentralizedTokenManager:
         api_key: str,
         api_secret: str,
         callback_url: str,
-        tokens_db_path: str,
-        logger: Optional[logging.Logger] = None,
+        tokens_db_path: str
     ):
         """Initialize centralized token manager.
 
@@ -125,7 +123,7 @@ class CentralizedTokenManager:
         self.api_secret = api_secret
         self.callback_url = callback_url
         self.tokens_db_path = tokens_db_path
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = get_logger(app_name='token_service')
 
         # Ensure token directory exists
         Path(tokens_db_path).parent.mkdir(parents=True, exist_ok=True)

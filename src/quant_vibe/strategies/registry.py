@@ -28,13 +28,13 @@ Usage:
     grid = StrategyRegistry.generate_optimization_grid('coin_toss')
 """
 
-from typing import Dict, Any, Type, List, Optional, Tuple
-from pydantic import BaseModel
+from typing import Dict, Any, Type, List, Optional
 import inspect
 
+
+from quant_vibe.logging import get_logger
 from quant_vibe.strategies.options_base import OptionsStrategy
 from quant_vibe.strategies.params import (
-    STRATEGY_PARAMS_MAP,
     validate_and_normalize_params,
     get_strategy_params_model,
 )
@@ -201,8 +201,7 @@ class StrategyRegistry:
                 raise ValueError(warning_msg)
             else:
                 # Import logger for warning
-                import logging
-                logger = logging.getLogger(__name__)
+                logger = get_logger(__name__)
                 logger.warning(warning_msg)
 
         # Validate using Pydantic model

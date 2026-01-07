@@ -1,41 +1,9 @@
 """Utilities for live trading engine."""
 
-import logging
-import sys
 import uuid
-from pathlib import Path
 from datetime import datetime
 from typing import Optional
 from quant_vibe.utils import now_utc
-
-
-def setup_logging(
-    log_dir: str = "logs/live_trading",
-    log_level: str = "INFO",
-    console_output: bool = True
-) -> logging.Logger:
-    """
-    Set up comprehensive logging for live trading.
-
-    This is a legacy wrapper - new code should use setup_normalized_logging.
-
-    Args:
-        log_dir: Directory to store log files
-        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        console_output: Whether to also output to console
-
-    Returns:
-        Configured logger instance
-    """
-    # Use unified normalized logging for consistent EST timestamps
-    from quant_vibe.config.logging_config import setup_normalized_logging
-
-    return setup_normalized_logging(
-        app_name="live_trading",
-        log_level=log_level,
-        log_dir=log_dir,
-    )
-
 
 def format_currency(value: float) -> str:
     """Format a value as currency."""
@@ -69,7 +37,6 @@ def is_market_open(current_time: Optional[datetime] = None) -> bool:
         True if market is open
     """
     import pytz
-    from datetime import datetime
 
     if current_time is None:
         current_time = now_utc()

@@ -211,7 +211,7 @@ class SchwabDevClient:
 
             # Debug: print available columns
             if df.empty:
-                print(f"Warning: No candles returned from API")
+                print("Warning: No candles returned from API")
                 print(f"Response data: {data}")
                 return pd.DataFrame()
 

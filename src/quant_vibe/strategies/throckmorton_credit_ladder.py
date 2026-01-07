@@ -11,10 +11,9 @@ Strategy Overview:
 - Exit immediately on major catalysts (tariffs, war, etc.)
 """
 
-from typing import Optional, Dict, Tuple, List
-from datetime import datetime, timedelta
+from typing import Optional, Dict, Tuple
+from datetime import datetime
 import pandas as pd
-import numpy as np
 
 from .options_base import (
     OptionsStrategy,
@@ -303,7 +302,7 @@ class ThrockmortonCreditLadderStrategy(OptionsStrategy):
                 self.observation_complete = True
                 analysis['zones_calculated'] = True
 
-                print(f"\n  📊 ZONES CALCULATED at 10:30 ET")
+                print("\n  📊 ZONES CALCULATED at 10:30 ET")
                 print(f"     Reference Price: ${self.reference_price:.2f}")
                 print(f"     ATM Straddle: ${self.atm_straddle_price:.2f}")
                 print(f"     1SD Range: ${self.one_sd_strike_low:.2f} - ${self.one_sd_strike_high:.2f}")
@@ -318,7 +317,7 @@ class ThrockmortonCreditLadderStrategy(OptionsStrategy):
                 analysis['two_sd_touched'] = True
                 analysis['direction'] = 'put'  # Price moved up, sell put spreads
                 if not self.two_sd_touched:
-                    print(f"\n  🎯 2SD TOUCHED (UPSIDE)")
+                    print("\n  🎯 2SD TOUCHED (UPSIDE)")
                     print(f"     Current: ${current_price:.2f} >= ${self.two_sd_strike_high:.2f}")
                     self.two_sd_touched = True
 
@@ -326,7 +325,7 @@ class ThrockmortonCreditLadderStrategy(OptionsStrategy):
                 analysis['two_sd_touched'] = True
                 analysis['direction'] = 'call'  # Price moved down, sell call spreads
                 if not self.two_sd_touched:
-                    print(f"\n  🎯 2SD TOUCHED (DOWNSIDE)")
+                    print("\n  🎯 2SD TOUCHED (DOWNSIDE)")
                     print(f"     Current: ${current_price:.2f} <= ${self.two_sd_strike_low:.2f}")
                     self.two_sd_touched = True
 
@@ -372,7 +371,7 @@ class ThrockmortonCreditLadderStrategy(OptionsStrategy):
         direction = market_analysis.get('direction')
         current_price = market_analysis.get('current_price')
 
-        print(f"\n  🚀 LADDER ENTRY SIGNAL!")
+        print("\n  🚀 LADDER ENTRY SIGNAL!")
         print(f"     Direction: {direction.upper()} spreads")
         print(f"     Current Price: ${current_price:.2f}")
         print(f"     Ladder Count: {self.ladder_count + 1}/{self.max_ladders}")
@@ -488,7 +487,7 @@ class ThrockmortonCreditLadderStrategy(OptionsStrategy):
 
         if (pd.isna(short_data['mark']) or pd.isna(long_data['mark']) or
             short_data['mark'] <= 0 or long_data['mark'] <= 0):
-            print(f"  ⚠️  Invalid mark prices for selected strikes")
+            print("  ⚠️  Invalid mark prices for selected strikes")
             return None
 
         # Calculate net credit

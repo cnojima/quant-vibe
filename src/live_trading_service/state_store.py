@@ -8,8 +8,7 @@ Provides database-backed state storage to enable:
 
 import os
 import json
-from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
@@ -205,7 +204,7 @@ class StateStore:
                     if_not_exists => TRUE);
             """)
             self.conn.commit()
-        except Exception as e:
+        except Exception:
             # Rollback the failed hypertable creation
             self.conn.rollback()
             # Table still exists as regular table, which is fine
@@ -230,7 +229,7 @@ class StateStore:
                 SET state = EXCLUDED.state, metadata = EXCLUDED.metadata
             """, (state, json.dumps(metadata) if metadata else None))
             self.conn.commit()
-        except Exception as e:
+        except Exception:
             self.conn.rollback()
             raise
 
@@ -295,7 +294,7 @@ class StateStore:
                 'metadata': json.dumps(position_data.get('metadata', {}))
             })
             self.conn.commit()
-        except Exception as e:
+        except Exception:
             self.conn.rollback()
             raise  # Re-raise to preserve original error context
 
@@ -345,7 +344,7 @@ class StateStore:
                 WHERE position_id = %s
             """, (exit_value, exit_reason, position_id))
             self.conn.commit()
-        except Exception as e:
+        except Exception:
             self.conn.rollback()
             raise
 
@@ -438,7 +437,7 @@ class StateStore:
                 'metadata': json.dumps(order_data.get('metadata', {}))
             })
             self.conn.commit()
-        except Exception as e:
+        except Exception:
             self.conn.rollback()
             raise
 
@@ -464,7 +463,7 @@ class StateStore:
                 WHERE order_id = %s
             """, (status, status, filled_price, filled_quantity, error_message, order_id))
             self.conn.commit()
-        except Exception as e:
+        except Exception:
             self.conn.rollback()
             raise
 
@@ -482,7 +481,7 @@ class StateStore:
                 SET state = EXCLUDED.state, updated_at = NOW()
             """, (strategy_name, json.dumps(state)))
             self.conn.commit()
-        except Exception as e:
+        except Exception:
             self.conn.rollback()
             raise
 
@@ -504,7 +503,7 @@ class StateStore:
                 WHERE strategy_name = %s
             """, (strategy_name,))
             self.conn.commit()
-        except Exception as e:
+        except Exception:
             self.conn.rollback()
             raise
 
@@ -553,7 +552,7 @@ class StateStore:
                 severity, message, details_json
             ))
             self.conn.commit()
-        except Exception as e:
+        except Exception:
             self.conn.rollback()
             raise  # Re-raise to preserve original error context
 

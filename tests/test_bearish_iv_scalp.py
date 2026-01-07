@@ -63,7 +63,7 @@ def test_iv_metrics_calculation():
     iv_metrics = strategy._calculate_iv_metrics(options_data, current_time)
 
     assert iv_metrics['current_iv'] is not None
-    print(f"✅ IV metrics test passed")
+    print("✅ IV metrics test passed")
     print(f"   Current IV: {iv_metrics['current_iv']:.2%}")
     if iv_metrics['recent_avg_iv'] is not None:
         print(f"   Recent Avg IV: {iv_metrics['recent_avg_iv']:.2%}")
@@ -151,7 +151,7 @@ def test_entry_conditions():
         market_analysis
     )
 
-    print(f"✅ Entry conditions test passed")
+    print("✅ Entry conditions test passed")
     print(f"   Should enter: {should_enter}")
 
 

@@ -396,7 +396,7 @@ async def get_active_strategies(current_user: User = Depends(get_current_user)):
 
             finally:
                 state_store.close()
-        except Exception as e:
+        except Exception:
             # If stats fetch fails, just continue without stats
             pass
 
@@ -538,7 +538,6 @@ async def get_trades_visualization(
     try:
         import pandas as pd
         from datetime import timedelta, timezone
-        from decimal import Decimal
         from quant_vibe.data.timescale_store import TimescaleStore
 
         # Calculate date range (timezone-aware UTC)

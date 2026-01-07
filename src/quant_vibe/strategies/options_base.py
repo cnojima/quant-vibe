@@ -517,7 +517,7 @@ class OptionsStrategy(ABC):
             if abs(current_value) > max_risk:
                 print(f"⚠️  WARNING: Position value ${current_value:,.2f} exceeds reasonable max ${max_risk:,.2f}")
                 print(f"   Entry cost: ${position.entry_cost:,.2f}, Entry time: {position.entry_time}")
-                print(f"   This may indicate bad data or calculation error")
+                print("   This may indicate bad data or calculation error")
 
         # Track highest value for trailing stop
         if position.highest_value is None or current_value > position.highest_value:
@@ -630,7 +630,7 @@ class OptionsStrategy(ABC):
         ]
 
         if historical_data.empty:
-            print(f"   ⚠️  No historical data available for completeness check")
+            print("   ⚠️  No historical data available for completeness check")
             return False, {}
 
         # Get unique timestamps in the window
@@ -638,7 +638,7 @@ class OptionsStrategy(ABC):
         total_timestamps = len(all_timestamps)
 
         if total_timestamps == 0:
-            print(f"   ⚠️  No timestamps found in lookback window")
+            print("   ⚠️  No timestamps found in lookback window")
             return False, {}
 
         # Check completeness for each contract

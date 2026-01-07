@@ -1,6 +1,5 @@
 """Tests for symbol normalization utilities."""
 
-import pytest
 from quant_vibe.utils.symbol_utils import normalize_option_ticker
 
 

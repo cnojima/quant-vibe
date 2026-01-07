@@ -6,7 +6,6 @@ from datetime import datetime
 from collections import defaultdict
 from typing import Dict, List, Optional, TYPE_CHECKING
 from decimal import Decimal
-import re
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))

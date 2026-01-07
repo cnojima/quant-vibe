@@ -178,16 +178,16 @@ class CoinTossStrategy(OptionsStrategy):
 
         # Early return if no data
         if options_data.empty:
-            print(f"[CoinToss] No options data available")
+            print("[CoinToss] No options data available")
             return None
 
         # Check for required columns
         if 'contract_type' not in options_data.columns:
-            print(f"[CoinToss] ERROR: 'contract_type' column missing from options data")
+            print("[CoinToss] ERROR: 'contract_type' column missing from options data")
             return None
 
         if 'expiration_date' not in options_data.columns:
-            print(f"[CoinToss] ERROR: 'expiration_date' column missing from options data")
+            print("[CoinToss] ERROR: 'expiration_date' column missing from options data")
             return None
 
         # Filter by contract type first

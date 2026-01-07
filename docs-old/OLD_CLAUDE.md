@@ -26,13 +26,13 @@ pytest tests/integration/
 ### Code Quality
 ```bash
 # Format all code with Black
-black src tests examples
+black src tests
 
 # Check linting with Ruff
-ruff check src tests examples
+ruff check src tests
 
 # Fix auto-fixable linting issues
-ruff check --fix src tests examples
+ruff check --fix src tests
 
 # Run type checking with mypy
 mypy src

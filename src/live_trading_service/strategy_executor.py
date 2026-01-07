@@ -4,11 +4,12 @@ Manages the execution of trading strategies on live streaming data.
 Coordinates between strategies, order management, and position tracking.
 """
 
-import logging
 from datetime import datetime, time
 from typing import Dict, List, Optional, Any
 import pandas as pd
 import pytz
+
+from quant_vibe.logging import setup_normalized_logging
 
 from quant_vibe.strategies.options_base import OptionsStrategy, OptionsPosition
 from quant_vibe.notifications import TradingNotifier
@@ -16,7 +17,9 @@ from .order_manager import OrderManager
 from .position_manager import PositionManager
 from .state_store import StateStore
 
-logger = logging.getLogger(__name__)
+logger = setup_normalized_logging(
+    app_name="live_trading_strategy",
+)
 
 
 class StrategyExecutor:
@@ -257,7 +260,7 @@ class StrategyExecutor:
             logger.warning(f"[{strategy_name}] Failed to construct spread")
             self.state_store.log_event(
                 event_type="entry_failed",
-                message=f"Failed to construct spread",
+                message="Failed to construct spread",
                 severity="warning",
                 strategy_name=strategy_name,
             )

@@ -34,7 +34,7 @@ Usage:
 
 from datetime import datetime, date
 from decimal import Decimal
-from typing import Literal, Optional, Any
+from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict, ValidationInfo
 
 from quant_vibe.utils.timestamp_utils import ensure_utc_aware, is_utc_aware

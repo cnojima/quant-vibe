@@ -8,9 +8,8 @@ to enrich streaming data.
 
 import sys
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Optional
-import json
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -54,7 +53,7 @@ class OptionContractEnricher:
         Returns:
             Number of contracts cached
         """
-        print(f"\n📥 Refreshing option chain from Schwab API...")
+        print("\n📥 Refreshing option chain from Schwab API...")
         print(f"   Underlying: {underlying}")
         print(f"   Strike count: {strike_count}")
 
@@ -68,7 +67,7 @@ class OptionContractEnricher:
                 return 0
 
             if not response.text or response.text.strip() == "":
-                print(f"   ❌ API returned empty response")
+                print("   ❌ API returned empty response")
                 return 0
 
             chain_data = response.json()
@@ -239,7 +238,7 @@ def test_enricher():
     # Refresh chain
     contracts = enricher.refresh_contract_details("$SPX", strike_count=20)
 
-    print(f"\n📊 Cache Stats:")
+    print("\n📊 Cache Stats:")
     stats = enricher.get_cache_stats()
     print(f"   Contracts cached: {stats['contracts_cached']}")
     print(f"   Last refresh: {stats['last_refresh']}")
@@ -267,7 +266,7 @@ def test_enricher():
             'rho': None,
         }
 
-        print(f"\n   Before enrichment:")
+        print("\n   Before enrichment:")
         print(f"     Strike: {mock_quote['strike']}")
         print(f"     IV: {mock_quote['iv']}")
         print(f"     Delta: {mock_quote['delta']}")
@@ -275,7 +274,7 @@ def test_enricher():
         # Enrich
         enriched = enricher.enrich_quote(mock_quote)
 
-        print(f"\n   After enrichment:")
+        print("\n   After enrichment:")
         print(f"     Strike: {enriched['strike']}")
         print(f"     IV: {enriched['iv']}")
         print(f"     Delta: {enriched['delta']}")

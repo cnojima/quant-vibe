@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from quant_vibe.data.timescale_store import TimescaleStore
-from quant_vibe.config.logging_config import setup_normalized_logging
+from quant_vibe.logging import setup_normalized_logging
 from quant_vibe.messaging import RedisMessageBroker, Topic
 from quant_vibe.utils.retry import retry_with_backoff
 from streaming_service.config import StreamingConfig
@@ -68,7 +68,6 @@ class StreamingService:
         log_level = os.getenv("STREAMING_LOG_LEVEL", os.getenv("LOG_LEVEL", "INFO")).upper()
         self.logger = setup_normalized_logging(
             app_name="streaming",
-            log_level=log_level,
             log_dir="logs/streaming",
         )
 
@@ -95,8 +94,7 @@ class StreamingService:
         self.logger.info(f"  Token Mode: Centralized (via {self.config.token_service_url})")
         try:
             self.token_service_client = TokenServiceClient(
-                base_url=self.config.token_service_url,
-                logger=self.logger
+                base_url=self.config.token_service_url
             )
             # Test connection
             health = self.token_service_client.health_check()

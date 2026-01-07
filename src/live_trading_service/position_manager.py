@@ -3,13 +3,13 @@
 Tracks open positions, calculates real-time P&L, and monitors exit conditions.
 """
 
-import logging
 import numpy as np
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Any
 from collections import defaultdict
 
-from quant_vibe.strategies.options_base import OptionsPosition, OptionLeg
+from quant_vibe.logging import get_logger
+from quant_vibe.strategies.options_base import OptionsPosition
 from quant_vibe.utils import now_utc
 
 
@@ -41,8 +41,7 @@ class PositionManager:
 
     def __init__(
         self,
-        state_store=None,
-        logger: Optional[logging.Logger] = None
+        state_store=None
     ):
         """
         Initialize position manager.
@@ -52,7 +51,7 @@ class PositionManager:
             logger: Logger instance
         """
         self.state_store = state_store
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = get_logger('live_trading')
 
         # Track open positions {position_id: OptionsPosition}
         self.open_positions: Dict[str, OptionsPosition] = {}

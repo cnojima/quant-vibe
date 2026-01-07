@@ -9,8 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
 import pytest
 import sqlite3
 from datetime import datetime, timezone
-from unittest.mock import Mock, MagicMock
-import tempfile
+from unittest.mock import Mock
 
 
 @pytest.fixture

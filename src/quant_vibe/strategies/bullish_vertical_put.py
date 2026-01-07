@@ -1,9 +1,8 @@
 """Bullish Vertical Put Spread Strategy for SPX."""
 
 from typing import Optional, Dict, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime
 import pandas as pd
-import numpy as np
 
 from .options_base import (
     OptionsStrategy,
@@ -226,13 +225,13 @@ class BullishVerticalPutStrategy(OptionsStrategy):
                     print(f"     Opening Range: ${self.opening_low:.2f} - ${self.opening_high:.2f}")
                     print(f"     Opening Mean: ${self.opening_mean:.2f}, Std Dev: ${self.opening_std:.2f}")
                 else:
-                    print(f"     Opening Range: Insufficient data")
+                    print("     Opening Range: Insufficient data")
 
                 if self.is_bullish and self.opening_high is not None:
                     pullback_threshold = self.opening_high - self.pullback_amount
                     print(f"     → Waiting for pullback to ${pullback_threshold:.2f}")
                 else:
-                    print(f"     → No entry - market not bullish or insufficient data")
+                    print("     → No entry - market not bullish or insufficient data")
 
         # After observation period - check for pullback
         elif self.observation_complete and self.is_bullish:
@@ -308,7 +307,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
 
         # Check if we have options data
         if options_data.empty:
-            print(f"  ⚠️  No options data available")
+            print("  ⚠️  No options data available")
             return False
 
         # All conditions met - log entry signal
@@ -321,7 +320,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             current_time_utc = current_time
         current_time_et = current_time_utc.astimezone(et_tz)
 
-        print(f"\n  🎯 BUY SIGNAL TRIGGERED!")
+        print("\n  🎯 BUY SIGNAL TRIGGERED!")
         print(f"     Current Price: ${current_price:.2f}")
         print(f"     Pullback Threshold: ${pullback_threshold:.2f}")
         print(f"     Pullback Amount: ${pullback_threshold - current_price:.2f} ({((pullback_threshold - current_price) / current_price * 100):.2f}%)")
@@ -429,11 +428,11 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             pd.isna(long_put_data['mark']) or
             short_put_data['mark'] <= 0 or
             long_put_data['mark'] <= 0):
-            print(f"  ⚠️  Invalid mark prices for selected strikes")
+            print("  ⚠️  Invalid mark prices for selected strikes")
             return None
 
         # Log selected contracts and their liquidity metrics
-        print(f"\n  📋 Selected Contracts (passed liquidity filters):")
+        print("\n  📋 Selected Contracts (passed liquidity filters):")
         print(f"     Short {short_strike} PUT:")
         print(f"       Volume: {short_put_data['volume']:.0f}")
         if 'bid' in short_put_data and 'ask' in short_put_data and short_put_data['mark'] > 0:
@@ -467,14 +466,14 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             min_completeness_pct=95.0
         )
 
-        print(f"\n  📊 Data Completeness Check:")
+        print("\n  📊 Data Completeness Check:")
         for symbol, pct in completeness.items():
             strike = short_strike if 'contract_symbol' in short_put_data and short_put_data['contract_symbol'] == symbol else long_strike
             status = "✅" if pct >= 95.0 else "❌"
             print(f"     {status} {strike} PUT: {pct:.1f}% coverage")
 
         if not is_valid:
-            print(f"  ⚠️  Skipping trade - insufficient data completeness (need ≥95%)")
+            print("  ⚠️  Skipping trade - insufficient data completeness (need ≥95%)")
             return None
 
         # Calculate net credit (premium received) per spread, then multiply by number of spreads

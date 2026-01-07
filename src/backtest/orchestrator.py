@@ -20,7 +20,7 @@ from quant_vibe.utils import (
     save_backtest_to_db,
     setup_backtest_output,
 )
-from quant_vibe.config.logging_config import setup_normalized_logging
+from quant_vibe.logging import setup_normalized_logging
 
 
 class BacktestOrchestrator:
@@ -52,7 +52,6 @@ class BacktestOrchestrator:
         # Setup normalized logging
         self.logger = setup_normalized_logging(
             app_name="backtest",
-            log_level=self.config.get_log_level(),
             log_dir="logs/backtests",
             console_output=True,
         )
@@ -171,7 +170,7 @@ class BacktestOrchestrator:
             # Add a handler to write logger output to the tee file (which includes console)
             tee_handler = logging.StreamHandler(tee)
             tee_handler.setLevel(logging.DEBUG)
-            from quant_vibe.config.unified_logging import NormalizedFormatter
+            from quant_vibe.logging import NormalizedFormatter
             tee_handler.setFormatter(NormalizedFormatter(app_name="backtest", include_func=False))
             self.logger.addHandler(tee_handler)
 

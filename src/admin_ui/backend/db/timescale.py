@@ -78,6 +78,17 @@ async def fetch_engine_state() -> Optional[dict[str, Any]]:
         ORDER BY timestamp DESC
         LIMIT 1
     """
+    # return {
+    #     "running": engine_state.get("state", "").lower() == "running",
+    #     "state": engine_state.get("state"),
+    #     "paper_trading": engine_state.get("paper_trading"),
+    #     "total_bars_processed": engine_state.get("total_bars_processed"),
+    #     "total_signals_generated": engine_state.get("total_signals_generated"),
+    #     "uptime_seconds": engine_state.get("uptime_seconds"),
+    #     "last_update": engine_state.get("timestamp"),
+    #     "metadata": engine_state.get("metadata"),
+    #     "data_feed_mode": engine_state.get("data_feed_mode", "live"),
+    # }
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(query)
@@ -88,6 +99,11 @@ async def fetch_engine_state() -> Optional[dict[str, Any]]:
             result['total_bars_processed'] = result.get('total_bars_processed', 0)
             result['total_signals_generated'] = result.get('total_signals_generated', 0)
             result['uptime_seconds'] = result.get('uptime_seconds', 0.0)
+            result['last_update'] = result.get('timestamp')
+
+            if result['metadata'] and isinstance(result['metadata'], str):
+                result['metadata'] = json.loads(result['metadata'])
+            result['data_feed_mode'] = result['metadata'].get('data_feed_mode', 'live') if isinstance(result['metadata'], dict) else 'live'
             return result
         return None
 

@@ -285,7 +285,7 @@ class OptionsGapChecker:
         print(tabulate(display_df, headers='keys', tablefmt='grid', showindex=False))
 
         # Print statistics
-        print(f"\n📊 Gap Statistics:")
+        print("\n📊 Gap Statistics:")
         print(f"   Total gaps: {len(gaps_df)}")
         print(f"   Total missing minutes: {gaps_df['duration_minutes'].sum():.0f}")
         print(f"   Average gap duration: {gaps_df['duration_minutes'].mean():.1f} minutes")
@@ -354,12 +354,12 @@ class OptionsGapChecker:
         market_close_time = earliest_et.replace(hour=market_close_hour, minute=market_close_minute, second=0, microsecond=0)
 
         if earliest_et.hour > market_open_hour or (earliest_et.hour == market_open_hour and earliest_et.minute > market_open_minute):
-            print(f"\n   ⚠️  WARNING: Data starts AFTER market open (9:30 AM ET)")
-            print(f"      Missing pre-market and early trading data")
+            print("\n   ⚠️  WARNING: Data starts AFTER market open (9:30 AM ET)")
+            print("      Missing pre-market and early trading data")
 
         if latest_et.hour < market_close_hour or (latest_et.hour == market_close_hour and latest_et.minute < market_close_minute):
-            print(f"\n   ⚠️  WARNING: Data ends BEFORE market close (4:00 PM ET)")
-            print(f"      Missing late trading data")
+            print("\n   ⚠️  WARNING: Data ends BEFORE market close (4:00 PM ET)")
+            print("      Missing late trading data")
 
 
 def parse_args():
@@ -419,7 +419,7 @@ def main():
     start_time_utc = start_time.astimezone(pytz.utc)
     end_time_utc = end_time.astimezone(pytz.utc)
 
-    print(f"🔍 Checking options bars data for gaps...")
+    print("🔍 Checking options bars data for gaps...")
     print(f"   Time range: {start_time} to {end_time} ET")
     if args.ticker:
         print(f"   Option ticker: {args.ticker}")

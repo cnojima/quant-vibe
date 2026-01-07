@@ -29,11 +29,14 @@ from pathlib import Path
 from backtest import ParameterOptimizer, WalkForwardAnalysis
 from quant_vibe.strategies.registry import StrategyRegistry
 from quant_vibe.utils import load_options_backtest_data
-from quant_vibe.config.logging_config import setup_normalized_logging
+from quant_vibe.logging import setup_normalized_logging
 from quant_vibe.utils import now_utc
 
 # Setup logging
-logger = setup_normalized_logging("optimize_strategy", "INFO", "logs/optimization")
+logger = setup_normalized_logging(
+    app_name="optimize_strategy",
+    log_dir="logs/optimization"
+)
 
 # Global variable for status file path (set in main)
 STATUS_FILE_PATH = None

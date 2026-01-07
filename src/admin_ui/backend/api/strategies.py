@@ -6,7 +6,7 @@ Provides endpoints to list, enable, disable, and configure trading strategies.
 Now auto-generates metadata from central StrategyRegistry - no more manual duplication!
 """
 
-from typing import Any, List
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -236,7 +236,6 @@ async def toggle_strategy(
     # Trigger hot-reload
     try:
         from quant_vibe.messaging import RedisMessageBroker
-        from datetime import datetime
 
         broker = RedisMessageBroker()
         broker.publish(
@@ -328,7 +327,6 @@ async def update_strategy_params(
     # Trigger hot-reload
     try:
         from quant_vibe.messaging import RedisMessageBroker
-        from datetime import datetime
 
         broker = RedisMessageBroker()
         broker.publish(

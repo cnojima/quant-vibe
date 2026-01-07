@@ -10,7 +10,6 @@ from pathlib import Path
 from datetime import datetime
 from collections import defaultdict, deque
 from typing import Dict, List, Optional, Callable
-import math
 
 import pandas as pd
 from pydantic import ValidationError
@@ -18,16 +17,13 @@ from pydantic import ValidationError
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from quant_vibe.logging import setup_normalized_logging
 from quant_vibe.messaging import RedisMessageBroker, Topic
-from quant_vibe.models import OptionsBar, UnderlyingBar
+from quant_vibe.models import OptionsBar
 from quant_vibe.utils import (
     convert_string_columns_to_numeric,
-    parse_expiration_from_ticker,
-    parse_contract_type_from_ticker,
-    normalize_option_ticker,
     now_utc,
 )
-from .utils import setup_logging
 
 
 class RedisDataFeed:
@@ -76,7 +72,10 @@ class RedisDataFeed:
         self.last_update_time: Optional[datetime] = None
 
         # Logging
-        self.logger = setup_logging()
+        self.logger = setup_normalized_logging(
+            app_name="redis_data_feed",
+            log_dir="logs/live_trading",
+        )
 
         # Message broker
         self.broker = RedisMessageBroker(
@@ -244,7 +243,7 @@ class RedisDataFeed:
         print(f"DEBUG   Bar data: {bar}")
 
         if not symbol:
-            print(f"DEBUG   No symbol in bar, skipping")
+            print("DEBUG   No symbol in bar, skipping")
             return
 
         # Normalize symbol (remove $ prefix if present)
@@ -277,7 +276,7 @@ class RedisDataFeed:
             print(f"DEBUG   Updated underlying_prices['{normalized_symbol}'] = ${close_price:.2f}")
             print(f"DEBUG   All underlying_prices keys: {list(self.underlying_prices.keys())}")
         else:
-            print(f"DEBUG   No price available in bar (close, bid, ask all None)")
+            print("DEBUG   No price available in bar (close, bid, ask all None)")
 
         self.bars_received += 1
 

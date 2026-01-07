@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from dotenv import load_dotenv
 
-from quant_vibe.config.logging_config import setup_normalized_logging
+from quant_vibe.logging import setup_normalized_logging
 from quant_vibe.services.dyndns_client import SonicDynDNSClient
 
 
@@ -47,7 +47,6 @@ def main():
     # Setup logging
     logger = setup_normalized_logging(
         app_name="dyndns",
-        log_level=os.getenv("LOG_LEVEL", "INFO"),
         log_dir="logs/dyndns",
     )
 

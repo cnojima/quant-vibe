@@ -4,13 +4,13 @@ Provides utilities to load and configure strategies from YAML configuration.
 Now uses central StrategyRegistry for validation and instantiation.
 """
 
-import logging
 from typing import List, Dict, Any, Optional
 
+from quant_vibe.logging import get_logger
 from quant_vibe.strategies.options_base import OptionsStrategy
 from quant_vibe.strategies.registry import StrategyRegistry
 
-logger = logging.getLogger(__name__)
+logger = get_logger('live_trading')
 
 
 class StrategyLoader:

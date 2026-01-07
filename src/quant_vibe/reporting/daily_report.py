@@ -5,11 +5,13 @@ win rates, drawdowns, and strategy-level performance.
 """
 
 import json
-import logging
-from datetime import datetime, date
+
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 import pandas as pd
+
+from quant_vibe.logging import get_logger
 from quant_vibe.utils.timestamp_utils import now_utc
 
 
@@ -31,7 +33,6 @@ class DailyPerformanceReport:
         target_daily_income: float = 1780.0,
         initial_capital: float = 800000.0,
         max_daily_drawdown_pct: float = 0.02,
-        logger: Optional[logging.Logger] = None
     ):
         """Initialize daily performance reporter.
 
@@ -39,12 +40,11 @@ class DailyPerformanceReport:
             target_daily_income: Daily income goal in dollars (default: $1,780)
             initial_capital: Starting capital (default: $800,000)
             max_daily_drawdown_pct: Maximum acceptable daily drawdown (default: 2%)
-            logger: Logger instance
         """
         self.target = target_daily_income
         self.initial_capital = initial_capital
         self.max_drawdown_pct = max_daily_drawdown_pct
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
 
     def generate_report(
         self,

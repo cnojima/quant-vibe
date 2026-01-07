@@ -1,10 +1,8 @@
 """HTTP client for accessing the Token Management Service."""
 
 from typing import Optional, Dict, Any
-import logging
-
 import requests
-
+from quant_vibe.logging import get_logger
 
 class TokenServiceClient:
     """Client for interacting with the Token Management Service.
@@ -24,8 +22,7 @@ class TokenServiceClient:
     def __init__(
         self,
         base_url: str = "http://localhost:8100",
-        timeout: int = 10,
-        logger: Optional[logging.Logger] = None,
+        timeout: int = 10
     ):
         """Initialize token service client.
 
@@ -36,7 +33,7 @@ class TokenServiceClient:
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = get_logger(app_name='token_service')
 
     def health_check(self) -> Dict[str, Any]:
         """Check if token service is healthy.

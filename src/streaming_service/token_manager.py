@@ -38,7 +38,7 @@ class TokenManager:
             self.client.update_tokens()
 
             self.last_refresh = now
-            print(f"  ✓ Token refresh successful")
+            print("  ✓ Token refresh successful")
             return True
 
         except Exception as e:

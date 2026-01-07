@@ -7,9 +7,10 @@ that may fail due to transient errors (network issues, rate limits, etc.).
 import functools
 import time
 from typing import Callable, Optional, Tuple, Type, TypeVar, Union
-import logging
 
-logger = logging.getLogger(__name__)
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
 
 T = TypeVar('T')
 

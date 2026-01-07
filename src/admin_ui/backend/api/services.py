@@ -4,7 +4,6 @@ Service control API endpoints.
 Provides endpoints to manage service lifecycle via Docker API.
 """
 
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel

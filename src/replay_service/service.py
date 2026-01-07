@@ -1,6 +1,5 @@
 """Main replay service orchestrator."""
 
-import logging
 import os
 from collections import defaultdict
 from datetime import datetime
@@ -8,6 +7,7 @@ from typing import Optional, Dict, List
 
 from dotenv import load_dotenv
 
+from quant_vibe.logging import setup_normalized_logging
 from quant_vibe.data.timescale_store import TimescaleStore
 from quant_vibe.messaging import RedisMessageBroker
 from quant_vibe.models import OptionsBar, UnderlyingBar
@@ -15,9 +15,7 @@ from replay_service.data_loader import ReplayDataLoader
 from replay_service.publisher import ReplayPublisher
 from replay_service.timeframe import parse_timeframe
 
-
 load_dotenv()
-logger = logging.getLogger(__name__)
 
 
 class ReplayService:
@@ -59,7 +57,11 @@ class ReplayService:
         self.max_dte = max_dte
 
         # Setup logging
-        self.logger = logging.getLogger(__name__)
+        log_level = os.getenv("LOG_LEVEL", "INFO")
+        self.logger = setup_normalized_logging(
+            app_name="replay",
+            log_dir="logs/replay",
+        )
         self.logger.info("=" * 70)
         self.logger.info("REPLAY SERVICE")
         self.logger.info("=" * 70)

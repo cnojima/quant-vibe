@@ -2,7 +2,6 @@
 
 import os
 from datetime import datetime
-from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Tuple, Optional, TYPE_CHECKING
 
@@ -16,7 +15,7 @@ from quant_vibe.utils.timestamp_utils import market_hours, now_utc
 
 # Avoid circular import: models → utils.timestamp_utils → utils.__init__ → backtest_helpers
 if TYPE_CHECKING:
-    from ..models import OptionsBar, UnderlyingBar
+    pass
 
 # Load environment variables
 load_dotenv()
@@ -248,8 +247,8 @@ def load_options_backtest_data(
         if underlying_data.empty:
             if verbose:
                 print(
-                    f"⚠️  No data in underlying_bars table, falling back to deriving "
-                    f"from options bid/ask..."
+                    "⚠️  No data in underlying_bars table, falling back to deriving "
+                    "from options bid/ask..."
                 )
 
             # Load from options (returns List[UnderlyingBar])
@@ -472,7 +471,7 @@ def save_backtest_to_db(
         ts_store.update_backtest_metrics(backtest_id, metrics)
 
         if verbose:
-            print(f"   ✅ Performance metrics saved")
+            print("   ✅ Performance metrics saved")
 
         # 3. Save trades
         if not results["trades"].empty:
@@ -489,7 +488,7 @@ def save_backtest_to_db(
                 )
 
         if verbose:
-            print(f"\n✅ Backtest results saved to database successfully!")
+            print("\n✅ Backtest results saved to database successfully!")
 
     except Exception as e:
         if verbose:

@@ -263,7 +263,7 @@ class BollingerBandStrategy(OptionsStrategy):
 
         # Get current underlying price
         if underlying_data.empty:
-            print(f"[BollingerBand] No underlying data available")
+            print("[BollingerBand] No underlying data available")
             return None
 
         current_underlying = underlying_data.iloc[-1]["close"]
@@ -288,16 +288,16 @@ class BollingerBandStrategy(OptionsStrategy):
 
         # Early return if no data
         if options_data.empty:
-            print(f"[BollingerBand] No options data available")
+            print("[BollingerBand] No options data available")
             return None
 
         # Check for required columns
         if 'contract_type' not in options_data.columns:
-            print(f"[BollingerBand] ERROR: 'contract_type' column missing from options data")
+            print("[BollingerBand] ERROR: 'contract_type' column missing from options data")
             return None
 
         if 'expiration_date' not in options_data.columns:
-            print(f"[BollingerBand] ERROR: 'expiration_date' column missing from options data")
+            print("[BollingerBand] ERROR: 'expiration_date' column missing from options data")
             return None
 
         # Filter options by type, DTE, and strike range

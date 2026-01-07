@@ -1,7 +1,7 @@
 """Unit tests for TokenManager."""
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock
 from datetime import datetime, timedelta
 from streaming_service.token_manager import TokenManager
 

@@ -1,7 +1,6 @@
 """Integration tests for complete backtest workflow."""
 
 import pandas as pd
-import numpy as np
 from backtest import BacktestEngine, PerformanceMetrics
 from quant_vibe.strategies.base import Strategy, Signal
 

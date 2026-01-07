@@ -2,19 +2,16 @@
 
 import asyncio
 import os
-import time
 from contextlib import asynccontextmanager
-from datetime import datetime
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, status
-from fastapi.responses import JSONResponse
 import uvicorn
 
 from token_service.config import TokenServiceConfig
 from token_service.manager import CentralizedTokenManager
-from quant_vibe.config.logging_config import setup_normalized_logging
-from quant_vibe.messaging import RedisMessageBroker, Topic
+from quant_vibe.logging import setup_normalized_logging
+from quant_vibe.messaging import RedisMessageBroker
 from quant_vibe.utils import now_utc
 
 
@@ -197,7 +194,6 @@ async def lifespan(app: FastAPI):
             api_secret=config.schwab_api_secret,
             callback_url=config.schwab_callback_url,
             tokens_db_path=config.tokens_db_path,
-            logger=logger,
         )
         logger.info("✓ Token manager initialized")
     except Exception as e:
@@ -449,11 +445,8 @@ def main():
     global logger, config
 
     # Initialize logging first (before config)
-    # Read log level from env (default to INFO)
-    log_level = os.getenv("TOKEN_SERVICE_LOG_LEVEL", "INFO").upper()
     logger = setup_normalized_logging(
         app_name="token_service",
-        log_level=log_level,
         log_dir="logs/token_service",
     )
 

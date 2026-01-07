@@ -1,6 +1,5 @@
 """Bar aggregation logic for underlying asset (SPX) quotes."""
 
-from datetime import datetime
 from collections import defaultdict
 from typing import Dict, List, Optional, TYPE_CHECKING
 from decimal import Decimal
@@ -103,7 +102,7 @@ class UnderlyingBarAggregator:
             vwap = self._calculate_vwap(quotes)
 
             # Get latest quote for other fields
-            latest_quote = quotes[-1]
+            # latest_quote = quotes[-1]
 
             # Create UnderlyingBar Pydantic model
             bar = UnderlyingBar(

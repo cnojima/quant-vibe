@@ -1,15 +1,14 @@
 """Data loader for replay service - loads historical bars from TimescaleDB."""
 
-import logging
 from datetime import datetime
 from typing import List, Tuple
 
+from quant_vibe.logging import get_logger
 from quant_vibe.data.timescale_store import TimescaleStore
 from quant_vibe.models import OptionsBar, UnderlyingBar
 
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class ReplayDataLoader:
     """Loads historical market data from TimescaleDB for replay."""
@@ -89,8 +88,8 @@ class ReplayDataLoader:
 
             if not underlying_bars:
                 raise ValueError(
-                    f"No underlying data found (neither underlying_bars table "
-                    f"nor options-derived prices)"
+                    "No underlying data found (neither underlying_bars table "
+                    "nor options-derived prices)"
                 )
 
         logger.info(f"  ✓ Loaded {len(underlying_bars):,} underlying bars")
