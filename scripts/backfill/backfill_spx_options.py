@@ -4,13 +4,18 @@
 This script:
 1. Fetches historical SPX/SPXW options data from Massive API
 2. Normalizes contract symbols to canonical format (SPXW... instead of O:SPXW...)
-3. Stores data in TimescaleDB options_bars table
-4. Automatically enriches data with Greeks using backfill_stream_greeks.py
+3. Validates data using OptionsBar Pydantic model
+4. Stores data in TimescaleDB options_bars table
+5. Automatically enriches data with Greeks using backfill_stream_greeks.py
 
-Contract Format Conversion:
-- Massive API format: "O:SPXW251224P06900000"
-- Database format: "SPXW251224P06900000" (normalized, no O: prefix)
-- contract_type: 'call' or 'put' (lowercase)
+Schema Compliance (Updated 2026-01):
+- Uses OptionsBar Pydantic model from quant_vibe.models.market_data
+- Field name: 'contract_symbol' (not 'option_ticker' - that's database column name)
+- Database column 'option_ticker' is aliased as 'contract_symbol' in queries (see SCHEMA_MAPPING.md)
+- Symbol normalization handled by Pydantic validator (removes O: prefix, strips spaces)
+- contract_type: 'call' or 'put' (lowercase, validated by Pydantic)
+- Timestamps: Always UTC-aware (validated by Pydantic)
+- All new fields: bid_size, ask_size, implied_volatility populated as None (not in Massive data)
 
 SPXW Details:
 - SPXW = S&P 500 Weekly Index Options (daily expirations Mon-Fri)
@@ -29,7 +34,6 @@ Usage:
 """
 
 import sys
-import os
 import argparse
 import subprocess
 from pathlib import Path
@@ -44,6 +48,7 @@ from quant_vibe.data.massive_client import MassiveClient
 from quant_vibe.data.timescale_store import TimescaleStore
 from quant_vibe.models import OptionsBar
 from quant_vibe.utils.timestamp_utils import to_utc
+from quant_vibe.utils.symbol_utils import normalize_option_ticker
 import pandas as pd
 
 
@@ -539,7 +544,8 @@ Examples:
                 for bar_dict in bars:
                     try:
                         # Normalize contract symbol (remove O: prefix)
-                        normalized_symbol = ts_store.normalize_contract_symbol(bar_dict['option_ticker'])
+                        # The OptionsBar model has a validator that will normalize it automatically
+                        normalized_symbol = normalize_option_ticker(bar_dict['option_ticker'])
 
                         # Calculate mark from bid/ask if available
                         bid = bar_dict.get('bid')
@@ -548,24 +554,38 @@ Examples:
                         if bid is not None and ask is not None:
                             mark = (bid + ask) / 2.0
 
-                        # Create OptionsBar Pydantic model
+                        # Create OptionsBar Pydantic model with ALL required fields
+                        # Note: OptionsBar uses 'contract_symbol' (not 'option_ticker')
                         options_bar = OptionsBar(
                             timestamp=to_utc(bar_dict['timestamp']),
-                            contract_symbol=normalized_symbol,
+                            contract_symbol=normalized_symbol,  # This will be validated/normalized by Pydantic
                             underlying_ticker='SPX',
                             strike_price=Decimal(str(contract_details['strike_price'])),
-                            contract_type=contract_details['contract_type'],
+                            contract_type=contract_details['contract_type'],  # Already lowercase 'call'/'put'
                             expiration_date=contract_details['expiration_date'],
+                            # OHLCV data
                             open=Decimal(str(bar_dict['open'])) if bar_dict.get('open') is not None else Decimal('0'),
                             high=Decimal(str(bar_dict['high'])) if bar_dict.get('high') is not None else Decimal('0'),
                             low=Decimal(str(bar_dict['low'])) if bar_dict.get('low') is not None else Decimal('0'),
                             close=Decimal(str(bar_dict['close'])) if bar_dict.get('close') is not None else Decimal('0'),
                             volume=bar_dict.get('volume', 0),
+                            # Quote data
                             bid=Decimal(str(bid)) if bid is not None else None,
                             ask=Decimal(str(ask)) if ask is not None else None,
                             mark=Decimal(str(mark)) if mark is not None else None,
+                            bid_size=None,  # Not available from Massive API
+                            ask_size=None,  # Not available from Massive API
+                            # Additional metrics
                             vwap=Decimal(str(bar_dict['vwap'])) if bar_dict.get('vwap') is not None else None,
                             transactions=bar_dict.get('transactions'),
+                            # Greeks (will be filled by backfill_stream_greeks.py)
+                            delta=None,
+                            gamma=None,
+                            theta=None,
+                            vega=None,
+                            rho=None,
+                            implied_volatility=None,
+                            # Metadata
                             data_source='massive',
                         )
                         all_bars.append(options_bar)
