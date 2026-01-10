@@ -5,7 +5,6 @@ Scheduler service for running periodic tasks at specific times.
 This service runs the nightly backfill job at 3pm PST daily.
 """
 
-import logging
 import os
 import subprocess
 import sys
@@ -15,13 +14,18 @@ from pathlib import Path
 import pytz
 import schedule
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from quant_vibe.logging.unified_logging import setup_normalized_logging
+
+# Configure logging using unified logging
+logger = setup_normalized_logging(
+    app_name="scheduler",
+    log_dir="logs/scheduler",
+    log_level="INFO",
+    console_output=True,
 )
-logger = logging.getLogger(__name__)
 
 # Define timezone
 PST = pytz.timezone("America/Los_Angeles")
