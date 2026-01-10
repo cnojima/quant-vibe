@@ -21,7 +21,10 @@ export function PnLDistributionChart({ data }: PnLDistributionChartProps) {
         <Bar dataKey="count" name="Number of Trades">
           {data.map((entry, index) => {
             // Color bars based on P&L range (green for positive, red for negative)
-            const isPositive = entry.range.includes('+') || entry.range.startsWith('$0');
+            // Extract the starting value from the range (e.g., "$150 to $200" -> 150)
+            const match = entry.range.match(/\$(-?\d+)/);
+            const startValue = match ? parseInt(match[1], 10) : 0;
+            const isPositive = startValue >= 0;
             return <Cell key={`cell-${index}`} fill={isPositive ? '#10b981' : '#ef4444'} />;
           })}
         </Bar>
