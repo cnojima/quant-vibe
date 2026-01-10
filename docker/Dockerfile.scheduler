@@ -9,12 +9,15 @@ RUN apt-get update && \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy only requirements-related files first for better layer caching
+COPY pyproject.toml README.md ./
 
-# Install additional scheduler dependencies
-RUN pip install --no-cache-dir schedule pytz
+# Copy src directory for dependency installation
+COPY src ./src
+
+# Install Python dependencies in editable mode
+# Includes scheduler dependencies (schedule, pytz are in pyproject.toml)
+RUN pip install --no-cache-dir -e ".[all]"
 
 # Copy the application code
 COPY . .
