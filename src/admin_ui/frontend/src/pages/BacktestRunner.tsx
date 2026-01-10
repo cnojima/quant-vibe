@@ -18,6 +18,7 @@ import { InfoIcon } from '../components/common/InfoIcon';
 import { EquityCurveChart } from '../components/charts/EquityCurveChart';
 import { PnLDistributionChart } from '../components/charts/PnLDistributionChart';
 import { DrawdownChart } from '../components/charts/DrawdownChart';
+import { CumulativePnLChart } from '../components/charts/CumulativePnLChart';
 import { OutlierTradesTable } from '../components/analysis/OutlierTradesTable';
 import { PatternInsights } from '../components/analysis/PatternInsights';
 import { MarkdownSection } from '../components/analysis/MarkdownSection';
@@ -210,6 +211,27 @@ export function BacktestRunner() {
       return {
         timestamp: point.timestamp || point.date,
         drawdown,
+      };
+    });
+  };
+
+  const getCumulativePnLData = () => {
+    if (!backtestResults?.trades) return [];
+
+    // Sort trades by exit time
+    const sortedTrades = [...backtestResults.trades].sort((a: any, b: any) => {
+      const dateA = new Date(a.exit_time).getTime();
+      const dateB = new Date(b.exit_time).getTime();
+      return dateA - dateB;
+    });
+
+    let cumulativePnL = 0;
+    return sortedTrades.map((trade: any) => {
+      const pnl = parseFloat(trade.pnl || trade.profit_loss) || 0;
+      cumulativePnL += pnl;
+      return {
+        timestamp: trade.exit_time,
+        cumulativePnL,
       };
     });
   };
@@ -730,6 +752,18 @@ export function BacktestRunner() {
                     Loss Exit
                   </span>
                 </div>
+              </Card>
+
+              {/* Cumulative P/L Chart */}
+              <Card className="mb-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <h3 className="text-lg font-semibold">Cumulative Profit/Loss</h3>
+                  <InfoIcon
+                    content="Shows the running total of all trade profits and losses over time. This helps visualize the strategy's earning trajectory and identify periods of consistent gains or losses. Green indicates positive cumulative P/L, red indicates negative."
+                    placement="right"
+                  />
+                </div>
+                <CumulativePnLChart data={getCumulativePnLData()} />
               </Card>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
