@@ -61,6 +61,7 @@ export interface Position {
   strategy_name: string;
   strategy?: string;
   symbol?: string;
+  spread_type?: string;
   status: 'open' | 'closed';
   entry_time: string;
   entry_cost: number;
@@ -80,6 +81,7 @@ export interface Position {
 export interface Order {
   order_id: string;
   position_id: string;
+  strategy_name?: string;
   order_type: 'entry' | 'exit' | 'profit_target' | 'stop_loss';
   action_type?: 'opening' | 'closing';
   status: 'pending' | 'submitted' | 'accepted' | 'filled' | 'cancelled' | 'rejected';
