@@ -7,6 +7,7 @@ Automatically sends notifications for key trading events based on configuration.
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
+from quant_vibe.logging import get_logger
 from quant_vibe.notifications.pushover import (
     PushoverNotifier,
     NotificationPriority

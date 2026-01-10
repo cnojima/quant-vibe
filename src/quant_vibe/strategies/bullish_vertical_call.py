@@ -166,7 +166,7 @@ class BullishVerticalCallStrategy(OptionsStrategy):
         if time_since_open <= self.observation_period and not self.observation_complete:
             # Get data since market open
             opening_data = underlying_data[
-                underlying_data.index >= self.market_open_time
+                underlying_data['timestamp'] >= self.market_open_time
             ]
 
             if len(opening_data) >= 2:

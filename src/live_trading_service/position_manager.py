@@ -132,6 +132,11 @@ class PositionManager:
 
         Args:
             options_data: Current options data {symbol: {bid, ask, close, ...}}
+
+        Note:
+            If quotes are missing for a position, current_value is set to None
+            to indicate stale/invalid data. This prevents using outdated values
+            for exit decisions.
         """
         self.logger.debug(f"update_position_values() called: {len(self.open_positions)} positions, {len(options_data)} option quotes")
 
@@ -139,10 +144,11 @@ class PositionManager:
             try:
                 new_value = self._calculate_position_value(position, options_data)
 
-                if new_value is not None:
-                    position.current_value = new_value
+                # Always update current_value, even if None (indicates stale data)
+                position.current_value = new_value
 
-                    # Track highest value for peak calculations
+                # Only track highest value for valid (non-None) values
+                if new_value is not None:
                     if position.highest_value is None or new_value > position.highest_value:
                         position.highest_value = new_value
 
@@ -151,6 +157,8 @@ class PositionManager:
                     f"Error updating position {position.position_id}: {e}",
                     exc_info=True
                 )
+                # Set to None on error to indicate invalid state
+                position.current_value = None
 
     def _calculate_position_value(
         self,
@@ -160,8 +168,21 @@ class PositionManager:
         """
         Calculate current position value (exit value).
 
-        For a spread we bought (debit), we would sell to close at bid.
-        For a spread we sold (credit), we would buy to close at ask.
+        This calculates the value we would RECEIVE from exiting the position:
+        - For long positions (debit): POSITIVE value = credit we'd receive from selling
+        - For short positions (credit): NEGATIVE value = debit we'd pay to buy back
+
+        Sign convention:
+        - Positive exit_value = cash received (selling)
+        - Negative exit_value = cash paid (buying)
+
+        This aligns with entry_cost convention:
+        - Positive entry_cost = debit paid (long)
+        - Negative entry_cost = credit received (short)
+
+        P&L formula: exit_value - entry_cost
+        - Long profit: +exit > +entry (sold for more than paid)
+        - Short profit: -exit > -entry (bought back for less than received)
         """
         value = 0.0
         missing_quotes = []
@@ -184,11 +205,14 @@ class PositionManager:
             # Update leg current price
             leg.current_price = price
 
-            # Calculate value (reverse sign for exit)
+            # Calculate exit value (cash flow from closing the position)
+            # Each options contract represents 100 shares (multiplier)
             if leg.quantity > 0:
-                value -= price * abs(leg.quantity)  # Selling to close
+                # Long position: selling to close = POSITIVE (credit received)
+                value += price * abs(leg.quantity) * 100
             else:
-                value += price * abs(leg.quantity)  # Buying to close
+                # Short position: buying to close = NEGATIVE (debit paid)
+                value -= price * abs(leg.quantity) * 100
 
         if missing_quotes:
             self.logger.warning(
@@ -202,8 +226,16 @@ class PositionManager:
         """
         Get P&L for a position.
 
+        Formula: P&L = current_value - entry_cost
+
+        Examples:
+        - Long position: entry_cost = +1000, current_value = +1500 → P&L = +500 (profit)
+        - Long position: entry_cost = +1000, current_value = +800 → P&L = -200 (loss)
+        - Short position: entry_cost = -1000, current_value = -600 → P&L = +400 (profit)
+        - Short position: entry_cost = -1000, current_value = -1200 → P&L = -200 (loss)
+
         Returns:
-            P&L as float (positive = profit, negative = loss)
+            P&L as float (positive = profit, negative = loss), or None if no current value
         """
         position = self.open_positions.get(position_id)
         if not position:
@@ -213,7 +245,6 @@ class PositionManager:
             return None
 
         # P&L = current exit value - entry cost
-        # If we paid 2.00 debit, and can exit for 3.00 credit, P&L = 3.00 - 2.00 = 1.00
         pnl = position.current_value - position.entry_cost
         return pnl
 
@@ -420,7 +451,7 @@ class PositionManager:
                 for leg in position.legs
             ],
             'metadata': {
-                'profit_target': _to_native_type(position.profit_target),
+                'profit_target_pct': _to_native_type(position.profit_target_pct),
                 'stop_loss': _to_native_type(position.stop_loss),
                 'trailing_stop': _to_native_type(position.trailing_stop),
             }

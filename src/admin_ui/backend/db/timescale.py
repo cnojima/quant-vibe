@@ -124,6 +124,7 @@ async def fetch_active_positions(limit: int = 100) -> list[dict[str, Any]]:
         SELECT
             position_id,
             strategy_name,
+            spread_type,
             entry_time,
             entry_cost,
             current_value,
@@ -166,6 +167,7 @@ async def fetch_closed_positions(limit: int = 100) -> list[dict[str, Any]]:
         SELECT
             position_id,
             strategy_name,
+            spread_type,
             entry_time,
             entry_cost,
             exit_time,
@@ -229,6 +231,7 @@ async def fetch_open_orders(limit: int = 100, status_filter: Optional[str] = Non
         SELECT
             order_id,
             position_id,
+            strategy_name,
             order_type,
             action_type,
             status,
@@ -236,6 +239,7 @@ async def fetch_open_orders(limit: int = 100, status_filter: Optional[str] = Non
             symbol,
             quantity,
             expected_price as limit_price,
+            filled_price,
             metadata
         FROM live_orders
         {where_clause}

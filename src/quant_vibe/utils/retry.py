@@ -6,6 +6,7 @@ that may fail due to transient errors (network issues, rate limits, etc.).
 
 import functools
 import time
+import logging
 from typing import Callable, Optional, Tuple, Type, TypeVar, Union
 
 from quant_vibe.logging import get_logger

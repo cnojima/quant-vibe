@@ -447,7 +447,7 @@ class BollingerBandStrategy(OptionsStrategy):
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:
-                    position.current_value = bid_price * leg.quantity * 100
+                    position.current_value = bid_price * abs(leg.quantity) * 100
                     position.legs[0].current_price = bid_price
                     # Recalculate P&L with actual bid price
                     pnl = position.current_value - position.entry_cost
@@ -466,7 +466,7 @@ class BollingerBandStrategy(OptionsStrategy):
                 if not leg_data.empty:
                     bid_price = leg_data.iloc[0]['bid']
                     if not pd.isna(bid_price) and bid_price > 0:
-                        position.current_value = bid_price * leg.quantity * 100
+                        position.current_value = bid_price * abs(leg.quantity) * 100
                         position.legs[0].current_price = bid_price
                         pnl = position.current_value - position.entry_cost
                         pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
@@ -487,7 +487,7 @@ class BollingerBandStrategy(OptionsStrategy):
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:
-                    position.current_value = bid_price * leg.quantity * 100
+                    position.current_value = bid_price * abs(leg.quantity) * 100
                     position.legs[0].current_price = bid_price
                     pnl = position.current_value - position.entry_cost
                     pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
@@ -501,7 +501,7 @@ class BollingerBandStrategy(OptionsStrategy):
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:
-                    position.current_value = bid_price * leg.quantity * 100
+                    position.current_value = bid_price * abs(leg.quantity) * 100
                     position.legs[0].current_price = bid_price
                     pnl = position.current_value - position.entry_cost
                     pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0

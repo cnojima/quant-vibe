@@ -482,8 +482,15 @@ export function LiveTradingMonitor() {
               <Card key={position.position_id}>
                 <div className="flex justify-between items-start">
                   <div>
-                    <h4 className="font-semibold text-lg">{position.symbol}</h4>
-                    <p className="text-sm text-gray-600">{position.strategy}</p>
+                    <h4 className="font-semibold text-lg">{position.position_id}</h4>
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-sm text-gray-600">{position.strategy_name}</p>
+                      {position.spread_type && (
+                        <Badge variant="default" className="text-xs">
+                          {position.spread_type}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   <Badge variant={(position.unrealized_pnl ?? 0) >= 0 ? 'success' : 'error'}>
                     {formatCurrency(position.unrealized_pnl ?? 0)}
@@ -600,6 +607,11 @@ export function LiveTradingMonitor() {
                     <p className="text-sm text-gray-600">
                       {(order.action ?? order.side ?? '').toUpperCase()} {order.quantity} @ {formatCurrency(order.price ?? order.limit_price ?? 0)}
                     </p>
+                    {order.strategy_name && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Strategy: <span className="font-medium">{order.strategy_name}</span>
+                      </p>
+                    )}
                   </div>
                   <Badge
                     variant={

@@ -441,9 +441,16 @@ class OptionsStrategy(ABC):
 
                 leg.current_price = current_price
 
-                # Calculate leg value: quantity * price * multiplier
-                # For short positions (negative quantity), this will be negative
-                leg_value = leg.quantity * current_price * 100
+                # Calculate exit value (cash flow from closing the position)
+                # This must match position_manager's sign convention:
+                # - Long positions (qty > 0): selling = POSITIVE (credit received)
+                # - Short positions (qty < 0): buying = NEGATIVE (debit paid)
+                if leg.quantity > 0:
+                    # Long position: would sell at current price
+                    leg_value = current_price * abs(leg.quantity) * 100  # Positive
+                else:
+                    # Short position: would buy at current price
+                    leg_value = -(current_price * abs(leg.quantity) * 100)  # Negative
                 current_value += leg_value
             else:
                 # No data for this leg at this timestamp - this is a DATA QUALITY ISSUE
@@ -480,7 +487,12 @@ class OptionsStrategy(ABC):
                                 estimated_price = float(mark_below) + weight * (float(mark_above) - float(mark_below))
 
                                 leg.current_price = estimated_price
-                                leg_value = leg.quantity * estimated_price * 100
+
+                                # Calculate exit value with correct sign convention
+                                if leg.quantity > 0:
+                                    leg_value = estimated_price * abs(leg.quantity) * 100  # Long: positive
+                                else:
+                                    leg_value = -(estimated_price * abs(leg.quantity) * 100)  # Short: negative
                                 current_value += leg_value
 
                                 print(f"      ⚠️  Interpolated {leg.contract_symbol}: ${estimated_price:.2f} (from ${mark_below:.2f} @ {strike_below['strike_price']} and ${mark_above:.2f} @ {strike_above['strike_price']})")
@@ -497,7 +509,12 @@ class OptionsStrategy(ABC):
                     current_price = leg.entry_price if leg.entry_price else 0
 
                 leg.current_price = current_price
-                leg_value = leg.quantity * current_price * 100
+
+                # Calculate exit value with correct sign convention
+                if leg.quantity > 0:
+                    leg_value = current_price * abs(leg.quantity) * 100  # Long: positive
+                else:
+                    leg_value = -(current_price * abs(leg.quantity) * 100)  # Short: negative
                 current_value += leg_value
 
         if missing_legs:

@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+consolidated_log = 'logs/quant_vibe.log'
 
 class ESTTimedRotatingFileHandler(TimedRotatingFileHandler):
     """
@@ -172,6 +173,10 @@ def setup_normalized_logging(
     """
     Set up normalized logging for any component.
 
+    Logs are written to both:
+    1. A consolidated log file (logs/quant_vibe.log) containing all components
+    2. A component-specific log file (logs/{app_name}/{app_name}_{date}.log)
+
     Args:
         app_name: Application/component name (backtest, live, streaming_service, etc.)
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -217,7 +222,21 @@ def setup_normalized_logging(
     file_formatter = NormalizedFormatter(app_name=app_name, include_func=True)
     console_formatter = NormalizedFormatter(app_name=app_name, include_func=False)
 
-    # File handler with EST-based rotation - rotates at midnight EST
+    # Consolidated log handler - all components write here
+    consolidated_path = Path(consolidated_log)
+    consolidated_path.parent.mkdir(parents=True, exist_ok=True)
+    consolidated_handler = ESTTimedRotatingFileHandler(
+        str(consolidated_path),
+        when='midnight',
+        interval=1,
+        backupCount=30,  # Keep 30 days of logs
+        encoding='utf-8'
+    )
+    consolidated_handler.setLevel(logging.DEBUG)
+    consolidated_handler.setFormatter(file_formatter)
+    # logger.addHandler(consolidated_handler)
+
+    # Component-specific file handler with EST-based rotation
     file_handler = ESTTimedRotatingFileHandler(
         str(full_log_path),
         when='midnight',
@@ -240,7 +259,7 @@ def setup_normalized_logging(
     logger.propagate = False
 
     # Log initialization
-    logger.info(f"Logging initialized: level={log_level}, file={full_log_path}")
+    # logger.info(f"Logging initialized: level={log_level}, consolidated={consolidated_log}, component={full_log_path}")
 
     return logger
 
@@ -257,10 +276,8 @@ def get_logger(app_name: str = "quant_vibe") -> logging.Logger:
     Returns:
         Logger instance
     """
-    logger = logging.getLogger(app_name)
-
-    # If logger has no handlers, set up default logging
-    if not logger.handlers:
-        logger = setup_normalized_logging(app_name=app_name)
-
-    return logger
+    return setup_normalized_logging(
+        app_name=app_name,
+        log_dir=f"logs/{app_name}",
+        console_output=True,
+    )

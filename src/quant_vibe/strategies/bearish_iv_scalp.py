@@ -200,7 +200,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
             ]
 
         historical_atm = historical_data[
-            (historical_data['option_type'] == 'CALL') &
+            (historical_data['contract_type'] == 'call') &
             (historical_data['strike_price'] >= current_price - atm_range) &
             (historical_data['strike_price'] <= current_price + atm_range) &
             (historical_data['implied_volatility'].notna()) &

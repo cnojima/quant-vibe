@@ -136,8 +136,8 @@ class ReplayPublisher:
                     timestamp, options_bars, underlying_bars
                 )
 
-                # Log progress
-                if (i + 1) % 10 == 0 or count > 0:
+                # Log progress (more verbose for first few to debug timing)
+                if i < 10 or (i + 1) % 10 == 0 or count > 0:
                     elapsed = time.time() - self.start_time
                     logger.info(
                         f"  [{i+1}/{len(timestamps)}] {timestamp} | "

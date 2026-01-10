@@ -9,18 +9,19 @@ from typing import Dict, List, Optional, Any
 import pandas as pd
 import pytz
 
-from quant_vibe.logging import setup_normalized_logging
+from quant_vibe.logging import setup_normalized_logging, get_logger
 
+# from quant_vibe.logging.unified_logging import get_logger
 from quant_vibe.strategies.options_base import OptionsStrategy, OptionsPosition
 from quant_vibe.notifications import TradingNotifier
 from .order_manager import OrderManager
 from .position_manager import PositionManager
 from .state_store import StateStore
 
-logger = setup_normalized_logging(
-    app_name="live_trading_strategy",
-)
-
+# logger = setup_normalized_logging(
+#     app_name="live_trading_strategy",
+# )
+logger = get_logger('live_trading_strategy_executor')
 
 class StrategyExecutor:
     """Executes trading strategies on live streaming data."""
@@ -108,20 +109,20 @@ class StrategyExecutor:
             options_data: Options chain data (current snapshot)
             current_time: Current timestamp
         """
-        logger.debug(f"on_bar() called: time={current_time}, enabled={self.enabled}, underlying_bars={len(underlying_data)}, options_contracts={len(options_data)}")
+        # logger.debug(f"on_bar() called: time={current_time}, enabled={self.enabled}, underlying_bars={len(underlying_data)}, options_contracts={len(options_data)}")
 
         # Skip if disabled
         if not self.enabled:
-            logger.debug("Skipping: strategy execution disabled")
+            logger.info("Skipping: strategy execution disabled")
             return
 
         # Skip if this is the same bar we already processed
         if self.last_bar_time == current_time:
-            logger.debug(f"Skipping: already processed bar at {current_time}")
+            # logger.debug(f"Skipping: already processed bar at {current_time}")
             return
 
         self.last_bar_time = current_time
-        logger.debug(f"Processing new bar at {current_time}")
+        logger.info(f"Processing new bar at {current_time}")
 
         # Update latest options data for exit orders
         # Convert DataFrame to dict format {contract_symbol: {bid, ask, close, ...}}

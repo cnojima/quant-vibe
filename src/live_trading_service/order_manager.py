@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
-from quant_vibe.logging import setup_normalized_logging
+from quant_vibe.logging import setup_normalized_logging, get_logger
 from quant_vibe.strategies.options_base import OptionsPosition, OptionLeg
 from quant_vibe.utils import now_utc
 
@@ -114,10 +114,11 @@ class OrderManager:
         self.schwab_client = schwab_client
         self.state_store = state_store
         self.use_oco = use_oco
-        self.logger = setup_normalized_logging(
-            app_name="order_manager",
-            log_dir="logs/live_trading"
-        )
+        # self.logger = setup_normalized_logging(
+        #     app_name="order_manager",
+        #     log_dir="logs/live_trading"
+        # )
+        self.logger = get_logger('live_trading')
 
         # OCO configuration defaults
         self.oco_config = oco_config or {
@@ -313,21 +314,17 @@ class OrderManager:
         options_data: Dict[str, Dict]
     ) -> float:
         """
-        Calculate expected exit value (position value when closing).
+        Calculate expected exit value (cash flow from closing position).
 
-        This represents the VALUE of the position at exit, NOT the cash flow.
-        Uses the same convention as position.current_value for P&L calculation:
-        P&L = exit_value - entry_cost
+        Uses "cash flow from exiting" convention to match position.current_value:
+        - Long positions: POSITIVE value (credit received from selling)
+        - Short positions: NEGATIVE value (debit paid to buy back)
 
-        For long positions (bought):
-        - exit_value = positive (position value = price per contract × quantity × 100)
-        - If profitable: exit_value > entry_cost
+        This aligns with P&L formula: P&L = exit_value - entry_cost
+        - Long profit: exit_value > entry_cost (sold for more than paid)
+        - Short profit: exit_value > entry_cost (bought back for less than received)
 
-        For short positions (sold):
-        - exit_value = negative (position liability = -(price per contract × quantity × 100))
-        - If profitable: exit_value > entry_cost (less negative = profit)
-
-        NOTE: Result includes × 100 multiplier to match position.current_value convention.
+        NOTE: Result includes × 100 multiplier for options contracts.
         """
         total = 0.0
 
@@ -341,13 +338,12 @@ class OrderManager:
             # Get exit price (we reverse the side)
             if leg.quantity > 0:  # Originally bought, now selling at bid
                 price = quote.get('bid', quote.get('close', 0))
+                # Long position: selling = POSITIVE (credit received)
+                total += price * abs(leg.quantity) * 100
             else:  # Originally sold, now buying back at ask
                 price = quote.get('ask', quote.get('close', 0))
-
-            # Calculate position value (same sign convention as entry_cost and current_value)
-            # For long (positive quantity): positive value
-            # For short (negative quantity): negative value
-            total += price * leg.quantity * 100
+                # Short position: buying = NEGATIVE (debit paid)
+                total -= price * abs(leg.quantity) * 100
 
         return total
 
@@ -398,10 +394,11 @@ class OrderManager:
                     fill_price = base_price * (1 - slippage_pct)
 
                 # Accumulate (buy is positive cost, sell is negative cost)
+                # Each options contract represents 100 shares
                 if side == 'buy':
-                    filled_price += fill_price * quantity
+                    filled_price += fill_price * quantity * 100
                 else:
-                    filled_price -= fill_price * quantity
+                    filled_price -= fill_price * quantity * 100
 
             # Mark as filled
             order.status = OrderStatus.FILLED

@@ -329,7 +329,8 @@ class CoinTossStrategy(OptionsStrategy):
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:
-                    position.current_value = bid_price * leg.quantity * 100
+                    # Use correct sign convention: long position selling = positive value
+                    position.current_value = bid_price * abs(leg.quantity) * 100
                     position.legs[0].current_price = bid_price
 
             # Calculate final P&L with actual bid price (do this AFTER the override)
@@ -349,7 +350,8 @@ class CoinTossStrategy(OptionsStrategy):
                 if not leg_data.empty:
                     bid_price = leg_data.iloc[0]['bid']
                     if not pd.isna(bid_price) and bid_price > 0:
-                        position.current_value = bid_price * leg.quantity * 100
+                        # Use correct sign convention: long position selling = positive value
+                        position.current_value = bid_price * abs(leg.quantity) * 100
                         position.legs[0].current_price = bid_price
 
                 # Calculate final P&L with actual bid price (do this AFTER the override)
@@ -372,7 +374,8 @@ class CoinTossStrategy(OptionsStrategy):
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:
-                    position.current_value = bid_price * leg.quantity * 100
+                    # Use correct sign convention: long position selling = positive value
+                    position.current_value = bid_price * abs(leg.quantity) * 100
                     position.legs[0].current_price = bid_price
 
             # Calculate final P&L with actual bid price (do this AFTER the override)
@@ -389,7 +392,8 @@ class CoinTossStrategy(OptionsStrategy):
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:
-                    position.current_value = bid_price * leg.quantity * 100
+                    # Use correct sign convention: long position selling = positive value
+                    position.current_value = bid_price * abs(leg.quantity) * 100
                     position.legs[0].current_price = bid_price
 
             # Calculate final P&L with actual bid price (do this AFTER the override)
