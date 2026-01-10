@@ -521,7 +521,7 @@ async def get_backtest_results(
                         else:
                             underlying_data = []
                     else:
-                        print(f"⚠️  No start/end date found in backtest_run")
+                        print("⚠️  No start/end date found in backtest_run")
                         underlying_fetch_error = "No start/end date in backtest metadata"
                 except Exception as e:
                     print(f"❌ ERROR: Could not fetch underlying bars: {e}")
@@ -603,7 +603,7 @@ async def get_backtest_results(
                     import json
                     parameters = json.loads(parameters)
 
-                print(f"✅ Returning backtest results:")
+                print("✅ Returning backtest results:")
                 print(f"  Trades: {len(trades_data)}")
                 print(f"  Equity curve points: {len(equity_data)}")
                 print(f"  Underlying bars: {len(underlying_data)}")

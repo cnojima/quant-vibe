@@ -5,14 +5,12 @@ Analyzes backtest results to identify patterns in winning and losing trades,
 extract insights, and generate recommendations for strategy improvement.
 """
 
-import logging
-from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
 from quant_vibe.data.timescale_store import TimescaleStore
+from quant_vibe.logging.unified_logging import setup_normalized_logging
 from quant_vibe.models.analysis import (
     AnalysisFindings,
     AnalysisResult,
@@ -31,7 +29,10 @@ from quant_vibe.models.analysis import (
 )
 from quant_vibe.utils import now_utc
 
-logger = logging.getLogger(__name__)
+logger = setup_normalized_logging(
+    app_name="backtest_analyzer",
+    log_dir="logs/backtests"
+)
 
 
 class TradeAnalyzer:

@@ -1,6 +1,5 @@
 """Backtest results reporting and analytics."""
 
-from typing import Dict
 
 import pandas as pd
 

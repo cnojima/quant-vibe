@@ -7,9 +7,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
 
 import pytest
-import sqlite3
 from datetime import datetime, timedelta, timezone
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from token_service.manager import CentralizedTokenManager, TokenInfo
 
 

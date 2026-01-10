@@ -6,15 +6,11 @@ API Documentation: https://public-api.sonic.net/dyndns
 """
 
 import json
-import logging
-import time
-from datetime import datetime
-from typing import Optional
-
 import requests
+from typing import Optional
+from quant_vibe.logging import get_logger
 
-
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SonicDynDNSClient:

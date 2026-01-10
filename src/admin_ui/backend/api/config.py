@@ -4,7 +4,6 @@ Configuration management API endpoints.
 Provides endpoints to read and update YAML configuration files.
 """
 
-from pathlib import Path
 from typing import Any
 
 import yaml
@@ -78,7 +77,7 @@ def save_yaml_config(config_name: str, config: dict[str, Any]) -> None:
     try:
         # Create backup first
         if config_path.exists():
-            backup_path = config_path.with_suffix(f".yaml.backup")
+            backup_path = config_path.with_suffix(".yaml.backup")
             config_path.rename(backup_path)
 
         # Write new config

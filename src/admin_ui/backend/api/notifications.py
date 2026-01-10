@@ -4,7 +4,6 @@ Notification history API endpoints.
 Provides endpoints to fetch and filter notification history from the database.
 """
 
-import os
 from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query

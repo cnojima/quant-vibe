@@ -22,7 +22,6 @@ from admin_ui.backend.config import get_settings
 
 # Load .env file to ensure environment variables are available for subprocesses
 # In Docker, environment variables are set via docker-compose, but load_dotenv() won't hurt
-from pathlib import Path
 from quant_vibe.utils import now_utc, to_utc
 env_path = Path(__file__).parent.parent.parent.parent.parent / ".env"
 if env_path.exists():
@@ -250,7 +249,7 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
 
         # Debug: Check what Pushover vars are in the environment
         pushover_vars = ['PUSHOVER_API_TOKEN', 'PUSHOVER_USER_KEY', 'PUSHOVER_DEVICE', 'PUSHOVER_ENABLED']
-        print(f"[Optimization] Checking Pushover environment variables:")
+        print("[Optimization] Checking Pushover environment variables:")
         for key in pushover_vars:
             value = os.environ.get(key, "NOT_SET")
             if value and value != "NOT_SET":

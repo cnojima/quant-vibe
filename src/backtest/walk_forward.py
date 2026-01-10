@@ -11,14 +11,16 @@ import pandas as pd
 import numpy as np
 from typing import Any, Dict, List, Optional, Type
 from datetime import datetime, timedelta
-import logging
 
 from .options_engine import OptionsBacktestEngine
 from quant_vibe.strategies.options_base import OptionsStrategy
 from .parameter_optimizer import ParameterOptimizer
-from quant_vibe.config.logging_config import setup_normalized_logging
+from quant_vibe.logging import setup_normalized_logging
 
-logger = setup_normalized_logging("walk_forward", "INFO", "logs/optimization")
+logger = setup_normalized_logging(
+    app_name="walk_forward",
+    log_dir="logs/optimization"
+)
 
 
 class WalkForwardAnalysis:

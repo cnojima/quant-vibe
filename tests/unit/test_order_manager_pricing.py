@@ -4,10 +4,9 @@ Unit tests for OrderManager price calculations.
 Tests the critical × 100 multiplier and sign conventions for entry/exit pricing.
 """
 
-import pytest
 from datetime import datetime
 from live_trading_service.order_manager import OrderManager
-from quant_vibe.strategies.options_base import OptionsPosition, OptionLeg, OptionType, SpreadType
+from quant_vibe.strategies.options_base import OptionLeg, OptionType
 
 
 class TestOrderManagerPricing:

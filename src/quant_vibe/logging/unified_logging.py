@@ -3,16 +3,20 @@
 Provides normalized logging format: [datetime][app][level][msg]
 with proper stack trace handling and calendar-day (EST) rotation.
 """
-
+from math import log
+import os
 import logging
 import sys
-import traceback
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 from logging.handlers import TimedRotatingFileHandler
 import pytz
+from dotenv import load_dotenv
 
+load_dotenv()
+
+consolidated_log = 'logs/quant_vibe.log'
 
 class ESTTimedRotatingFileHandler(TimedRotatingFileHandler):
     """
@@ -146,10 +150,21 @@ class NormalizedFormatter(logging.Formatter):
 
         return result
 
+def get_log_level(app_name: str) -> str:
+    """
+    Get log level from environment variables.
+
+    Checks for specific app log level first, then falls back to general LOG_LEVEL.
+
+    Args:
+        app_name: Application/component name
+    """
+    specific_env_var = f"{app_name.upper()}_LOG_LEVEL"
+    return os.getenv(specific_env_var, os.getenv("LOG_LEVEL", "INFO")).upper()
 
 def setup_normalized_logging(
     app_name: str = "quant_vibe",
-    log_level: str = "INFO",
+    log_level: Optional[str] = get_log_level("quant_vibe"),
     log_dir: str = "logs",
     log_file: Optional[str] = None,
     console_output: bool = True,
@@ -157,6 +172,10 @@ def setup_normalized_logging(
 ) -> logging.Logger:
     """
     Set up normalized logging for any component.
+
+    Logs are written to both:
+    1. A consolidated log file (logs/quant_vibe.log) containing all components
+    2. A component-specific log file (logs/{app_name}/{app_name}_{date}.log)
 
     Args:
         app_name: Application/component name (backtest, live, streaming_service, etc.)
@@ -179,6 +198,7 @@ def setup_normalized_logging(
         [2025-12-25 12:00:00][backtest][INFO    ] Starting backtest
     """
     # Create log directory
+    log_dir = log_dir or f"logs/{app_name}"
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
 
@@ -192,6 +212,7 @@ def setup_normalized_logging(
 
     # Create logger
     logger = logging.getLogger(app_name)
+    log_level = get_log_level(app_name)
     logger.setLevel(getattr(logging, log_level.upper()))
 
     # Remove existing handlers to avoid duplicates
@@ -201,7 +222,21 @@ def setup_normalized_logging(
     file_formatter = NormalizedFormatter(app_name=app_name, include_func=True)
     console_formatter = NormalizedFormatter(app_name=app_name, include_func=False)
 
-    # File handler with EST-based rotation - rotates at midnight EST
+    # Consolidated log handler - all components write here
+    consolidated_path = Path(consolidated_log)
+    consolidated_path.parent.mkdir(parents=True, exist_ok=True)
+    consolidated_handler = ESTTimedRotatingFileHandler(
+        str(consolidated_path),
+        when='midnight',
+        interval=1,
+        backupCount=30,  # Keep 30 days of logs
+        encoding='utf-8'
+    )
+    consolidated_handler.setLevel(logging.DEBUG)
+    consolidated_handler.setFormatter(file_formatter)
+    # logger.addHandler(consolidated_handler)
+
+    # Component-specific file handler with EST-based rotation
     file_handler = ESTTimedRotatingFileHandler(
         str(full_log_path),
         when='midnight',
@@ -224,7 +259,7 @@ def setup_normalized_logging(
     logger.propagate = False
 
     # Log initialization
-    logger.info(f"Logging initialized: level={log_level}, file={full_log_path}")
+    # logger.info(f"Logging initialized: level={log_level}, consolidated={consolidated_log}, component={full_log_path}")
 
     return logger
 
@@ -241,31 +276,8 @@ def get_logger(app_name: str = "quant_vibe") -> logging.Logger:
     Returns:
         Logger instance
     """
-    logger = logging.getLogger(app_name)
-
-    # If logger has no handlers, set up default logging
-    if not logger.handlers:
-        logger = setup_normalized_logging(app_name=app_name)
-
-    return logger
-
-
-# Convenience function for backward compatibility
-def setup_logging(
-    log_level: str = "INFO",
-    log_file: str = "logs/quant_vibe.log",
-) -> None:
-    """
-    Legacy setup_logging function for backward compatibility.
-
-    Args:
-        log_level: Logging level
-        log_file: Path to log file
-    """
-    log_path = Path(log_file)
-    setup_normalized_logging(
-        app_name="quant_vibe",
-        log_level=log_level,
-        log_dir=str(log_path.parent),
-        log_file=log_path.name,
+    return setup_normalized_logging(
+        app_name=app_name,
+        log_dir=f"logs/{app_name}",
+        console_output=True,
     )

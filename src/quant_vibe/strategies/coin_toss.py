@@ -178,16 +178,16 @@ class CoinTossStrategy(OptionsStrategy):
 
         # Early return if no data
         if options_data.empty:
-            print(f"[CoinToss] No options data available")
+            print("[CoinToss] No options data available")
             return None
 
         # Check for required columns
         if 'contract_type' not in options_data.columns:
-            print(f"[CoinToss] ERROR: 'contract_type' column missing from options data")
+            print("[CoinToss] ERROR: 'contract_type' column missing from options data")
             return None
 
         if 'expiration_date' not in options_data.columns:
-            print(f"[CoinToss] ERROR: 'expiration_date' column missing from options data")
+            print("[CoinToss] ERROR: 'expiration_date' column missing from options data")
             return None
 
         # Filter by contract type first
@@ -329,7 +329,8 @@ class CoinTossStrategy(OptionsStrategy):
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:
-                    position.current_value = bid_price * leg.quantity * 100
+                    # Use correct sign convention: long position selling = positive value
+                    position.current_value = bid_price * abs(leg.quantity) * 100
                     position.legs[0].current_price = bid_price
 
             # Calculate final P&L with actual bid price (do this AFTER the override)
@@ -349,7 +350,8 @@ class CoinTossStrategy(OptionsStrategy):
                 if not leg_data.empty:
                     bid_price = leg_data.iloc[0]['bid']
                     if not pd.isna(bid_price) and bid_price > 0:
-                        position.current_value = bid_price * leg.quantity * 100
+                        # Use correct sign convention: long position selling = positive value
+                        position.current_value = bid_price * abs(leg.quantity) * 100
                         position.legs[0].current_price = bid_price
 
                 # Calculate final P&L with actual bid price (do this AFTER the override)
@@ -372,7 +374,8 @@ class CoinTossStrategy(OptionsStrategy):
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:
-                    position.current_value = bid_price * leg.quantity * 100
+                    # Use correct sign convention: long position selling = positive value
+                    position.current_value = bid_price * abs(leg.quantity) * 100
                     position.legs[0].current_price = bid_price
 
             # Calculate final P&L with actual bid price (do this AFTER the override)
@@ -389,7 +392,8 @@ class CoinTossStrategy(OptionsStrategy):
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:
-                    position.current_value = bid_price * leg.quantity * 100
+                    # Use correct sign convention: long position selling = positive value
+                    position.current_value = bid_price * abs(leg.quantity) * 100
                     position.legs[0].current_price = bid_price
 
             # Calculate final P&L with actual bid price (do this AFTER the override)

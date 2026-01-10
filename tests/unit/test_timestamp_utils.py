@@ -3,8 +3,7 @@ Unit tests for timestamp utilities.
 """
 
 import pytest
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime
 
 from quant_vibe.utils.timestamp_utils import (
     now_utc,

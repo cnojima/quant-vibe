@@ -20,7 +20,7 @@ Usage:
     utc_dt = to_utc(naive_dt)  # Assumes naive is UTC, adds timezone info
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 

@@ -4,7 +4,6 @@ Configuration management for Admin UI service.
 Loads settings from environment variables with sensible defaults.
 """
 
-import os
 from pathlib import Path
 from typing import Any, Optional, Union
 

@@ -6,17 +6,16 @@ streaming data into the DataFrame format expected by strategy executors.
 """
 
 import pandas as pd
-import logging
-from datetime import datetime
+
 from typing import Optional, Dict, List, TYPE_CHECKING
 from collections import deque, defaultdict
 from pydantic import ValidationError
+from quant_vibe.logging.unified_logging import get_logger
 from quant_vibe.utils.timestamp_utils import now_utc
 from quant_vibe.utils.dataframe_utils import convert_string_columns_to_numeric
 
 if TYPE_CHECKING:
     from ..live.data_feed import RealtimeDataFeed
-    from quant_vibe.models import OptionsBar, UnderlyingBar
 
 
 class LiveMarketDataProvider:
@@ -39,7 +38,7 @@ class LiveMarketDataProvider:
             data_feed: RealtimeDataFeed instance with streaming data
         """
         self.data_feed = data_feed
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger('streaming')
 
         # Track underlying bars separately for easy access
         # ticker -> deque of bars
@@ -318,7 +317,7 @@ class LiveMarketDataProvider:
         options_df = self.data_feed.get_bars(symbol=None)
 
         if options_df.empty:
-            print(f"DEBUG   No options data available - returning empty")
+            print("DEBUG   No options data available - returning empty")
             return []
 
         # Group by timestamp and take median underlying price

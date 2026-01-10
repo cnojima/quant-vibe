@@ -2,8 +2,8 @@
 
 import json
 import threading
-from datetime import datetime, timedelta
-from typing import Dict, Optional, Any, Callable
+from datetime import timedelta
+from typing import Dict, Any
 
 from watcher_service.service_monitor import HealthStatus
 from quant_vibe.utils import now_utc

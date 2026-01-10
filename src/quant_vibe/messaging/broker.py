@@ -18,9 +18,12 @@ from pydantic import BaseModel
 
 from .topics import Topic
 from quant_vibe.utils.timestamp_utils import now_utc
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
-    from quant_vibe.models import OptionsBar, UnderlyingBar
+    pass
 
 
 class PydanticEncoder(json.JSONEncoder):
@@ -219,19 +222,16 @@ class RedisMessageBroker(MessageBroker):
                 self.client.publish(str(topic), serialized)
                 return True
             except Exception as e:
-                import logging
-                logging.getLogger(__name__).error(f"Failed to publish after reconnect: {e}")
+                logger.error(f"Failed to publish after reconnect: {e}")
                 return False
 
         except TypeError as e:
-            import logging
             msg_type = type(message).__name__
-            logging.getLogger(__name__).error(f"JSON serialization error: {e}. Message type: {msg_type}")
+            logger.error(f"JSON serialization error: {e}. Message type: {msg_type}")
             return False
 
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f"Unexpected publish error: {e}")
+            logger.error(f"Unexpected publish error: {e}")
             return False
 
     def subscribe(self, topics: List[Topic], callback: Callable[[Topic, Dict[str, Any]], None]) -> None:
@@ -257,8 +257,6 @@ class RedisMessageBroker(MessageBroker):
         # IMPORTANT: Consume subscription confirmation messages
         # Redis sends a confirmation message for each subscribe() call
         # We need to consume these before we can get actual data messages
-        import logging
-        logger = logging.getLogger(__name__)
         logger.info(f"Waiting for {len(topic_strs)} subscription confirmations...")
 
         for i in range(len(topic_strs)):
@@ -308,8 +306,7 @@ class RedisMessageBroker(MessageBroker):
                                     model_class = self.TOPIC_MODEL_MAP[topic]
                                     message_data = model_class(**message_data)
                                 except Exception as e:
-                                    import logging
-                                    logging.getLogger(__name__).warning(
+                                    logger.warning(
                                         f"Failed to deserialize message to {model_class.__name__}: {e}. "
                                         f"Falling back to dict."
                                     )
@@ -320,8 +317,7 @@ class RedisMessageBroker(MessageBroker):
 
                     except (json.JSONDecodeError, KeyError, TypeError) as e:
                         # Skip malformed messages
-                        import logging
-                        logging.getLogger(__name__).warning(f"Skipping malformed message: {e}")
+                        logger.warning(f"Skipping malformed message: {e}")
                         continue
 
         except KeyboardInterrupt:
@@ -338,8 +334,7 @@ class RedisMessageBroker(MessageBroker):
             message_data will be a Pydantic model if topic has registered schema, otherwise dict
         """
         if not self.pubsub:
-            import logging
-            logging.getLogger(__name__).error("get_message() called but pubsub is None!")
+            logger.error("get_message() called but pubsub is None!")
             return None
 
         message = self.pubsub.get_message(timeout=timeout)
@@ -362,8 +357,7 @@ class RedisMessageBroker(MessageBroker):
                                 model_class = self.TOPIC_MODEL_MAP[topic]
                                 message_data = model_class(**message_data)
                             except Exception as e:
-                                import logging
-                                logging.getLogger(__name__).warning(
+                                logger.warning(
                                     f"Failed to deserialize message to {model_class.__name__}: {e}. "
                                     f"Falling back to dict."
                                 )
@@ -376,8 +370,6 @@ class RedisMessageBroker(MessageBroker):
 
             except (json.JSONDecodeError, KeyError, TypeError) as e:
                 # Log parse errors for debugging
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.warning(f"Failed to parse Redis message: {e}. Message: {message}")
                 return None
 

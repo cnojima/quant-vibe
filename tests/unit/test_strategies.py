@@ -2,7 +2,7 @@
 
 import pytest
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 
 from quant_vibe.strategies import SMACrossoverStrategy, HailMaryStrategy

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useLiveStatus, useLivePositions, useLiveOrders, useLiveEvents, useClearEvents, useLiveStats, useDailyReport, useRecentDailyReports, useActiveStrategies, useLiveTradesVisualization } from '../api/queries';
+import { useLiveStatus, useLivePositions, useLiveOrders, useLiveEvents, useClearEvents, useLiveStats, useDailyReport, useRecentDailyReports, useActiveStrategies, useLiveTradesVisualization, useToggleDataFeedMode } from '../api/queries';
 // import { useWebSocket } from '../hooks/useWebSocket';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
@@ -15,6 +15,7 @@ export function LiveTradingMonitor() {
   const { data: orders } = useLiveOrders(50, orderStatusFilter);
   const { data: events } = useLiveEvents(50);
   const clearEventsMutation = useClearEvents();
+  const toggleDataFeedMode = useToggleDataFeedMode();
   const { data: stats} = useLiveStats();
   const { data: todayReport } = useDailyReport();
   const { data: recentReports } = useRecentDailyReports(7);
@@ -24,6 +25,15 @@ export function LiveTradingMonitor() {
   const handleClearEvents = () => {
     if (window.confirm('Are you sure you want to clear all events? This action cannot be undone.')) {
       clearEventsMutation.mutate();
+    }
+  };
+
+  const handleToggleDataFeedMode = () => {
+    const currentMode = status?.data_feed_mode || 'live';
+    const newMode = currentMode === 'live' ? 'replay' : 'live';
+
+    if (window.confirm(`Switch data feed mode from "${currentMode}" to "${newMode}"?\n\nNote: You must restart the live trading engine for this change to take effect.`)) {
+      toggleDataFeedMode.mutate();
     }
   };
 
@@ -96,7 +106,7 @@ export function LiveTradingMonitor() {
       </div>
 
       {/* Engine Status Overview */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4 mb-4 md:mb-6">
         <Card>
           <div className="text-sm text-gray-600 mb-1">Engine Status</div>
           <div className="text-2xl font-bold">
@@ -105,6 +115,27 @@ export function LiveTradingMonitor() {
             ) : (
               <span className="text-gray-600">Stopped</span>
             )}
+          </div>
+        </Card>
+
+        <Card>
+          <div className="text-sm text-gray-600 mb-1">Data Feed Mode</div>
+          <div className="flex items-center gap-2">
+            <div className="text-lg font-bold capitalize">
+              {status?.data_feed_mode === 'replay' ? (
+                <span className="text-orange-600">Replay</span>
+              ) : (
+                <span className="text-blue-600">Live</span>
+              )}
+            </div>
+            <button
+              onClick={handleToggleDataFeedMode}
+              disabled={toggleDataFeedMode.isPending}
+              className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded transition-colors disabled:opacity-50"
+              title="Toggle between live and replay mode"
+            >
+              Switch
+            </button>
           </div>
         </Card>
 
@@ -451,8 +482,15 @@ export function LiveTradingMonitor() {
               <Card key={position.position_id}>
                 <div className="flex justify-between items-start">
                   <div>
-                    <h4 className="font-semibold text-lg">{position.symbol}</h4>
-                    <p className="text-sm text-gray-600">{position.strategy}</p>
+                    <h4 className="font-semibold text-lg">{position.position_id}</h4>
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-sm text-gray-600">{position.strategy_name}</p>
+                      {position.spread_type && (
+                        <Badge variant="default" className="text-xs">
+                          {position.spread_type}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   <Badge variant={(position.unrealized_pnl ?? 0) >= 0 ? 'success' : 'error'}>
                     {formatCurrency(position.unrealized_pnl ?? 0)}
@@ -569,6 +607,11 @@ export function LiveTradingMonitor() {
                     <p className="text-sm text-gray-600">
                       {(order.action ?? order.side ?? '').toUpperCase()} {order.quantity} @ {formatCurrency(order.price ?? order.limit_price ?? 0)}
                     </p>
+                    {order.strategy_name && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Strategy: <span className="font-medium">{order.strategy_name}</span>
+                      </p>
+                    )}
                   </div>
                   <Badge
                     variant={

@@ -21,7 +21,7 @@ Subscription level must include options data access.
 
 import os
 from typing import Optional, List, Iterator
-from datetime import datetime, date, timedelta
+from datetime import timedelta
 import pandas as pd
 from dotenv import load_dotenv
 

@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from dotenv import load_dotenv
 
-from quant_vibe.config.logging_config import setup_normalized_logging
+from quant_vibe.logging import setup_normalized_logging
 from quant_vibe.messaging import RedisMessageBroker
 
 # Load environment
@@ -37,7 +37,6 @@ class WatcherFailureTest:
         """Initialize test suite."""
         self.logger = setup_normalized_logging(
             app_name="watcher_test",
-            log_level="INFO",
             log_dir="logs/watcher_test",
         )
 

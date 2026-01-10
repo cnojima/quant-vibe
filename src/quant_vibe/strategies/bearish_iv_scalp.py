@@ -11,7 +11,6 @@ volatility normalizes.
 from typing import Optional, Dict, Tuple
 from datetime import datetime, timedelta
 import pandas as pd
-import numpy as np
 
 from .options_base import (
     OptionsStrategy,
@@ -201,7 +200,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
             ]
 
         historical_atm = historical_data[
-            (historical_data['option_type'] == 'CALL') &
+            (historical_data['contract_type'] == 'call') &
             (historical_data['strike_price'] >= current_price - atm_range) &
             (historical_data['strike_price'] <= current_price + atm_range) &
             (historical_data['implied_volatility'].notna()) &
@@ -310,9 +309,9 @@ class BearishIVScalpStrategy(OptionsStrategy):
                 print(f"     Current Price: ${current_price:.2f}")
 
                 if self.is_bearish:
-                    print(f"     → Monitoring for IV spike on bearish day")
+                    print("     → Monitoring for IV spike on bearish day")
                 else:
-                    print(f"     → No entry - market not bearish")
+                    print("     → No entry - market not bearish")
 
         # After observation - check for IV spike on bearish days
         elif self.observation_complete and self.is_bearish:
@@ -389,7 +388,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
 
         # Check options data availability
         if options_data.empty:
-            print(f"  ⚠️  No options data available")
+            print("  ⚠️  No options data available")
             return False
 
         # All conditions met - log entry signal
@@ -405,7 +404,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
         current_iv = market_analysis.get('current_iv')
         iv_change = market_analysis.get('iv_change_pct', 0)
 
-        print(f"\n  🎯 IV SPIKE SIGNAL - BEARISH ENTRY!")
+        print("\n  🎯 IV SPIKE SIGNAL - BEARISH ENTRY!")
         print(f"     Current Price: ${current_price:.2f}")
         if current_iv is not None:
             print(f"     Current IV: {current_iv:.2%}")
@@ -499,7 +498,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
         ]
 
         if short_call.empty or long_call.empty:
-            print(f"  ⚠️  Could not find both legs of spread")
+            print("  ⚠️  Could not find both legs of spread")
             print(f"     Short {short_strike} CALL: {'found' if not short_call.empty else 'MISSING'}")
             print(f"     Long {long_strike} CALL: {'found' if not long_call.empty else 'MISSING'}")
             return None
@@ -513,11 +512,11 @@ class BearishIVScalpStrategy(OptionsStrategy):
             pd.isna(long_call_data['mark']) or
             short_call_data['mark'] <= 0 or
             long_call_data['mark'] <= 0):
-            print(f"  ⚠️  Invalid mark prices for selected strikes")
+            print("  ⚠️  Invalid mark prices for selected strikes")
             return None
 
         # Log selected contracts
-        print(f"\n  📋 Selected 0DTE Contracts:")
+        print("\n  📋 Selected 0DTE Contracts:")
         print(f"     Short {short_strike} CALL:")
         print(f"       Volume: {short_call_data['volume']:.0f}")
         if 'bid' in short_call_data and 'ask' in short_call_data:
@@ -560,14 +559,14 @@ class BearishIVScalpStrategy(OptionsStrategy):
             min_completeness_pct=80.0  # Lower threshold for 0DTE
         )
 
-        print(f"\n  📊 Data Completeness Check:")
+        print("\n  📊 Data Completeness Check:")
         for symbol, pct in completeness.items():
             strike = short_strike if symbol == short_call_data['contract_symbol'] else long_strike
             status = "✅" if pct >= 80.0 else "❌"
             print(f"     {status} {strike} CALL: {pct:.1f}% coverage")
 
         if not is_valid:
-            print(f"  ⚠️  Skipping trade - insufficient data completeness (need ≥80% for 0DTE)")
+            print("  ⚠️  Skipping trade - insufficient data completeness (need ≥80% for 0DTE)")
             return None
 
         # Calculate net credit
@@ -579,7 +578,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
         # Max risk
         max_risk = self.spread_width * 100 * self.num_spreads
 
-        print(f"\n  💰 Spread Economics:")
+        print("\n  💰 Spread Economics:")
         print(f"     Net Credit: ${net_credit:,.2f}")
         print(f"     Max Risk: ${max_risk:,.2f}")
         print(f"     Return on Risk: {(net_credit / max_risk * 100):.2f}%")

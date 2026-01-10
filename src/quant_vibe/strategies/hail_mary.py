@@ -196,7 +196,7 @@ class HailMaryStrategy(OptionsStrategy):
 
         # Check if we have options data
         if options_data.empty:
-            print(f"  ⚠️  No options data available")
+            print("  ⚠️  No options data available")
             return False
 
         # All conditions met - log entry signal
@@ -208,7 +208,7 @@ class HailMaryStrategy(OptionsStrategy):
             current_time_utc = current_time
         current_time_et = current_time_utc.astimezone(et_tz)
 
-        print(f"\n  🚀 HAIL MARY BUY SIGNAL!")
+        print("\n  🚀 HAIL MARY BUY SIGNAL!")
         print(f"     Current Price: ${current_price:.2f}")
         print(f"     Time: {current_time_et.strftime('%H:%M:%S %Z')}")
         print(f"     Minutes to close: {market_analysis.get('minutes_to_close', 0):.1f}")
@@ -295,11 +295,11 @@ class HailMaryStrategy(OptionsStrategy):
 
         # Check for valid price
         if pd.isna(selected_option['mark']) or selected_option['mark'] <= 0:
-            print(f"  ⚠️  Invalid mark price for selected strike")
+            print("  ⚠️  Invalid mark price for selected strike")
             return None
 
         # Log selected contract
-        print(f"\n  📋 Selected Contract:")
+        print("\n  📋 Selected Contract:")
         print(f"     {strike} CALL (expiring {expiration.strftime('%Y-%m-%d')})")
         print(f"     Volume: {selected_option['volume']:.0f}")
         if 'bid' in selected_option and 'ask' in selected_option and selected_option['mark'] > 0:

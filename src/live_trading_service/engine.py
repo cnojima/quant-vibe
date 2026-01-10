@@ -11,7 +11,7 @@ The LiveTradingEngine coordinates all components:
 
 import os
 import time
-from datetime import datetime, time as dt_time
+from datetime import datetime
 from typing import Dict, List, Optional
 import signal
 import yaml
@@ -28,17 +28,18 @@ from live_trading_service.strategy_executor import StrategyExecutor
 from live_trading_service.strategy_loader import StrategyLoader
 from live_trading_service.utils import (
     TradingState, EventType,
-    is_market_open, get_market_hours
+    is_market_open
 )
-from quant_vibe.config.logging_config import setup_normalized_logging
+from quant_vibe.logging import setup_normalized_logging
 from quant_vibe.data import LiveMarketDataProvider
+from quant_vibe.logging.unified_logging import get_logger
 from quant_vibe.messaging import RedisMessageBroker
 from quant_vibe.notifications import TradingNotifier
 from quant_vibe.utils import now_utc
 
 # Import token service client
 try:
-    from token_service.client import TokenServiceClient, TokenNotFoundError, TokenExpiredError
+    from token_service.client import TokenServiceClient
     TOKEN_SERVICE_AVAILABLE = True
 except ImportError:
     TOKEN_SERVICE_AVAILABLE = False
@@ -66,13 +67,11 @@ class LiveTradingEngine:
         self.config = self._load_config(config_path)
 
         # Setup normalized logging
-        # Read log level from env: LIVE_TRADING_LOG_LEVEL or fallback to LOG_LEVEL (default: INFO)
-        log_level = os.getenv("LIVE_TRADING_LOG_LEVEL", os.getenv("LOG_LEVEL", "INFO")).upper()
-        self.logger = setup_normalized_logging(
-            app_name="live_trading",
-            log_level=log_level,
-            log_dir="logs/live_trading",
-        )
+        # self.logger = setup_normalized_logging(
+        #     app_name="live_trading",
+        #     log_dir="logs/live_trading",
+        # )
+        self.logger = get_logger('live_trading')
 
         self.logger.info("="*70)
         self.logger.info("Initializing Live Trading Engine")
@@ -140,7 +139,7 @@ class LiveTradingEngine:
         return {
             'engine': {
                 'paper_trading': True,  # CRITICAL: Start with paper trading
-                'max_positions': 5,
+                'max_positions': 25,
                 'max_capital_per_trade': 10000,
                 'daily_loss_limit_pct': 0.05,  # 5%
                 'data_stale_timeout_seconds': 300,  # 5 minutes
@@ -180,6 +179,10 @@ class LiveTradingEngine:
         self.logger.warning(f"Received signal {signum}, initiating shutdown...")
         self._shutdown_requested = True
 
+    def get_data_feed_mode(self) -> str:
+        """Get the current data feed mode."""
+        return self.config.get('data_feed', {}).get('mode', 'live')
+
     def initialize(self):
         """Initialize all components."""
         self.logger.info("Initializing components...")
@@ -207,15 +210,20 @@ class LiveTradingEngine:
         # Initialize data feed (Redis)
         self.logger.info("  - Initializing Redis data feed...")
         redis_config = self.config.get('redis', {})
+        data_feed_mode = self.get_data_feed_mode()
         self.redis_feed = RedisDataFeed(
             window_size=self.config['data_feed']['window_size'],
             callbacks=[self._on_new_bars],
             redis_host=redis_config.get('host'),
             redis_port=redis_config.get('port'),
             redis_db=redis_config.get('db'),
+            mode=data_feed_mode,
         )
         self.logger.info("    ✓ Redis data feed ready")
-        self.logger.info("    ℹ️  Using StreamingService for market data")
+        if data_feed_mode == "replay":
+            self.logger.info("    ℹ️  Using REPLAY mode for market data (replay service)")
+        else:
+            self.logger.info("    ℹ️  Using LIVE mode for market data (streaming service)")
 
         # Initialize market data provider (wraps data feed)
         self.logger.info("  - Initializing market data provider...")
@@ -224,7 +232,7 @@ class LiveTradingEngine:
         self.logger.info("    ✓ Market data provider ready")
 
         # Initialize token service client if enabled
-        if self.use_token_service and TOKEN_SERVICE_AVAILABLE and self.token_service_url:
+        if data_feed_mode != 'replay' and self.use_token_service and TOKEN_SERVICE_AVAILABLE and self.token_service_url:
             self.logger.info(f"  - Connecting to token service ({self.token_service_url})...")
             try:
                 self.token_service_client = TokenServiceClient(
@@ -243,20 +251,21 @@ class LiveTradingEngine:
                 self.logger.warning("    Falling back to local token management")
                 self.token_service_client = None
 
-        # Initialize Schwab client (only for order execution, not streaming)
-        self.logger.info("  - Initializing Schwab client...")
-        tokens_db = "tokens/schwabdev_tokens.db"
-        self.schwab_client = schwabdev.Client(
-            os.getenv("SCHWAB_API_KEY"),
-            os.getenv("SCHWAB_API_SECRET"),
-            os.getenv("SCHWAB_CALLBACK_URL"),
-            tokens_db=tokens_db,
-        )
+        if data_feed_mode != 'replay':
+            # Initialize Schwab client (only for order execution, not streaming)
+            self.logger.info("  - Initializing Schwab client...")
+            tokens_db = "tokens/schwabdev_tokens.db"
+            self.schwab_client = schwabdev.Client(
+                os.getenv("SCHWAB_API_KEY"),
+                os.getenv("SCHWAB_API_SECRET"),
+                os.getenv("SCHWAB_CALLBACK_URL"),
+                tokens_db=tokens_db,
+            )
 
-        if self.token_service_client:
-            self.logger.info("    ✓ Schwab client ready (order execution only, tokens via token service)")
-        else:
-            self.logger.info("    ✓ Schwab client ready (order execution only, tokens via local database)")
+            if self.token_service_client:
+                self.logger.info("    ✓ Schwab client ready (order execution only, tokens via token service)")
+            else:
+                self.logger.info("    ✓ Schwab client ready (order execution only, tokens via local database)")
 
         # Initialize OrderManager
         self.logger.info("  - Initializing OrderManager...")
@@ -273,8 +282,7 @@ class LiveTradingEngine:
         # Initialize PositionManager
         self.logger.info("  - Initializing PositionManager...")
         self.position_manager = PositionManager(
-            state_store=self.state_store,
-            logger=self.logger,
+            state_store=self.state_store
         )
         self.logger.info("    ✓ PositionManager ready")
 
@@ -283,26 +291,12 @@ class LiveTradingEngine:
         self._load_strategies()
         self.logger.info(f"    ✓ Loaded {len(self.strategies)} strategies")
 
-        # Initialize StrategyExecutor
-        self.logger.info("  - Initializing StrategyExecutor...")
-        self.strategy_executor = StrategyExecutor(
-            strategies=self.strategies,
-            order_manager=self.order_manager,
-            position_manager=self.position_manager,
-            state_store=self.state_store,
-            underlying_ticker="SPX",
-            enabled=True,
-            notifier=self.notifier,
-        )
-        self.logger.info("    ✓ StrategyExecutor ready")
-
-        # Initialize TradingNotifier (Pushover)
+        # Initialize TradingNotifier (Pushover) - MUST be before StrategyExecutor
         self.logger.info("  - Initializing notification system...")
         try:
             notification_config = self.config.get('notifications', {})
             self.notifier = TradingNotifier(
-                config=notification_config,
-                logger=self.logger
+                config=notification_config
             )
             # Validate credentials if enabled
             if self.notifier.pushover.enabled:
@@ -316,6 +310,19 @@ class LiveTradingEngine:
             self.logger.warning(f"    ⚠️  Failed to initialize notifier: {e}")
             self.logger.warning("    Notifications will be disabled")
             self.notifier = None
+
+        # Initialize StrategyExecutor
+        self.logger.info("  - Initializing StrategyExecutor...")
+        self.strategy_executor = StrategyExecutor(
+            strategies=self.strategies,
+            order_manager=self.order_manager,
+            position_manager=self.position_manager,
+            state_store=self.state_store,
+            underlying_ticker="SPX",
+            enabled=True,
+            notifier=self.notifier,
+        )
+        self.logger.info("    ✓ StrategyExecutor ready")
 
         # Save initial state
         self.state_store.save_engine_state(
@@ -367,7 +374,13 @@ class LiveTradingEngine:
         self.logger.info("✅ Redis feed connected - receiving data from StreamingService")
 
         self.state = TradingState.RUNNING
-        self.state_store.save_engine_state(self.state, {'data_source': 'redis'})
+        self.state_store.save_engine_state(
+            self.state,
+            {
+                'data_source': 'redis',
+                'data_feed_mode': self.get_data_feed_mode(),
+            }
+        )
 
 
         self.logger.info("✅ Engine is RUNNING")
@@ -422,7 +435,7 @@ class LiveTradingEngine:
         """
         self.total_bars_processed += len(new_bars)
 
-        self.logger.debug(f"Received {len(new_bars)} new bars")
+        # self.logger.debug(f"Received {len(new_bars)} new bars")
 
         # Check data staleness (use correct feed reference)
         feed = self.redis_feed
@@ -438,28 +451,40 @@ class LiveTradingEngine:
 
         # Execute strategies on new bars
         if self.strategy_executor and self.market_data and new_bars:
+            # Group bars by timestamp FIRST to process each timestamp only once
+            # This is critical for replay performance: instead of processing 1000 bars
+            # one-by-one (calling get_*_snapshot 1000 times), we group them and
+            # process each unique timestamp once (e.g., 100 unique timestamps)
+            from collections import defaultdict
+            from datetime import datetime
+
+            bars_by_timestamp = defaultdict(list)
+
             for bar in new_bars:
+                # Get current timestamp
+                current_time = bar.get('timestamp')
+                if not current_time:
+                    continue
+
+                # Parse timestamp if it's a string (from Redis)
+                if isinstance(current_time, str):
+                    current_time = datetime.fromisoformat(current_time)
+
+                bars_by_timestamp[current_time].append(bar)
+
+            # Process each unique timestamp once (sorted for chronological order)
+            for current_time in sorted(bars_by_timestamp.keys()):
                 try:
-                    # Get current timestamp
-                    current_time = bar.get('timestamp')
-                    if not current_time:
-                        continue
-
-                    # Parse timestamp if it's a string (from Redis)
-                    if isinstance(current_time, str):
-                        from datetime import datetime
-                        current_time = datetime.fromisoformat(current_time)
-
-                    # Get underlying data (historical + current bar)
+                    # Get underlying data (historical + current bar) - called once per timestamp
                     underlying_data = self.market_data.get_underlying_history(
                         ticker="SPX",
                         lookback_bars=100
                     )
 
-                    # Get options data (current snapshot)
+                    # Get options data (current snapshot) - called once per timestamp
                     options_data = self.market_data.get_current_options_snapshot()
 
-                    # Execute strategy
+                    # Execute strategy for this timestamp
                     self.strategy_executor.on_bar(
                         underlying_data=underlying_data,
                         options_data=options_data,
@@ -468,6 +493,13 @@ class LiveTradingEngine:
 
                 except Exception as e:
                     self.logger.error(f"Error executing strategies on bar: {e}", exc_info=True)
+
+            # Log batch summary
+            # if bars_by_timestamp:
+            #     self.logger.debug(
+            #         f"Batch processed: {len(bars_by_timestamp)} unique timestamps, "
+            #         f"{len(new_bars)} total bars"
+            #     )
 
     def _listen_for_control_messages(self):
         """
@@ -637,7 +669,7 @@ class LiveTradingEngine:
         self.logger.info(f"Uptime: {hours}h {minutes}m")
         self.logger.info(f"Bars Processed: {self.total_bars_processed}")
         self.logger.info(f"Messages Received: {stats.get('message_count', 0)}")
-        self.logger.info(f"Symbols Tracked: {stats.get('option_symbols_tracked', stats.get('symbols_tracked', 0))}")
+        self.logger.info(f"Symbols Tracked: {stats.get('underlying_symbols_tracked', stats.get('symbols_tracked', 0))}")
         self.logger.info(f"Data Stale: {stats.get('data_stale', False)}")
         self.logger.info("="*70)
 
@@ -650,6 +682,7 @@ class LiveTradingEngine:
                 'total_signals_generated': 0,  # TODO: track signals
                 'uptime_seconds': uptime,
                 'data_source': feed_type.lower(),
+                'data_feed_mode': self.get_data_feed_mode(),
             }
         )
 

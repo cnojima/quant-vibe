@@ -1,8 +1,7 @@
 """Bullish Vertical Call Spread Strategy for SPX."""
 
 from typing import Optional, Dict, Tuple
-from datetime import datetime, timedelta
-import numpy as np
+from datetime import datetime
 import pandas as pd
 
 from .options_base import (
@@ -167,7 +166,7 @@ class BullishVerticalCallStrategy(OptionsStrategy):
         if time_since_open <= self.observation_period and not self.observation_complete:
             # Get data since market open
             opening_data = underlying_data[
-                underlying_data.index >= self.market_open_time
+                underlying_data['timestamp'] >= self.market_open_time
             ]
 
             if len(opening_data) >= 2:
@@ -207,13 +206,13 @@ class BullishVerticalCallStrategy(OptionsStrategy):
                     print(f"     Opening Range: ${self.opening_low:.2f} - ${self.opening_high:.2f}")
                     print(f"     Opening Mean: ${self.opening_mean:.2f}, Std Dev: ${self.opening_std:.2f}")
                 else:
-                    print(f"     Opening Range: Insufficient data")
+                    print("     Opening Range: Insufficient data")
 
                 if self.is_bullish and self.opening_high is not None:
                     pullback_threshold = self.opening_high - self.pullback_amount
                     print(f"     → Waiting for pullback to ${pullback_threshold:.2f}")
                 else:
-                    print(f"     → No entry - market not bullish or insufficient data")
+                    print("     → No entry - market not bullish or insufficient data")
 
         # After observation period - check for pullback
         elif self.observation_complete and self.is_bullish:
@@ -289,7 +288,7 @@ class BullishVerticalCallStrategy(OptionsStrategy):
 
         # Check if we have options data
         if options_data.empty:
-            print(f"  ⚠️  No options data available")
+            print("  ⚠️  No options data available")
             return False
 
         # All conditions met - log entry signal
@@ -302,7 +301,7 @@ class BullishVerticalCallStrategy(OptionsStrategy):
             current_time_utc = current_time
         current_time_et = current_time_utc.astimezone(et_tz)
 
-        print(f"\n  🎯 BUY SIGNAL TRIGGERED!")
+        print("\n  🎯 BUY SIGNAL TRIGGERED!")
         print(f"     Current Price: ${current_price:.2f}")
         print(f"     Pullback Threshold: ${pullback_threshold:.2f}")
         print(f"     Pullback Amount: ${pullback_threshold - current_price:.2f} ({((pullback_threshold - current_price) / current_price * 100):.2f}%)")

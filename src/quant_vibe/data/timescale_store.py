@@ -14,18 +14,18 @@ Features:
 """
 
 import os
-import logging
+
 from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 from venv import logger
 import pandas as pd
-import psycopg2
 from psycopg2.extras import execute_batch, RealDictCursor
 from psycopg2.pool import SimpleConnectionPool
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
+from quant_vibe.logging.unified_logging import get_logger
 from quant_vibe.utils.timestamp_utils import now_utc
 
 if TYPE_CHECKING:
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 load_dotenv()
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class TimescaleStore:
     """
@@ -297,9 +297,6 @@ class TimescaleStore:
         MAX_VALUE = 99.999999
 
         if value < MIN_VALUE or value > MAX_VALUE:
-            # Log the overflow with details
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(
                 f"Greek value overflow - Field: {field_name}, "
                 f"Value: {value}, Ticker: {option_ticker}, "
@@ -584,7 +581,7 @@ class TimescaleStore:
         table_name = table_map.get(timeframe, "options_bars")
 
         # Log which timeframe and table is being used
-        logging.info(f"Loading options data with timeframe='{timeframe}' from table '{table_name}'")
+        logger.info(f"Loading options data with timeframe='{timeframe}' from table '{table_name}'")
 
         # For aggregated views, use 'bucket' column; for base table use 'timestamp'
         time_column = "bucket" if timeframe != "1min" else "timestamp"
@@ -621,14 +618,14 @@ class TimescaleStore:
 
         query += " ORDER BY timestamp, expiration_date, strike_price, contract_type"
 
-        logging.debug("Executing options backtest query with params: %s", params);
-        logging.debug("Query: %s", query);
+        logger.debug("Executing options backtest query with params: %s", params)
+        logger.debug("Query: %s", query)
 
         # Estimate query size and warn if it might be slow
         import time
         from sqlalchemy.exc import OperationalError
 
-        logging.info(f"Fetching data for {underlying_ticker} from {start_time.date()} to {end_time.date()} (DTE: {min_dte}-{max_dte})...")
+        logger.info(f"Fetching data for {underlying_ticker} from {start_time.date()} to {end_time.date()} (DTE: {min_dte}-{max_dte})...")
         query_start = time.time()
 
         try:
@@ -650,17 +647,17 @@ class TimescaleStore:
         # Log how much data was loaded
         if not df.empty:
             estimated_mb = len(df) * 200 / 1024 / 1024  # Rough estimate: 200 bytes per row
-            logging.info(f"Loaded {len(df):,} rows (~{estimated_mb:.1f} MB) from {table_name} in {query_elapsed:.1f}s")
+            logger.info(f"Loaded {len(df):,} rows (~{estimated_mb:.1f} MB) from {table_name} in {query_elapsed:.1f}s")
 
             # Warn if dataset is very large and suggest using aggregated timeframe
             if len(df) > 500000 and timeframe == "1min":
-                logging.warning(
+                logger.warning(
                     f"Large dataset detected ({len(df):,} rows). "
                     f"Consider using timeframe='5min' to reduce memory usage by ~95% "
                     f"(reduces {len(df):,} rows to ~{len(df)//5:,} rows)"
                 )
         else:
-            logging.warning(f"No data found in {table_name}")
+            logger.warning(f"No data found in {table_name}")
 
         # Convert DataFrame to list of Pydantic models using vectorized operations
         from quant_vibe.models import OptionsBar
@@ -716,7 +713,7 @@ class TimescaleStore:
             except Exception as e:
                 # Skip invalid records (e.g., NULL strike_price from bad data collection)
                 # This is expected for ~5% of records with incomplete data
-                logging.debug(f"Skipped invalid OptionsBar record: {e}")
+                logger.debug(f"Skipped invalid OptionsBar record: {e}")
                 continue
 
         return bars
@@ -816,7 +813,7 @@ class TimescaleStore:
                 bar = UnderlyingBar.model_validate(record)
                 bars.append(bar)
             except Exception as e:
-                logging.warning(f"Failed to create UnderlyingBar from record: {e}")
+                logger.warning(f"Failed to create UnderlyingBar from record: {e}")
                 continue
 
         return bars
@@ -1187,7 +1184,7 @@ class TimescaleStore:
                 bar = UnderlyingBar.model_validate(record)
                 bars.append(bar)
             except Exception as e:
-                logging.warning(f"Failed to create UnderlyingBar from record: {e}")
+                logger.warning(f"Failed to create UnderlyingBar from record: {e}")
                 continue
 
         return bars

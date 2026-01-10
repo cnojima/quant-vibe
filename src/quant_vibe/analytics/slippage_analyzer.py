@@ -8,9 +8,8 @@ This module provides tools to:
 """
 
 import pandas as pd
-import numpy as np
-from datetime import datetime, time as dt_time
-from typing import Dict, List, Optional, Tuple
+from datetime import datetime
+from typing import Dict, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import os

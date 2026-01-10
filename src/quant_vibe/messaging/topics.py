@@ -20,6 +20,10 @@ class Topic(str, Enum):
     UNDERLYING_QUOTES = "streaming.underlying_quotes"
     UNDERLYING_BARS = "streaming.underlying_bars"
 
+    # Replay market data (replay_service -> live_trading for testing)
+    REPLAY_OPTIONS_BARS = "replay.options_bars"
+    REPLAY_UNDERLYING_BARS = "replay.underlying_bars"
+
     # System status and health
     SYSTEM_HEARTBEAT = "system.heartbeat"
     SYSTEM_ERROR = "system.error"

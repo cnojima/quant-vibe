@@ -9,7 +9,7 @@ import pytz
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from quant_vibe.config.logging_config import setup_normalized_logging
+from quant_vibe.logging import setup_normalized_logging
 
 
 def main():
@@ -18,7 +18,6 @@ def main():
     # Setup logger with EST rotation
     logger = setup_normalized_logging(
         app_name="rotation_test",
-        log_level="INFO",
         log_dir="logs/rotation_test",
     )
 

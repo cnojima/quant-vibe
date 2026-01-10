@@ -2,9 +2,9 @@
 
 import threading
 from datetime import datetime, timedelta
-from typing import Dict, Set, Optional, Any
+from typing import Dict, Optional, Any
 
-from watcher_service.config import NotificationConfig, AlertLevel, NotificationRule
+from watcher_service.config import NotificationConfig, AlertLevel
 from watcher_service.service_monitor import HealthStatus
 from quant_vibe.utils import now_utc
 

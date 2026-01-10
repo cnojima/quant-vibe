@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from admin_ui.backend.auth import (
-    Token,
     User,
     authenticate_user,
     create_access_token,

@@ -1,7 +1,6 @@
 """Service monitoring with Docker, HTTP, and Redis health checks."""
 
 import time
-from datetime import datetime
 from typing import Dict, Optional, Any
 from enum import Enum
 

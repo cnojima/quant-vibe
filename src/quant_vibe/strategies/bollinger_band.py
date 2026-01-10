@@ -263,7 +263,7 @@ class BollingerBandStrategy(OptionsStrategy):
 
         # Get current underlying price
         if underlying_data.empty:
-            print(f"[BollingerBand] No underlying data available")
+            print("[BollingerBand] No underlying data available")
             return None
 
         current_underlying = underlying_data.iloc[-1]["close"]
@@ -288,16 +288,16 @@ class BollingerBandStrategy(OptionsStrategy):
 
         # Early return if no data
         if options_data.empty:
-            print(f"[BollingerBand] No options data available")
+            print("[BollingerBand] No options data available")
             return None
 
         # Check for required columns
         if 'contract_type' not in options_data.columns:
-            print(f"[BollingerBand] ERROR: 'contract_type' column missing from options data")
+            print("[BollingerBand] ERROR: 'contract_type' column missing from options data")
             return None
 
         if 'expiration_date' not in options_data.columns:
-            print(f"[BollingerBand] ERROR: 'expiration_date' column missing from options data")
+            print("[BollingerBand] ERROR: 'expiration_date' column missing from options data")
             return None
 
         # Filter options by type, DTE, and strike range
@@ -447,7 +447,7 @@ class BollingerBandStrategy(OptionsStrategy):
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:
-                    position.current_value = bid_price * leg.quantity * 100
+                    position.current_value = bid_price * abs(leg.quantity) * 100
                     position.legs[0].current_price = bid_price
                     # Recalculate P&L with actual bid price
                     pnl = position.current_value - position.entry_cost
@@ -466,7 +466,7 @@ class BollingerBandStrategy(OptionsStrategy):
                 if not leg_data.empty:
                     bid_price = leg_data.iloc[0]['bid']
                     if not pd.isna(bid_price) and bid_price > 0:
-                        position.current_value = bid_price * leg.quantity * 100
+                        position.current_value = bid_price * abs(leg.quantity) * 100
                         position.legs[0].current_price = bid_price
                         pnl = position.current_value - position.entry_cost
                         pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
@@ -487,7 +487,7 @@ class BollingerBandStrategy(OptionsStrategy):
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:
-                    position.current_value = bid_price * leg.quantity * 100
+                    position.current_value = bid_price * abs(leg.quantity) * 100
                     position.legs[0].current_price = bid_price
                     pnl = position.current_value - position.entry_cost
                     pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
@@ -501,7 +501,7 @@ class BollingerBandStrategy(OptionsStrategy):
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:
-                    position.current_value = bid_price * leg.quantity * 100
+                    position.current_value = bid_price * abs(leg.quantity) * 100
                     position.legs[0].current_price = bid_price
                     pnl = position.current_value - position.entry_cost
                     pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0

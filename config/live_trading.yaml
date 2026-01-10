@@ -141,6 +141,17 @@ strategies:
   - name: throckmorton_credit_ladder
     enabled: true
     params:
+      otm_percent_min: 0.05
+      otm_percent_max: 0.1
+      entry_time_before_close: 15
+      num_contracts: 10
+      trailing_stop_pct: 0.05
+      min_volume: 50
+      max_bid_ask_spread_pct: 15.0
+      max_trades_daily: 1
+  - name: throckmorton_credit_ladder
+    enabled: true
+    params:
       min_dte: 0
       max_dte: 45
       max_trades_daily: 1
@@ -153,6 +164,7 @@ strategies:
       num_spreads: 1
       min_volume: 50
 data_feed:
+  mode: replay
   window_size: 100
   aggregate_interval_seconds: 60
   max_dte: 45

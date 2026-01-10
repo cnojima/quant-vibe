@@ -4,10 +4,10 @@ Integrates Pushover notifications with live trading events.
 Automatically sends notifications for key trading events based on configuration.
 """
 
-import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
+from quant_vibe.logging import get_logger
 from quant_vibe.notifications.pushover import (
     PushoverNotifier,
     NotificationPriority
@@ -29,7 +29,6 @@ class TradingNotifier:
     def __init__(
         self,
         config: Optional[Dict[str, Any]] = None,
-        logger: Optional[logging.Logger] = None
     ):
         """Initialize trading notifier.
 
@@ -38,7 +37,7 @@ class TradingNotifier:
             logger: Logger instance
         """
         self.config = config or {}
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
 
         # Initialize Pushover
         pushover_config = self.config.get("pushover", {})
@@ -46,8 +45,7 @@ class TradingNotifier:
             api_token=pushover_config.get("api_token"),
             user_key=pushover_config.get("user_key"),
             device=pushover_config.get("device"),
-            enabled=pushover_config.get("enabled", True),
-            logger=self.logger
+            enabled=pushover_config.get("enabled", True)
         )
 
         # Notification filters

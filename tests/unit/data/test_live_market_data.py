@@ -3,7 +3,6 @@
 import pytest
 import pandas as pd
 from datetime import datetime
-from collections import deque
 
 from quant_vibe.data.live_market_data import LiveMarketDataProvider
 from quant_vibe.live.data_feed import RealtimeDataFeed

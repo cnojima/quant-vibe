@@ -2,7 +2,7 @@
 
 import pytest
 import json
-from unittest.mock import Mock, MagicMock, patch, call
+from unittest.mock import Mock, patch
 from datetime import datetime
 from streaming_service.service import StreamingService
 from streaming_service.config import StreamingConfig

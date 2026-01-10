@@ -6,7 +6,6 @@ import time
 import signal
 import threading
 from pathlib import Path
-from datetime import datetime
 from typing import Optional, Dict, Any
 
 from dotenv import load_dotenv
@@ -14,7 +13,7 @@ from dotenv import load_dotenv
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from quant_vibe.config.logging_config import setup_normalized_logging
+from quant_vibe.logging import setup_normalized_logging
 from quant_vibe.messaging import RedisMessageBroker
 from watcher_service.config import WatcherConfig, ServiceType
 from watcher_service.service_monitor import ServiceMonitor, HealthStatus
@@ -50,7 +49,6 @@ class WatcherService:
         log_level = os.getenv("LOG_LEVEL", "INFO").upper()
         self.logger = setup_normalized_logging(
             app_name="watcher",
-            log_level=log_level,
             log_dir="logs/watcher",
         )
 
@@ -329,7 +327,7 @@ class WatcherService:
             # This allows the thread to check for shutdown events
             while not self.shutdown_event.is_set():
                 # Poll for messages with 100ms timeout
-                message = self.redis_broker.get_message(timeout=0.1)
+                self.redis_broker.get_message(timeout=0.1)
 
                 # get_message() handles the callback internally,
                 # so we don't need to do anything with the return value
