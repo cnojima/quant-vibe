@@ -1,14 +1,20 @@
-"""ThrockmortenMD Reddit Credit Spread Laddering Strategy for SPX.
+"""ThrockmortenMD Reddit Credit Spread Laddering Strategy - Relaxed Version for 0DTE.
 
 Based on the strategy from u/ThrockmortenMD on Reddit.
+This version uses relaxed parameters optimized for 0DTE trading with realistic liquidity.
 
 Strategy Overview:
 - Wait 60 minutes after market open (until 10:30 ET)
 - Calculate ATM straddle price to define 1SD and 2SD zones
-- Place GTC limit orders to sell 50-wide spreads at 2SD for credit of spread at 1SD
+- Sell narrow spreads (10-15 wide) at current price when 2SD touched
 - Deploy additional spreads as ladder gets touched (scaling out)
-- Use spread width as hard stop (no manual exits)
+- Relaxed volume requirements for 0DTE liquidity
 - Exit immediately on major catalysts (tariffs, war, etc.)
+
+Key Differences from Original:
+- Smaller spread_width (10-15 vs 50) for better 0DTE liquidity
+- Lower min_volume requirement (20 vs 50)
+- Strikes at current price instead of opposite 2SD boundary
 """
 
 from typing import Optional, Dict, Tuple
@@ -25,18 +31,17 @@ from .options_base import (
 from quant_vibe.utils import generate_position_id
 
 
-class ThrockmortonCreditLadderStrategy(OptionsStrategy):
+class ThrockmortonRelaxedStrategy(OptionsStrategy):
     """
-    ThrockmortenMD Credit Spread Laddering Strategy.
+    ThrockmortenMD Credit Spread Laddering Strategy - Relaxed for 0DTE.
 
     Strategy Logic:
     1. Wait 60 minutes after market open (until 10:30 ET)
     2. Calculate ATM straddle price at 10:30 ET to estimate 1SD and 2SD
-    3. Place limit orders to sell 50-wide spreads at 2SD strike
-    4. Order price: current credit of same spread at 1SD strike
-    5. When 2SD is touched, immediately sell another spread 1SD further out
-    6. Use spread width as hard stop - no manual exits
-    7. Exit all positions immediately on major catalyst events
+    3. When 2SD touched, sell narrow spreads (10-15 wide) at current price
+    4. Deploy additional spreads as ladder gets touched (scaling out)
+    5. Use spread width as hard stop - no manual exits
+    6. Exit all positions immediately on major catalyst events
 
     Risk Management:
     - Spread width defines max risk per contract
@@ -45,7 +50,6 @@ class ThrockmortonCreditLadderStrategy(OptionsStrategy):
 
     Entry Criteria:
     - Time is >= 10:30 ET (60 min wait period complete)
-    - No major economic catalysts scheduled for the day
     - Sufficient options liquidity at target strikes
     - 2SD zone has been touched by price
 
@@ -54,20 +58,25 @@ class ThrockmortonCreditLadderStrategy(OptionsStrategy):
     - Emergency catalyst event detected
     - End of trading day
     - Expiration approaching
+
+    Optimized for 0DTE:
+    - Smaller spread_width (10-15) for better liquidity
+    - Lower min_volume (20) for realistic 0DTE volume
+    - More spreads to offset smaller width
     """
 
     def __init__(
         self,
-        spread_width: float = 50.0,  # Width of vertical spread
+        spread_width: float = 10.0,  # Width of vertical spread (narrower for 0DTE)
         wait_period_minutes: int = 60,  # Wait 60 mins after open (until 10:30 ET)
         initial_ladder_count: int = 1,  # Number of spreads to place initially
         ladder_increment: int = 1,  # Additional spreads per touch
         max_ladders: int = 5,  # Maximum total ladder positions
         profit_target_pct: float = 0.7,  # 70% profit target
         min_dte: int = 0,  # Same day expiration allowed
-        max_dte: int = 7,  # Up to 1 week out
-        num_spreads: int = 1,  # Contracts per ladder
-        min_volume: int = 50,
+        max_dte: int = 2,  # Up to 2 DTE for better liquidity
+        num_spreads: int = 10,  # More contracts to offset narrow spread
+        min_volume: int = 20,  # Lower for 0DTE reality
         max_trades_daily: int = 1,  # From BaseStrategyParams
         **kwargs
     ) -> None:
@@ -90,7 +99,7 @@ class ThrockmortonCreditLadderStrategy(OptionsStrategy):
         """
         # Use max_ladders as the effective max_trades_daily
         super().__init__(
-            name=f"ThrockmortonCreditLadder_{spread_width}",
+            name=f"ThrockmortonRelaxed_{spread_width}",
             max_trades_daily=max_ladders,  # Can add up to max_ladders per day
             observation_period=wait_period_minutes,
             min_dte=min_dte,

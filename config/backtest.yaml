@@ -13,12 +13,33 @@ date_range:
 strategies:
   enabled:
   - name: throckmorton_credit_ladder
-    enabled: true
+    enabled: false
     params:
-      max_trades_daily: 2
       min_dte: 0
       max_dte: 0
+      max_trades_daily: 2
+      spread_width: 50.0
+      wait_period_minutes: 60
+      initial_ladder_count: 1
+      ladder_increment: 1
+      max_ladders: 5
+      profit_target_pct: 0.7
       num_spreads: 5
+      min_volume: 50
+  - name: throckmorton_relaxed
+    enabled: true
+    params:
+      min_dte: 0
+      max_dte: 2
+      max_trades_daily: 5
+      spread_width: 10.0
+      wait_period_minutes: 60
+      initial_ladder_count: 1
+      ladder_increment: 1
+      max_ladders: 5
+      profit_target_pct: 0.7
+      num_spreads: 10
+      min_volume: 20
   - name: bullish_vertical_put
     enabled: true
     params:

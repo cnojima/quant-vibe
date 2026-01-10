@@ -50,6 +50,7 @@ from quant_vibe.strategies.bollinger_band_limit import BollingerBandLimitStrateg
 from quant_vibe.strategies.naive_bullish_put import NaiveBullishPutStrategy
 from quant_vibe.strategies.hail_mary import HailMaryStrategy
 from quant_vibe.strategies.throckmorton_credit_ladder import ThrockmortonCreditLadderStrategy
+from quant_vibe.strategies.throckmorton_relaxed import ThrockmortonRelaxedStrategy
 
 
 class StrategyRegistry:
@@ -76,6 +77,7 @@ class StrategyRegistry:
         'naive_bullish_put': NaiveBullishPutStrategy,
         'hail_mary': HailMaryStrategy,
         'throckmorton_credit_ladder': ThrockmortonCreditLadderStrategy,
+        'throckmorton_relaxed': ThrockmortonRelaxedStrategy,
     }
 
     # Map strategy names to module paths (for dynamic import)
@@ -90,6 +92,7 @@ class StrategyRegistry:
         'naive_bullish_put': 'quant_vibe.strategies.naive_bullish_put.NaiveBullishPutStrategy',
         'hail_mary': 'quant_vibe.strategies.hail_mary.HailMaryStrategy',
         'throckmorton_credit_ladder': 'quant_vibe.strategies.throckmorton_credit_ladder.ThrockmortonCreditLadderStrategy',
+        'throckmorton_relaxed': 'quant_vibe.strategies.throckmorton_relaxed.ThrockmortonRelaxedStrategy',
     }
 
     # Strategy descriptions for UI
@@ -104,6 +107,7 @@ class StrategyRegistry:
         'naive_bullish_put': 'Simple vertical put spread - opens at market open for UI testing (educational/experimental)',
         'hail_mary': 'Speculative overnight call buying: buys 10 far OTM (5-10%) calls 15min before close, holds overnight with 5% trailing stop',
         'throckmorton_credit_ladder': 'Credit spread laddering strategy: waits 60min after open, calculates 1SD/2SD zones from ATM straddle, sells 50-wide spreads when 2SD touched, adds ladders as price moves',
+        'throckmorton_relaxed': '0DTE-optimized credit spread laddering: waits 60min after open, calculates 2SD zones, sells narrow (10-15 wide) spreads at current price when 2SD touched, relaxed liquidity requirements',
     }
 
     @classmethod
