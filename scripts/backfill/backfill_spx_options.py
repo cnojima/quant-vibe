@@ -50,6 +50,77 @@ from quant_vibe.models import OptionsBar
 from quant_vibe.utils.timestamp_utils import to_utc
 from quant_vibe.utils.symbol_utils import normalize_option_ticker
 import pandas as pd
+import psycopg2
+
+
+def get_spx_price_for_date(ts_store: TimescaleStore, target_date: datetime) -> float:
+    """
+    Get SPX closing price for a specific date from underlying_bars.
+
+    Args:
+        ts_store: TimescaleStore instance
+        target_date: Date to get price for
+
+    Returns:
+        SPX closing price, or None if not found
+    """
+    try:
+        conn = ts_store.pool.getconn()
+        cur = conn.cursor()
+
+        query = """
+        SELECT close
+        FROM underlying_bars
+        WHERE ticker = 'SPX'
+          AND DATE(timestamp) = %s
+        ORDER BY timestamp DESC
+        LIMIT 1
+        """
+
+        cur.execute(query, (target_date.date(),))
+        result = cur.fetchone()
+
+        cur.close()
+        ts_store.pool.putconn(conn)
+
+        if result:
+            return float(result[0])
+        else:
+            print(f"  ⚠️  No SPX price found for {target_date.date()}")
+            return None
+
+    except Exception as e:
+        print(f"  ⚠️  Error getting SPX price for {target_date.date()}: {e}")
+        return None
+
+
+def calculate_dynamic_strike_range(
+    atm_price: float,
+    strike_range_pct: float = 10.0,
+    strike_step: int = 25,
+) -> tuple:
+    """
+    Calculate dynamic strike range based on ATM price.
+
+    Args:
+        atm_price: Current SPX price
+        strike_range_pct: Percentage above/below ATM (default: 10%)
+        strike_step: Round strikes to this increment (default: 25)
+
+    Returns:
+        (strike_min, strike_max) tuple
+    """
+    range_multiplier = strike_range_pct / 100.0
+
+    # Calculate raw range
+    raw_min = atm_price * (1 - range_multiplier)
+    raw_max = atm_price * (1 + range_multiplier)
+
+    # Round to nearest strike_step
+    strike_min = round(raw_min / strike_step) * strike_step
+    strike_max = round(raw_max / strike_step) * strike_step
+
+    return (strike_min, strike_max)
 
 
 def get_spxw_expiration_dates(start_date: datetime, end_date: datetime) -> List[datetime]:
@@ -417,15 +488,52 @@ Examples:
     parser.add_argument(
         '--strike-min',
         type=float,
-        default=5000.0,
-        help='Minimum strike price (default: 5000.0)'
+        default=None,
+        help='Minimum strike price (overrides --strike-mode if set)'
     )
 
     parser.add_argument(
         '--strike-max',
         type=float,
-        default=7500.0,
-        help='Maximum strike price (default: 7500.0)'
+        default=None,
+        help='Maximum strike price (overrides --strike-mode if set)'
+    )
+
+    parser.add_argument(
+        '--strike-mode',
+        type=str,
+        choices=['fixed', 'dynamic'],
+        default='dynamic',
+        help='Strike selection mode: "fixed" uses --strike-min/max, "dynamic" uses ATM ± N%% (default: dynamic)'
+    )
+
+    parser.add_argument(
+        '--strike-range-pct',
+        type=float,
+        default=5.0,
+        help='For dynamic mode: percentage above/below ATM (default: 5.0)'
+    )
+
+    parser.add_argument(
+        '--strike-step',
+        type=int,
+        default=50,
+        help='Only include strikes divisible by this value (default: 50)'
+    )
+
+    parser.add_argument(
+        '--sample-days',
+        type=int,
+        default=1,
+        help='Process every N days (1 = all days, 7 = weekly, 30 = monthly). Default: 1'
+    )
+
+    parser.add_argument(
+        '--sample-weekday',
+        type=str,
+        choices=['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+        default=None,
+        help='Only process specific weekday (overrides --sample-days if set)'
     )
 
     parser.add_argument(
@@ -465,8 +573,29 @@ Examples:
 
     print(f"Configuration:")
     print(f"  Date Range: {start_date.date()} to {end_date.date()}")
-    print(f"  Strike Range: ${args.strike_min} - ${args.strike_max}")
+
+    # Determine strike mode
+    if args.strike_min is not None and args.strike_max is not None:
+        strike_mode = 'fixed (explicit)'
+        print(f"  Strike Mode: {strike_mode}")
+        print(f"  Strike Range: ${args.strike_min} - ${args.strike_max}")
+    elif args.strike_mode == 'dynamic':
+        print(f"  Strike Mode: dynamic (ATM ± {args.strike_range_pct}%)")
+        print(f"  Strike Step: {args.strike_step} points")
+    else:
+        print(f"  Strike Mode: {args.strike_mode}")
+        print(f"  Strike Range: ${args.strike_min} - ${args.strike_max}")
+
     print(f"  DTE Range: 0 - {args.max_dte} days")
+
+    # Sampling info
+    if args.sample_weekday:
+        print(f"  Sampling: Every {args.sample_weekday.capitalize()}")
+    elif args.sample_days > 1:
+        print(f"  Sampling: Every {args.sample_days} days")
+    else:
+        print(f"  Sampling: All days")
+
     print(f"  Batch Size: {args.batch_size}")
     print(f"  Greeks Enrichment: {'Disabled' if args.no_greeks else 'Enabled'}")
     print()
@@ -476,10 +605,28 @@ Examples:
     # ========================================================================
 
     print("Finding SPXW expiration dates (daily Mon-Fri, excluding holidays)...")
-    expirations = get_spxw_expiration_dates(start_date, end_date)
-    print(f"✅ Found {len(expirations)} expiration dates")
-    print(f"   First: {expirations[0].date()} ({expirations[0].strftime('%A')})")
-    print(f"   Last: {expirations[-1].date()} ({expirations[-1].strftime('%A')})")
+    all_expirations = get_spxw_expiration_dates(start_date, end_date)
+    print(f"✅ Found {len(all_expirations)} expiration dates")
+
+    # Apply sampling filter
+    if args.sample_weekday:
+        weekday_map = {
+            'monday': 0, 'tuesday': 1, 'wednesday': 2,
+            'thursday': 3, 'friday': 4
+        }
+        target_weekday = weekday_map[args.sample_weekday]
+        expirations = [exp for exp in all_expirations if exp.weekday() == target_weekday]
+        print(f"   Filtered to {len(expirations)} {args.sample_weekday.capitalize()}s")
+    elif args.sample_days > 1:
+        expirations = all_expirations[::args.sample_days]
+        print(f"   Sampled every {args.sample_days} days: {len(expirations)} dates")
+    else:
+        expirations = all_expirations
+        print(f"   Processing all {len(expirations)} dates")
+
+    if expirations:
+        print(f"   First: {expirations[0].date()} ({expirations[0].strftime('%A')})")
+        print(f"   Last: {expirations[-1].date()} ({expirations[-1].strftime('%A')})")
     print()
 
     # ========================================================================
@@ -504,16 +651,52 @@ Examples:
         for exp_idx, expiration_date in enumerate(expirations, 1):
             print(f"[{exp_idx}/{total_expirations}] Processing {expiration_date.date()} ({expiration_date.strftime('%A')})...")
 
+            # Determine strike range for this expiration
+            if args.strike_min is not None and args.strike_max is not None:
+                # Use explicit fixed range
+                strike_min = args.strike_min
+                strike_max = args.strike_max
+                print(f"  Using fixed strike range: ${strike_min} - ${strike_max}")
+            elif args.strike_mode == 'dynamic':
+                # Get SPX price for this expiration date
+                spx_price = get_spx_price_for_date(ts_store, expiration_date)
+                if spx_price is None:
+                    print(f"  ⚠️  Skipping {expiration_date.date()} - no SPX price available")
+                    continue
+
+                # Calculate dynamic strike range
+                strike_min, strike_max = calculate_dynamic_strike_range(
+                    spx_price,
+                    args.strike_range_pct,
+                    args.strike_step,
+                )
+                print(f"  SPX @ ${spx_price:.2f} → Strikes ${strike_min:.0f} - ${strike_max:.0f}")
+            else:
+                # Default to wide range if nothing specified
+                strike_min = 5000.0
+                strike_max = 7500.0
+                print(f"  Using default strike range: ${strike_min} - ${strike_max}")
+
             # Get contracts for this expiration
             contracts = get_contracts_for_expiration(
                 massive_client,
                 expiration_date,
-                args.strike_min,
-                args.strike_max,
+                strike_min,
+                strike_max,
             )
 
             if not contracts:
                 continue
+
+            # Filter contracts by strike step (only strikes divisible by strike_step)
+            if args.strike_step > 1:
+                original_count = len(contracts)
+                contracts = [
+                    c for c in contracts
+                    if c['strike_price'] % args.strike_step == 0
+                ]
+                if len(contracts) < original_count:
+                    print(f"  Filtered to {len(contracts)}/{original_count} contracts (strike step: {args.strike_step})")
 
             # Collect bars for each contract
             all_bars = []
