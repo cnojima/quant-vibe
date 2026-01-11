@@ -2,7 +2,7 @@
 
 ## Overview
 
-`backfill_spx_options.py` is a comprehensive script for backfilling historical SPX/SPXW options data from the Massive API into TimescaleDB.
+`massive_spx_options.py` is a comprehensive script for backfilling historical SPX/SPXW options data from the Massive API into TimescaleDB.
 
 ## Features
 
@@ -65,7 +65,7 @@ Stored with:
 
 ```bash
 # Backfill recent data (last 30 days)
-python scripts/backfill/backfill_spx_options.py \
+python scripts/backfill/massive_spx_options.py \
   --start 2025-11-24 \
   --end 2025-12-24
 ```
@@ -74,7 +74,7 @@ python scripts/backfill/backfill_spx_options.py \
 
 ```bash
 # Backfill 0-5 DTE data
-python scripts/backfill/backfill_spx_options.py \
+python scripts/backfill/massive_spx_options.py \
   --start 2025-07-01 \
   --end 2025-12-12 \
   --max-dte 5
@@ -84,7 +84,7 @@ python scripts/backfill/backfill_spx_options.py \
 
 ```bash
 # Backfill specific strike range
-python scripts/backfill/backfill_spx_options.py \
+python scripts/backfill/massive_spx_options.py \
   --start 2025-07-01 \
   --end 2025-12-12 \
   --strike-min 6000.0 \
@@ -95,7 +95,7 @@ python scripts/backfill/backfill_spx_options.py \
 
 ```bash
 # Faster backfill without Greeks (can enrich later)
-python scripts/backfill/backfill_spx_options.py \
+python scripts/backfill/massive_spx_options.py \
   --start 2025-07-01 \
   --end 2025-12-12 \
   --no-greeks
@@ -105,7 +105,7 @@ python scripts/backfill/backfill_spx_options.py \
 
 ```bash
 # Backfill large date range with custom batch size
-python scripts/backfill/backfill_spx_options.py \
+python scripts/backfill/massive_spx_options.py \
   --start 2025-01-01 \
   --end 2025-12-31 \
   --max-dte 5 \

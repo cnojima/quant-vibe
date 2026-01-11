@@ -24,13 +24,13 @@ SPXW Details:
 
 Usage:
     # Backfill specific date range
-    python scripts/backfill/backfill_spx_options.py --start 2025-07-01 --end 2025-12-12
+    python scripts/backfill/massive_spx_options.py --start 2025-07-01 --end 2025-12-12
 
     # Backfill with specific DTE range
-    python scripts/backfill/backfill_spx_options.py --start 2025-07-01 --end 2025-12-12 --max-dte 5
+    python scripts/backfill/massive_spx_options.py --start 2025-07-01 --end 2025-12-12 --max-dte 5
 
     # Backfill without Greeks enrichment (faster, but incomplete)
-    python scripts/backfill/backfill_spx_options.py --start 2025-07-01 --end 2025-12-12 --no-greeks
+    python scripts/backfill/massive_spx_options.py --start 2025-07-01 --end 2025-12-12 --no-greeks
 """
 
 import sys
@@ -390,13 +390,13 @@ def main():
         epilog="""
 Examples:
   # Backfill recent data (last 30 days)
-  python scripts/backfill/backfill_spx_options.py --start 2025-11-24 --end 2025-12-24
+  python scripts/backfill/massive_spx_options.py --start 2025-11-24 --end 2025-12-24
 
   # Backfill with specific DTE range
-  python scripts/backfill/backfill_spx_options.py --start 2025-07-01 --end 2025-12-12 --max-dte 5
+  python scripts/backfill/massive_spx_options.py --start 2025-07-01 --end 2025-12-12 --max-dte 5
 
   # Backfill without Greeks enrichment
-  python scripts/backfill/backfill_spx_options.py --start 2025-07-01 --end 2025-12-12 --no-greeks
+  python scripts/backfill/massive_spx_options.py --start 2025-07-01 --end 2025-12-12 --no-greeks
         """
     )
 

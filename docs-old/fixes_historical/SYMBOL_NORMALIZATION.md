@@ -67,7 +67,7 @@ The following components now use the normalization utility:
    - Normalizes symbols before inserting into database
    - Ensures poll data matches streaming format
 
-4. **Backfill Scripts** (`scripts/backfill/backfill_spx_options.py`)
+4. **Backfill Scripts** (`scripts/backfill/massive_spx_options.py`)
    - Uses `TimescaleStore.normalize_contract_symbol()` which implements the same logic
    - Ensures historical data matches real-time format
 
@@ -304,7 +304,7 @@ def my_normalize(symbol):
 - **Streaming:** `src/streaming_service/aggregator.py`
 - **Enricher:** `src/streaming_service/enrich_stream_with_chain.py`
 - **Poll:** `scripts/poll-schwab-py-spxw.py`
-- **Backfill:** `scripts/backfill/backfill_spx_options.py`
+- **Backfill:** `scripts/backfill/massive_spx_options.py`
 
 ## Support
 
