@@ -526,7 +526,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
 
         return position
 
-    def should_exit(
+    def _check_strategy_exits(
         self,
         position: OptionsPosition,
         underlying_data: pd.DataFrame,
@@ -534,13 +534,15 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         current_time: datetime
     ) -> Tuple[bool, Optional[str]]:
         """
-        Determine if we should exit the current position.
+        Check strategy-specific exit conditions.
 
         Exit conditions:
         1. Profit target reached (50-100% of max profit)
         2. Trailing stop triggered (5% from high)
         3. End of trading day
         4. Expiration approaching
+
+        Note: Absolute stop loss is automatically checked by base class.
 
         For credit spreads:
         - We want the spread value to decrease (ideally to 0)

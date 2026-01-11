@@ -568,7 +568,7 @@ class ThrockmortonCreditLadderStrategy(OptionsStrategy):
 
         return position
 
-    def should_exit(
+    def _check_strategy_exits(
         self,
         position: OptionsPosition,
         underlying_data: pd.DataFrame,
@@ -576,7 +576,7 @@ class ThrockmortonCreditLadderStrategy(OptionsStrategy):
         current_time: datetime
     ) -> Tuple[bool, Optional[str]]:
         """
-        Determine if we should exit position.
+        Check strategy-specific exit conditions.
 
         Exit conditions:
         1. Catalyst detected (emergency exit)
@@ -584,7 +584,8 @@ class ThrockmortonCreditLadderStrategy(OptionsStrategy):
         3. End of trading day
         4. Expiration approaching
 
-        Note: No trailing stop per strategy rules.
+        Note: Absolute stop loss is automatically checked by base class.
+        No trailing stop per strategy rules.
         """
         # Check for catalyst emergency exit
         if self.catalyst_detected:

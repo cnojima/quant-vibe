@@ -13,12 +13,33 @@ date_range:
 strategies:
   enabled:
   - name: throckmorton_credit_ladder
-    enabled: true
+    enabled: false
     params:
-      max_trades_daily: 2
       min_dte: 0
       max_dte: 0
+      max_trades_daily: 2
+      spread_width: 50
+      wait_period_minutes: 60
+      initial_ladder_count: 1
+      ladder_increment: 1
+      max_ladders: 5
+      profit_target_pct: 0.7
       num_spreads: 5
+      min_volume: 50
+  - name: throckmorton_relaxed
+    enabled: true
+    params:
+      min_dte: 0
+      max_dte: 2
+      max_trades_daily: 5
+      spread_width: 10
+      wait_period_minutes: 60
+      initial_ladder_count: 1
+      ladder_increment: 1
+      max_ladders: 5
+      profit_target_pct: 0.7
+      num_spreads: 10
+      min_volume: 20
   - name: bullish_vertical_put
     enabled: true
     params:
@@ -137,7 +158,7 @@ strategies:
       min_dte: 0
       max_dte: 0
       max_trades_daily: 10
-      spread_width: 20
+      spread_width: 5
       profit_target: 0.5
       num_spreads: 10
       trailing_stop_pct: 0
@@ -145,8 +166,8 @@ strategies:
   - name: hail_mary
     enabled: true
     params:
-      otm_percent_min: 0.05
-      otm_percent_max: 0.1
+      otm_percent_min: -0.05
+      otm_percent_max: 0.05
       entry_time_before_close: 15
       num_contracts: 10
       trailing_stop_pct: 0.05
@@ -159,11 +180,6 @@ data_source:
   min_dte: 0
   max_dte: 2
   verbose: true
-  # Data aggregation timeframe: "1min" (default), "5min", "15min", "1hour", "daily"
-  # For backtests >30 days, use "5min" to reduce memory by ~95% and speed up loading
-  # Example: With 30 days of data:
-  #   - "1min": ~1.2M rows, 237 MB (may timeout or run out of memory)
-  #   - "5min": ~240K rows, 47 MB (recommended for long backtests)
   timeframe: 1min
 reporting:
   print_trade_details: true

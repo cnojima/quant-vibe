@@ -621,7 +621,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
 
         return position
 
-    def should_exit(
+    def _check_strategy_exits(
         self,
         position: OptionsPosition,
         underlying_data: pd.DataFrame,
@@ -629,13 +629,14 @@ class BearishIVScalpStrategy(OptionsStrategy):
         current_time: datetime
     ) -> Tuple[bool, Optional[str]]:
         """
-        Determine if we should exit the current position.
+        Check strategy-specific exit conditions.
 
         Exit conditions:
         1. Profit target reached (30-50%)
         2. Tight trailing stop (3%)
-        3. Stop loss hit (75% of max risk)
-        4. End of day (3:45 PM ET for 0DTE)
+        3. End of day (3:45 PM ET for 0DTE)
+
+        Note: Absolute stop loss (75% of max risk) is automatically checked by base class.
         """
         # Get underlying price
         underlying_price = underlying_data['close'].iloc[-1] if not underlying_data.empty else None
@@ -651,9 +652,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
         if self.check_trailing_stop(position):
             return True, "Trailing stop triggered"
 
-        # Check stop loss
-        if self.check_stop_loss(position):
-            return True, "Stop loss hit"
+        # Note: Stop loss check removed - now handled by base class automatically
 
         # 0DTE management - close before end of day
         import pytz

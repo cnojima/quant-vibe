@@ -581,7 +581,7 @@ class CoinTossLimitStrategy(OptionsStrategy):
 
         return position
 
-    def should_exit(
+    def _check_strategy_exits(
         self,
         position: OptionsPosition,
         underlying_data: pd.DataFrame,
@@ -589,13 +589,14 @@ class CoinTossLimitStrategy(OptionsStrategy):
         current_time: datetime,
     ) -> tuple[bool, Optional[str]]:
         """
-        Check if we should exit the position.
+        Check strategy-specific exit conditions.
 
         Exit conditions:
         1. Sell limit order filled (100% profit target)
-        2. Stop loss hit
-        3. End of day (4 PM ET)
-        4. Expiration day
+        2. End of day (4 PM ET)
+        3. Expiration day
+
+        Note: Absolute stop loss is automatically checked by base class.
 
         Returns:
             (should_exit, exit_reason)
@@ -662,14 +663,7 @@ class CoinTossLimitStrategy(OptionsStrategy):
         if pd.isna(pnl_pct):
             return False, None
 
-        # Check stop loss
-        if self.stop_loss_pct is not None:
-            if pnl_pct <= -abs(self.stop_loss_pct):
-                # Cancel pending sell orders
-                for order in self.pending_sell_orders:
-                    order.status = OrderStatus.CANCELLED
-                self.pending_sell_orders = []
-                return True, f"Stop loss ({abs(self.stop_loss_pct)*100:.0f}%) hit - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
+        # Note: Stop loss check removed - now handled by base class automatically
 
         # Exit at end of day (4 PM ET)
         eastern = pytz.timezone('US/Eastern')

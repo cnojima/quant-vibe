@@ -323,7 +323,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
 
         return position
 
-    def should_exit(
+    def _check_strategy_exits(
         self,
         position: OptionsPosition,
         underlying_data: pd.DataFrame,
@@ -331,6 +331,9 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         current_time: datetime
     ) -> Tuple[bool, Optional[str]]:
         """
+        Check strategy-specific exit conditions.
+
+        Note: Absolute stop loss is automatically checked by base class.
         Exit at profit target or end of day.
         """
         print(f"\nNBP 🚪 [SHOULD_EXIT] Called at {current_time}")

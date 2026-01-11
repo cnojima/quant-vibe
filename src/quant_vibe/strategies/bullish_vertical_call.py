@@ -165,9 +165,15 @@ class BullishVerticalCallStrategy(OptionsStrategy):
         # During observation period (first 15-30 mins)
         if time_since_open <= self.observation_period and not self.observation_complete:
             # Get data since market open
-            opening_data = underlying_data[
-                underlying_data['timestamp'] >= self.market_open_time
-            ]
+            # Handle both backtesting (DatetimeIndex) and live (timestamp column) formats
+            if isinstance(underlying_data.index, pd.DatetimeIndex):
+                # Backtesting: filter by index
+                opening_data = underlying_data[underlying_data.index >= self.market_open_time]
+            else:
+                # Live: filter by timestamp column
+                opening_data = underlying_data[
+                    underlying_data['timestamp'] >= self.market_open_time
+                ]
 
             if len(opening_data) >= 2:
                 self.opening_high = opening_data['high'].max()
@@ -430,7 +436,7 @@ class BullishVerticalCallStrategy(OptionsStrategy):
 
         return position
 
-    def should_exit(
+    def _check_strategy_exits(
         self,
         position: OptionsPosition,
         underlying_data: pd.DataFrame,
@@ -438,13 +444,15 @@ class BullishVerticalCallStrategy(OptionsStrategy):
         current_time: datetime
     ) -> Tuple[bool, Optional[str]]:
         """
-        Determine if we should exit the current position.
+        Check strategy-specific exit conditions.
 
         Exit conditions:
         1. Profit target reached (50-100%)
         2. Trailing stop triggered (5% from high)
         3. End of trading day
         4. Expiration approaching
+
+        Note: Absolute stop loss is automatically checked by base class.
 
         Returns:
             Tuple of (should_exit, exit_reason)

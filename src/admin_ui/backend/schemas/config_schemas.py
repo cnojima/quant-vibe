@@ -82,8 +82,8 @@ class StrategyParams(BaseModel):
     target_contract_price: Optional[float] = Field(None, ge=0.0, description="Target contract price")
     limit_buy_price: Optional[float] = Field(None, ge=0.0, description="Limit buy price")
     profit_target_price: Optional[float] = Field(None, ge=0.0, description="Profit target price")
-    otm_percent_min: Optional[float] = Field(None, ge=0.0, le=1.0, description="Minimum OTM percentage")
-    otm_percent_max: Optional[float] = Field(None, ge=0.0, le=1.0, description="Maximum OTM percentage")
+    otm_percent_min: Optional[float] = Field(None, ge=-1.0, le=1.0, description="Minimum OTM percentage (negative = below current price)")
+    otm_percent_max: Optional[float] = Field(None, ge=-1.0, le=1.0, description="Maximum OTM percentage (negative = below current price)")
     order_expiry_minutes: Optional[int] = Field(None, ge=1, le=1440, description="Order expiry in minutes")
 
     class Config:

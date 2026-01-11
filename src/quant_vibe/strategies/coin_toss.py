@@ -274,7 +274,7 @@ class CoinTossStrategy(OptionsStrategy):
 
         return position
 
-    def should_exit(
+    def _check_strategy_exits(
         self,
         position: OptionsPosition,
         underlying_data: pd.DataFrame,
@@ -282,13 +282,14 @@ class CoinTossStrategy(OptionsStrategy):
         current_time: datetime,
     ) -> tuple[bool, Optional[str]]:
         """
-        Check if we should exit the position.
+        Check strategy-specific exit conditions.
 
         Exit conditions:
         1. Profit target reached (based on profit_target_pct from position)
-        2. Stop loss hit (if configured)
-        3. End of day (4 PM ET)
-        4. Expiration day
+        2. End of day (4 PM ET)
+        3. Expiration day
+
+        Note: Absolute stop loss is automatically checked by base class.
 
         Returns:
             (should_exit, exit_reason)
@@ -339,26 +340,7 @@ class CoinTossStrategy(OptionsStrategy):
 
             return True, f"Profit target ({position.profit_target_pct*100:.0f}%) reached - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 
-        # Check stop loss if configured (from position.stop_loss)
-        # stop_loss should be positive (e.g., 0.30 for 30% stop)
-        # pnl_pct is negative when losing (e.g., -0.30 for -30% loss)
-        if position.stop_loss is not None:
-            if pnl_pct <= -abs(position.stop_loss):
-                # Use bid price for exit value
-                leg = position.legs[0]
-                leg_data = options_data[options_data['contract_symbol'] == leg.contract_symbol]
-                if not leg_data.empty:
-                    bid_price = leg_data.iloc[0]['bid']
-                    if not pd.isna(bid_price) and bid_price > 0:
-                        # Use correct sign convention: long position selling = positive value
-                        position.current_value = bid_price * abs(leg.quantity) * 100
-                        position.legs[0].current_price = bid_price
-
-                # Calculate final P&L with actual bid price (do this AFTER the override)
-                pnl = position.current_value - position.entry_cost
-                pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
-
-                return True, f"Stop loss ({abs(position.stop_loss)*100:.0f}%) hit - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
+        # Note: Stop loss check removed - now handled by base class automatically
 
         # Exit at end of day (4 PM ET) or if it's expiration day
         # Options expire at 4 PM on expiration date

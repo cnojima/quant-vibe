@@ -13,12 +13,12 @@ date_range:
 strategies:
   enabled:
   - name: throckmorton_credit_ladder
-    enabled: false
+    enabled: true
     params:
       min_dte: 0
       max_dte: 0
       max_trades_daily: 2
-      spread_width: 50.0
+      spread_width: 50
       wait_period_minutes: 60
       initial_ladder_count: 1
       ladder_increment: 1
@@ -32,7 +32,7 @@ strategies:
       min_dte: 0
       max_dte: 2
       max_trades_daily: 5
-      spread_width: 10.0
+      spread_width: 10
       wait_period_minutes: 60
       initial_ladder_count: 1
       ladder_increment: 1

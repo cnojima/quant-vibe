@@ -289,6 +289,11 @@ class OptionsBacktestEngine:
             # Save position reference before closing (active_position will be set to None)
             position = strategy.active_position
 
+            # Update position value with final market data before closing
+            final_options_data = options_data[options_data.index == end_date]
+            if not final_options_data.empty:
+                strategy.update_position_value(position, final_options_data, final_underlying_price)
+
             self._close_position(
                 strategy,
                 position,
@@ -347,8 +352,15 @@ class OptionsBacktestEngine:
         strategy.close_position(position, current_time, exit_reason, underlying_price)
 
         # Record trade
-        pnl = position.exit_value - position.entry_cost
-        pnl_pct = (pnl / abs(position.entry_cost)) * 100 if position.entry_cost != 0 else 0
+        # Handle case where exit_value is None (missing market data)
+        if position.exit_value is None:
+            # Use entry_cost as fallback (assume position closed at break-even)
+            position.exit_value = position.entry_cost
+            pnl = 0.0
+            pnl_pct = 0.0
+        else:
+            pnl = position.exit_value - position.entry_cost
+            pnl_pct = (pnl / abs(position.entry_cost)) * 100 if position.entry_cost != 0 else 0
 
         # Build leg details for trade record
         leg_details = []

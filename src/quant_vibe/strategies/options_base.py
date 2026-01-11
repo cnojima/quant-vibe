@@ -144,7 +144,7 @@ class OptionsStrategy(ABC):
         profit_target_pct: float = 0.5,
         profit_target_min: float = 1.0,
         profit_target_max: float = 5.0,
-        stop_loss_pct: Optional[float] = None,
+        stop_loss_pct: float = 0.25,  # Default 25% stop loss for protection
         trailing_stop_pct: Optional[float] = None,
         quantity: int = 10,
         ## end: COLLECTED FROM CURRENT STRATEGIES
@@ -345,7 +345,6 @@ class OptionsStrategy(ABC):
         """
         pass
 
-    @abstractmethod
     def should_exit(
         self,
         position: OptionsPosition,
@@ -355,6 +354,45 @@ class OptionsStrategy(ABC):
     ) -> Tuple[bool, Optional[str]]:
         """
         Determine if strategy should exit current position.
+
+        This is the main exit evaluation method that enforces mandatory risk checks
+        before delegating to strategy-specific logic.
+
+        MANDATORY CHECKS (always enforced):
+        1. Absolute stop loss (default 25% drawdown)
+
+        Args:
+            position: Current position
+            underlying_data: OHLCV data for underlying
+            options_data: Options chain data
+            current_time: Current timestamp
+
+        Returns:
+            Tuple of (should_exit, exit_reason)
+        """
+        # MANDATORY: Check absolute stop loss first (protection against catastrophic losses)
+        if self.check_stop_loss(position):
+            return True, f"Stop loss hit ({position.stop_loss*100:.0f}%)"
+
+        # Delegate to strategy-specific exit logic
+        return self._check_strategy_exits(position, underlying_data, options_data, current_time)
+
+    @abstractmethod
+    def _check_strategy_exits(
+        self,
+        position: OptionsPosition,
+        underlying_data: pd.DataFrame,
+        options_data: pd.DataFrame,
+        current_time: datetime
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Check strategy-specific exit conditions.
+
+        This is called AFTER mandatory stop loss checks. Implement your strategy's
+        custom exit logic here (profit targets, trailing stops, time-based exits, etc.).
+
+        Note: You do NOT need to check absolute stop loss here - it's automatically
+        enforced by the base class should_exit() method.
 
         Args:
             position: Current position
@@ -690,7 +728,14 @@ class OptionsStrategy(ABC):
             underlying_price: Optional underlying price at exit
         """
         position.exit_time = current_time
-        position.exit_value = position.current_value
+
+        # Ensure we have a valid exit value
+        # If current_value is None (missing market data), use entry_cost as fallback
+        if position.current_value is None:
+            position.exit_value = position.entry_cost
+        else:
+            position.exit_value = position.current_value
+
         position.exit_reason = exit_reason
 
         # Store underlying price at exit

@@ -349,7 +349,7 @@ class HailMaryStrategy(OptionsStrategy):
 
         return position
 
-    def should_exit(
+    def _check_strategy_exits(
         self,
         position: OptionsPosition,
         underlying_data: pd.DataFrame,
@@ -357,12 +357,14 @@ class HailMaryStrategy(OptionsStrategy):
         current_time: datetime
     ) -> Tuple[bool, Optional[str]]:
         """
-        Determine if we should exit the current position.
+        Check strategy-specific exit conditions.
 
         Exit conditions:
         1. Trailing stop triggered (5% from peak)
         2. End of trading day (4:00 PM ET)
         3. Expiration approaching
+
+        Note: Absolute stop loss is automatically checked by base class.
 
         For long calls:
         - We want the call value to increase
