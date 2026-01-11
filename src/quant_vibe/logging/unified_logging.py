@@ -176,6 +176,7 @@ def setup_normalized_logging(
     log_file: Optional[str] = None,
     console_output: bool = True,
     include_func: bool = False,
+    capture_submodules: bool = True,
 ) -> logging.Logger:
     """
     Set up normalized logging for any component with singleton pattern.
@@ -189,6 +190,8 @@ def setup_normalized_logging(
         log_file: Specific log file name (defaults to {app_name}_{date}.log)
         console_output: Whether to output to console
         include_func: Whether to include function name/line in logs
+        capture_submodules: If True, also capture logs from quant_vibe.* submodules
+                           (e.g., messaging.broker, data.timescale_store) into this log file
 
     Returns:
         Configured logger instance
@@ -197,13 +200,14 @@ def setup_normalized_logging(
         >>> logger = setup_normalized_logging(
         ...     app_name="backtest",
         ...     log_level="INFO",
-        ...     log_dir="logs/backtests"
+        ...     log_dir="logs/backtests",
+        ...     capture_submodules=True  # Also capture broker, timescale, etc. logs
         ... )
         >>> logger.info("Starting backtest")
         [2025-12-25 12:00:00][backtest][INFO    ] Starting backtest
     """
     # Check if logger already exists and return it (singleton pattern)
-    cache_key = (app_name, log_dir, log_file, console_output, include_func)
+    cache_key = (app_name, log_dir, log_file, console_output, include_func, capture_submodules)
     if cache_key in _LOGGER_INSTANCES:
         return _LOGGER_INSTANCES[cache_key]
 
@@ -252,6 +256,17 @@ def setup_normalized_logging(
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
 
+    # Capture logs from quant_vibe.* submodules (broker, timescale_store, etc.)
+    if capture_submodules:
+        quant_vibe_logger = logging.getLogger("quant_vibe")
+        quant_vibe_logger.setLevel(logging.DEBUG)  # Capture all levels
+        # Add the same file handler to quant_vibe parent logger (avoid duplicates)
+        if file_handler not in quant_vibe_logger.handlers:
+            quant_vibe_logger.addHandler(file_handler)
+        # Don't add console handler to avoid duplicate console output
+        # (submodules have their own console handlers)
+        quant_vibe_logger.propagate = False  # Don't propagate to root
+
     # Prevent propagation to root logger
     logger.propagate = False
 
@@ -263,18 +278,51 @@ def setup_normalized_logging(
 
 def get_logger(app_name: str = "quant_vibe") -> logging.Logger:
     """
-    Get existing logger for an application.
+    Get logger for utility modules (lightweight, propagates to parent).
 
-    If logger doesn't exist, creates one with default settings.
+    This function is intended for utility/library modules (e.g., messaging.broker,
+    data.timescale_store) that should log through the calling service's logger.
+
+    For service-level loggers (backtest, live_trading, etc.), use
+    setup_normalized_logging() directly instead.
+
+    Behavior:
+    - Creates a logger in the Python hierarchy (e.g., "quant_vibe.messaging.broker")
+    - Adds console handler for immediate feedback
+    - Sets propagate=True so logs bubble up to parent loggers
+    - Does NOT create file handlers (relies on parent/root logger)
 
     Args:
-        app_name: Application/component name
+        app_name: Module name (usually __name__)
 
     Returns:
-        Logger instance
+        Logger instance that propagates to parent
+
+    Example:
+        >>> # In utility module:
+        >>> logger = get_logger(__name__)  # e.g., "quant_vibe.messaging.broker"
+        >>> logger.info("Message from broker")
+        >>> # Logs appear in calling service's log file
     """
-    return setup_normalized_logging(
-        app_name=app_name,
-        log_dir=f"logs/{app_name}",
-        console_output=True,
-    )
+    # Check if logger already exists
+    logger = logging.getLogger(app_name)
+
+    # If logger already configured (has handlers), return it
+    if logger.handlers:
+        return logger
+
+    # Configure logger for utility module
+    log_level = get_log_level(app_name)
+    logger.setLevel(getattr(logging, log_level.upper()))
+
+    # Add ONLY console handler (no file handler)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(getattr(logging, log_level.upper()))
+    console_formatter = NormalizedFormatter(app_name=app_name, include_func=False)
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+
+    # CRITICAL: Enable propagation so logs reach parent loggers
+    logger.propagate = True
+
+    return logger

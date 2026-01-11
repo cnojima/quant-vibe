@@ -18,7 +18,6 @@ import os
 from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 from datetime import datetime, timedelta
 from contextlib import contextmanager
-from venv import logger
 import pandas as pd
 from psycopg2.extras import execute_batch, RealDictCursor
 from psycopg2.pool import SimpleConnectionPool
