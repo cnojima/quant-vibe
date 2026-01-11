@@ -76,7 +76,6 @@ python "$SCRIPT_DIR/backfill_spx_options.py" \
     --strike-mode "$STRIKE_MODE" \
     --strike-range-pct $STRIKE_RANGE_PCT \
     --strike-step $STRIKE_STEP \
-    --sample-weekday "$SAMPLE_WEEKDAY" \
     --no-greeks \
     $DRY_RUN_FLAG
 
