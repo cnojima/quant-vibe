@@ -35,7 +35,7 @@ END_DATE="2025-11-30"
 MAX_DTE=3
 STRIKE_MODE="dynamic"
 STRIKE_RANGE_PCT=5.0
-STRIKE_STEP=50
+STRIKE_STEP=5
 SAMPLE_WEEKDAY="monday"  # Process only Mondays
 
 # Activate virtual environment

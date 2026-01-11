@@ -517,7 +517,7 @@ Examples:
     parser.add_argument(
         '--strike-step',
         type=int,
-        default=50,
+        default=5,
         help='Only include strikes divisible by this value (default: 50)'
     )
 
