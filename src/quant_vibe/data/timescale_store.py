@@ -186,25 +186,6 @@ class TimescaleStore:
             %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s
         )
-        ON CONFLICT (timestamp, option_ticker) DO UPDATE SET
-            open = EXCLUDED.open,
-            high = EXCLUDED.high,
-            low = EXCLUDED.low,
-            close = EXCLUDED.close,
-            volume = EXCLUDED.volume,
-            vwap = EXCLUDED.vwap,
-            transactions = EXCLUDED.transactions,
-            bid = EXCLUDED.bid,
-            ask = EXCLUDED.ask,
-            bid_size = EXCLUDED.bid_size,
-            ask_size = EXCLUDED.ask_size,
-            implied_volatility = EXCLUDED.implied_volatility,
-            delta = EXCLUDED.delta,
-            gamma = EXCLUDED.gamma,
-            theta = EXCLUDED.theta,
-            vega = EXCLUDED.vega,
-            rho = EXCLUDED.rho,
-            data_source = EXCLUDED.data_source
         """
 
         # Normalize contract symbol to canonical format
@@ -355,7 +336,6 @@ class TimescaleStore:
             %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s
         )
-        ON CONFLICT (timestamp, option_ticker) DO NOTHING
         """
 
         rows = []
@@ -597,11 +577,13 @@ class TimescaleStore:
             (bid + ask) / 2.0 as mark,
             bid_size, ask_size,
             delta, gamma, theta, vega, rho,
-            implied_volatility
+            implied_volatility,
+            COALESCE(expired, false) as expired
         FROM {table_name}
         WHERE underlying_ticker = %s
             AND {time_column} >= %s
             AND {time_column} <= %s
+            AND COALESCE(expired, false) = false
         """
 
         params = [underlying_ticker, start_time, end_time]

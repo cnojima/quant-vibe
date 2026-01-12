@@ -8,16 +8,11 @@ import {
   useOptimizationHistory,
   useDeleteOptimization,
   useDeleteAllOptimizations,
-  useParamGrid,
-  useFixedParams,
-  useCancelOptimization,
 } from '../api/queries';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
 import { InfoIcon } from '../components/common/InfoIcon';
-import { ParamGridEditor } from '../components/forms/ParamGridEditor';
-import { FixedParamsPanel } from '../components/forms/FixedParamsPanel';
 import { formatDistanceToNow } from 'date-fns';
 import {
   getLastNMonthsEST,
@@ -34,8 +29,6 @@ export function StrategyOptimizer() {
   const [optimizationType, setOptimizationType] = useState<'grid_search' | 'walk_forward'>('grid_search');
   const [currentOptimizationId, setCurrentOptimizationId] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState<'run' | 'results' | 'history'>('run');
-  const [customParamGrid, setCustomParamGrid] = useState<Record<string, any[]> | null>(null);
-  const [customFixedParams, setCustomFixedParams] = useState<Record<string, any> | null>(null);
 
   const queryClient = useQueryClient();
   const { data: strategies, isLoading: strategiesLoading } = useStrategies();
@@ -45,22 +38,6 @@ export function StrategyOptimizer() {
   const { data: history } = useOptimizationHistory(50);
   const deleteOptimization = useDeleteOptimization();
   const deleteAllOptimizations = useDeleteAllOptimizations();
-  const { data: autoParamGrid } = useParamGrid(selectedStrategy);
-  const { data: fixedParamsData } = useFixedParams(selectedStrategy);
-  const cancelOptimization = useCancelOptimization();
-
-  // Load auto-generated param grid when strategy changes
-  useEffect(() => {
-    if (autoParamGrid && !customParamGrid) {
-      setCustomParamGrid(autoParamGrid.param_grid);
-    }
-  }, [autoParamGrid, selectedStrategy]);
-
-  // Reset param grid when strategy changes
-  useEffect(() => {
-    setCustomParamGrid(null);
-    setCustomFixedParams(null);
-  }, [selectedStrategy]);
 
   // Invalidate history when optimization completes
   useEffect(() => {
@@ -84,8 +61,6 @@ export function StrategyOptimizer() {
         test_end_date: testEndDate || undefined,
         initial_capital: initialCapital,
         optimization_type: optimizationType,
-        param_grid: customParamGrid || undefined,
-        fixed_params: customFixedParams || undefined,
       });
 
       setCurrentOptimizationId(result.optimization_id);
@@ -291,29 +266,6 @@ export function StrategyOptimizer() {
                 />
               </div>
 
-              {/* Parameter Grid Editor */}
-              {selectedStrategy && customParamGrid && (
-                <div className="pt-4 border-t border-gray-200">
-                  <ParamGridEditor
-                    strategyName={selectedStrategy}
-                    initialGrid={customParamGrid}
-                    onChange={(grid) => setCustomParamGrid(grid)}
-                    maxCombinations={200}
-                  />
-                </div>
-              )}
-
-              {/* Fixed Parameters Panel */}
-              {selectedStrategy && fixedParamsData && (
-                <div className="pt-4">
-                  <FixedParamsPanel
-                    fixedParams={customFixedParams || fixedParamsData.fixed_params}
-                    onChange={(params) => setCustomFixedParams(params)}
-                    editable={false}
-                  />
-                </div>
-              )}
-
               <Button
                 variant="primary"
                 className="w-full"
@@ -475,31 +427,8 @@ export function StrategyOptimizer() {
               <Card className="mb-6">
                 <div className="flex items-center gap-4">
                   <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="font-medium">
-                        Optimization Status: {optimizationStatus.status}
-                      </div>
-                      {optimizationStatus.status === 'running' && currentOptimizationId && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={async () => {
-                            if (confirm('Are you sure you want to cancel this optimization?')) {
-                              try {
-                                await cancelOptimization.mutateAsync(currentOptimizationId);
-                                alert('Optimization cancelled');
-                              } catch (error) {
-                                console.error('Failed to cancel optimization:', error);
-                                alert('Failed to cancel optimization. Please try again.');
-                              }
-                            }
-                          }}
-                          disabled={cancelOptimization.isPending}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          {cancelOptimization.isPending ? 'Cancelling...' : 'Cancel Optimization'}
-                        </Button>
-                      )}
+                    <div className="font-medium mb-1">
+                      Optimization Status: {optimizationStatus.status}
                     </div>
                     {optimizationStatus.status === 'failed' && optimizationStatus.error && (
                       <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded">
@@ -511,15 +440,8 @@ export function StrategyOptimizer() {
                     )}
                     {optimizationStatus.current_combination !== undefined && optimizationStatus.total_combinations !== undefined && (
                       <div className="mt-2">
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="text-sm text-gray-600">
-                            Testing combination {optimizationStatus.current_combination} of {optimizationStatus.total_combinations} ({optimizationStatus.progress}%)
-                          </div>
-                          {optimizationStatus.estimated_completion_time && (
-                            <div className="text-sm text-gray-600">
-                              ETA: {formatDistanceToNow(new Date(optimizationStatus.estimated_completion_time), { addSuffix: true })}
-                            </div>
-                          )}
+                        <div className="text-sm text-gray-600 mb-1">
+                          Testing combination {optimizationStatus.current_combination} of {optimizationStatus.total_combinations} ({optimizationStatus.progress}%)
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-2.5">
                           <div

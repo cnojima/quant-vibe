@@ -12,7 +12,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 8gb --maxmemory-policy allkeys-lru
     networks:
       - quant-vibe-network
 
@@ -35,19 +35,25 @@ services:
       timeout: 5s
       retries: 5
     shm_size: 1g
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
     command: >
       postgres
       -c shared_preload_libraries=timescaledb
       -c max_connections=200
-      -c shared_buffers=512MB
-      -c effective_cache_size=1GB
-      -c maintenance_work_mem=128MB
+      -c shared_buffers=1GB
+      -c effective_cache_size=3GB
+      -c maintenance_work_mem=256MB
       -c checkpoint_completion_target=0.9
       -c wal_buffers=16MB
       -c default_statistics_target=100
       -c random_page_cost=1.1
       -c effective_io_concurrency=200
-      -c work_mem=4MB
+      -c work_mem=8MB
       -c min_wal_size=1GB
       -c max_wal_size=4GB
     networks:
@@ -356,6 +362,47 @@ services:
     networks:
       - quant-vibe-network
     command: ["python", "scripts/run_scheduler.py"]
+
+  optimization_worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.optimization_worker
+    container_name: quant-vibe-optimization-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    environment:
+      # Redis connection (use service name as host)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      # TimescaleDB connection (use service name as host)
+      TIMESCALE_HOST: timescaledb
+      TIMESCALE_PORT: 5432
+      TIMESCALE_DB: options_data
+      TIMESCALE_USER: quantvibe
+      TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD:-quantvibe_dev}
+      # Logging (WARNING to suppress DEBUG data validation messages)
+      LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+      # Force unbuffered Python output for logs
+      PYTHONUNBUFFERED: 1
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+    volumes:
+      # Mount entire repo for live code updates
+      - .:/app
+      # Persist optimization results
+      - ./results:/app/results:rw
+    networks:
+      - quant-vibe-network
+    command: ["python", "scripts/run_optimization_worker.py"]
 
 networks:
   quant-vibe-network:

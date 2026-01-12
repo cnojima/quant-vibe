@@ -34,7 +34,7 @@ from admin_ui.backend.api import (
     config,
     live,
     notifications,
-    optimization,
+    optimization_v2 as optimization,
     services,
     status,
     strategies,

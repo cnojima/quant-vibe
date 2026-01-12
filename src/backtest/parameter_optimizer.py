@@ -225,8 +225,11 @@ class ParameterOptimizer:
         # Create strategy instance with parameters
         strategy = self.strategy_class(**params)
 
-        # Create backtest engine
-        engine = OptionsBacktestEngine(initial_capital=self.initial_capital)
+        # Create backtest engine (disable verbose logging for optimizations)
+        engine = OptionsBacktestEngine(
+            initial_capital=self.initial_capital,
+            log_trades=False  # Suppress verbose trade logging during optimization
+        )
 
         # Run backtest
         results = engine.run(
