@@ -385,18 +385,13 @@ class StreamDataBackfiller:
 
     def mark_expired_contracts(
         self,
-        sentinel_value: float = -9.0
+        sentinel_value: float = -9.0  # Deprecated parameter, kept for backwards compatibility
     ) -> int:
         """
-        Mark expired contracts with sentinel values so they're excluded from future queries.
+        Mark expired contracts with expired=true flag to exclude from future queries.
 
-        Uses delta = -9 as a marker that this contract has been processed
-        but Greeks are unavailable (contract expired). This value is chosen to:
-        - Fit within the numeric(8,6) column constraint (max ±99.999999)
-        - Be clearly outside the normal delta range of -1 to 1
-
-        Args:
-            sentinel_value: Value to use as marker (default -9.0, must be within ±99)
+        This method now uses a boolean 'expired' column instead of the old -9.0 sentinel approach.
+        Expired contracts are flagged with expired=true and excluded from backtest queries.
 
         Returns:
             Number of records marked
@@ -410,7 +405,7 @@ class StreamDataBackfiller:
 
         today = date.today()
         print(f"Today: {today}")
-        print(f"Sentinel value: {sentinel_value}")
+        print(f"Using 'expired' column (boolean flag)")
 
         # First, find expired contracts with NULL Greeks
         query = """
@@ -473,18 +468,13 @@ class StreamDataBackfiller:
 
             update_query = f"""
                 UPDATE options_bars
-                SET delta = %s,
-                    gamma = %s,
-                    theta = %s,
-                    vega = %s,
-                    rho = %s,
-                    implied_volatility = %s
+                SET expired = true
                 WHERE data_source = 'schwabdev_stream'
                 AND option_ticker IN ({ticker_placeholders})
-                AND delta IS NULL
+                AND COALESCE(expired, false) = false
             """
 
-            params = [sentinel_value] * 6 + batch
+            params = batch
 
             with self.ts_store.get_connection() as conn:
                 with conn.cursor() as cur:
@@ -926,7 +916,7 @@ class StreamDataBackfiller:
             SELECT COUNT(DISTINCT option_ticker)
             FROM options_bars
             WHERE data_source = 'schwabdev_stream'
-            AND delta = -9
+            AND expired = true
         """
         with self.ts_store.get_connection() as conn:
             with conn.cursor() as cur:

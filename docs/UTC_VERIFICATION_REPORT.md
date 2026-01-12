@@ -29,7 +29,7 @@ created_at TIMESTAMPTZ DEFAULT NOW(),  -- Metadata ✅
 - `options_bars_1hour` → `bucket` column ✅
 - `options_bars_daily` → `bucket` column ✅
 
-**Verification**: Line 25, 61 in `scripts/init_timescale.sql`
+**Verification**: Line 25, 61 in `src/quant_vibe/data/schema/init_timescale.sql`
 
 #### 2. `underlying_bars` (Hypertable)
 ```sql
@@ -43,7 +43,7 @@ created_at TIMESTAMPTZ DEFAULT NOW(),  -- Metadata ✅
 - `underlying_bars_1hour` → `bucket` column ✅
 - `underlying_bars_daily` → `bucket` column ✅
 
-**Verification**: Line 282, 296 in `scripts/init_timescale.sql`
+**Verification**: Line 282, 296 in `src/quant_vibe/data/schema/init_timescale.sql`
 
 ### Backtest Tables
 
@@ -56,7 +56,7 @@ completed_at TIMESTAMPTZ,  -- Execution end ✅
 created_at TIMESTAMPTZ DEFAULT NOW(),  -- Metadata ✅
 ```
 
-**Verification**: Line 457-458, 467-468, 486 in `scripts/init_timescale.sql`
+**Verification**: Line 457-458, 467-468, 486 in `src/quant_vibe/data/schema/init_timescale.sql`
 
 #### 4. `backtest_trades`
 ```sql
@@ -65,7 +65,7 @@ exit_time TIMESTAMPTZ NOT NULL,  -- Trade exit ✅
 created_at TIMESTAMPTZ DEFAULT NOW(),  -- Metadata ✅
 ```
 
-**Verification**: Line 505-506, 529 in `scripts/init_timescale.sql`
+**Verification**: Line 505-506, 529 in `src/quant_vibe/data/schema/init_timescale.sql`
 
 #### 5. `backtest_equity_curve` (Hypertable)
 ```sql
@@ -73,7 +73,7 @@ timestamp TIMESTAMPTZ NOT NULL,  -- Equity curve snapshot time ✅
 created_at TIMESTAMPTZ DEFAULT NOW(),  -- Metadata ✅
 ```
 
-**Verification**: Line 540, 553 in `scripts/init_timescale.sql`
+**Verification**: Line 540, 553 in `src/quant_vibe/data/schema/init_timescale.sql`
 
 ### Live Trading Tables
 

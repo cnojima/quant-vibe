@@ -75,10 +75,10 @@ export function useServiceLogs(serviceName: string, tail: number = 100) {
   return useQuery({
     queryKey: ['service-logs', serviceName, tail],
     queryFn: async () => {
-      const response = await apiClient.get<{ logs: string }>(`/services/${serviceName}/logs`, {
+      const response = await apiClient.get<{ success: boolean; logs: string; lines: number }>(`/services/${serviceName}/logs`, {
         params: { tail },
       });
-      return response.data.logs;
+      return response.data;
     },
     enabled: !!serviceName,
   });
@@ -634,6 +634,81 @@ export function useDeleteAllOptimizations() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['optimization-history'] });
+    },
+  });
+}
+
+// New optimization v2 API hooks (using OptimizationService)
+
+export function useParamGrid(strategyName: string | null) {
+  return useQuery({
+    queryKey: ['param-grid', strategyName],
+    queryFn: async () => {
+      const response = await apiClient.get(`/optimization/param-grid/${strategyName}`);
+      return response.data;
+    },
+    enabled: !!strategyName,
+  });
+}
+
+export function useGenerateParamGrid() {
+  return useMutation({
+    mutationFn: async (request: {
+      strategy_name: string;
+      custom_ranges?: Record<string, any[]>;
+      optimize_only?: string[];
+    }) => {
+      const response = await apiClient.post('/optimization/param-grid/generate', request);
+      return response.data;
+    },
+  });
+}
+
+export function useValidateParamGrid() {
+  return useMutation({
+    mutationFn: async (request: {
+      strategy_name: string;
+      param_grid: Record<string, any[]>;
+      max_combinations?: number;
+    }) => {
+      const response = await apiClient.post('/optimization/param-grid/validate', request);
+      return response.data;
+    },
+  });
+}
+
+export function useFixedParams(strategyName: string | null) {
+  return useQuery({
+    queryKey: ['fixed-params', strategyName],
+    queryFn: async () => {
+      const response = await apiClient.get(`/optimization/fixed-params/${strategyName}`);
+      return response.data;
+    },
+    enabled: !!strategyName,
+  });
+}
+
+export function useCancelOptimization() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (optimizationId: string) => {
+      const response = await apiClient.post(`/optimization/cancel/${optimizationId}`);
+      return response.data;
+    },
+    onSuccess: (_data, optimizationId) => {
+      queryClient.invalidateQueries({ queryKey: ['optimization-status', optimizationId] });
+    },
+  });
+}
+
+export function useClearOptimizationCache() {
+  return useMutation({
+    mutationFn: async (cacheKey?: string) => {
+      const response = await apiClient.post('/optimization/cache/clear', {
+        cache_key: cacheKey,
+      });
+      return response.data;
     },
   });
 }

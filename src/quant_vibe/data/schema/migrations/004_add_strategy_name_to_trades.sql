@@ -5,7 +5,7 @@
 -- easier querying and filtering without joining to backtest_runs
 --
 -- Usage:
---   docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < scripts/migrations/004_add_strategy_name_to_trades.sql
+--   docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < src/quant_vibe/data/schema/migrations/004_add_strategy_name_to_trades.sql
 -- ============================================================================
 
 -- Add strategy_name column to backtest_trades

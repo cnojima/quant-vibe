@@ -200,6 +200,11 @@ class OptionsBar(BaseModel):
         description="Data source (e.g., 'massive', 'schwab_realtime', 'schwab_poll')",
     )
 
+    expired: bool = Field(
+        default=False,
+        description="Flag indicating if contract has expired (true) or is still valid (false)",
+    )
+
     # Model configuration
     model_config = ConfigDict(
         frozen=True,  # Immutable after creation

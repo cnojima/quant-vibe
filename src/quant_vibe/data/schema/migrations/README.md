@@ -8,7 +8,7 @@ This directory contains SQL migration scripts for the Quant-Vibe TimescaleDB dat
 
 ```bash
 # Run migration on local TimescaleDB
-docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < scripts/migrations/001_add_backtest_results.sql
+docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < src/quant_vibe/data/schema/migrations/001_add_backtest_results.sql
 ```
 
 ### Remote Database
@@ -18,7 +18,7 @@ docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < script
 export PGPASSWORD=your-remote-password
 
 # Run migration on remote TimescaleDB
-psql -h 192.168.100.197 -p 5432 -U quantvibe -d options_data < scripts/migrations/001_add_backtest_results.sql
+psql -h 192.168.100.197 -p 5432 -U quantvibe -d options_data < src/quant_vibe/data/schema/migrations/001_add_backtest_results.sql
 ```
 
 ## Migration History

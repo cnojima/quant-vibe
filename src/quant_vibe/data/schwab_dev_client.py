@@ -308,7 +308,7 @@ class SchwabDevClient:
         """
         if not self.account_number:
             # Get all accounts and use the first one
-            response = self.client.account_numbers()
+            response = self.client.linked_accounts()
             response.raise_for_status()
             accounts = response.json()
             if accounts:
@@ -386,7 +386,7 @@ class SchwabDevClient:
         if order_type == "LIMIT" and price is not None:
             order_data["price"] = price
 
-        response = self.client.order_place(self.account_number, order_data)
+        response = self.client.place_order(self.account_number, order_data)
         response.raise_for_status()
 
         return {

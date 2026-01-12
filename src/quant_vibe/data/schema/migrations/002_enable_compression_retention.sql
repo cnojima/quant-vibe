@@ -5,7 +5,7 @@
 -- backtest data to optimize storage and manage data lifecycle.
 --
 -- Usage:
---   docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < scripts/migrations/002_enable_compression_retention.sql
+--   docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < src/quant_vibe/data/schema/migrations/002_enable_compression_retention.sql
 -- ============================================================================
 
 -- ============================================================================

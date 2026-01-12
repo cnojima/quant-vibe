@@ -16,6 +16,9 @@ import numpy as np
 import pytz
 
 from quant_vibe.strategies.options_base import OptionsStrategy, OptionsPosition
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class OptionsBacktestEngine:
@@ -447,18 +450,18 @@ class OptionsBacktestEngine:
 
     def _log_position_entry(self, position: OptionsPosition, cash_after: float) -> None:
         """Log position entry details."""
-        print("\n  ✅ POSITION OPENED")
-        print(f"     Position ID: {position.position_id}")
-        print(f"     Spread Type: {position.spread_type.value}")
-        print(f"     Entry Time: {self._format_time_et(position.entry_time)}")
-        print(f"     Entry Cost: ${position.entry_cost:.2f}")
-        print(f"     Underlying Price: ${position.underlying_price_at_entry:.2f}")
-        print(f"     Cash Remaining: ${cash_after:,.2f}")
+        logger.debug("\n  ✅ POSITION OPENED")
+        logger.debug(f"     Position ID: {position.position_id}")
+        logger.debug(f"     Spread Type: {position.spread_type.value}")
+        logger.debug(f"     Entry Time: {self._format_time_et(position.entry_time)}")
+        logger.debug(f"     Entry Cost: ${position.entry_cost:.2f}")
+        logger.debug(f"     Underlying Price: ${position.underlying_price_at_entry:.2f}")
+        logger.debug(f"     Cash Remaining: ${cash_after:,.2f}")
 
         # Log legs
         for i, leg in enumerate(position.legs, 1):
             action = "BUY" if leg.quantity > 0 else "SELL"
-            print(f"     Leg {i}: {action} {abs(leg.quantity)} {leg.option_type.value} @ ${leg.strike_price:.2f} for ${leg.entry_price:.2f}")
+            logger.debug(f"     Leg {i}: {action} {abs(leg.quantity)} {leg.option_type.value} @ ${leg.strike_price:.2f} for ${leg.entry_price:.2f}")
 
     def _log_position_exit(self, position: OptionsPosition, exit_reason: str, cash_after: float) -> None:
         """Log position exit details."""
@@ -467,15 +470,15 @@ class OptionsBacktestEngine:
         duration = (position.exit_time - position.entry_time).total_seconds() / 60
 
         emoji = "🟢" if pnl >= 0 else "🔴"
-        print(f"\n  {emoji} POSITION CLOSED")
-        print(f"     Position ID: {position.position_id}")
-        print(f"     Exit Time: {self._format_time_et(position.exit_time)}")
-        print(f"     Exit Reason: {exit_reason}")
-        print(f"     Duration: {duration:.0f} minutes")
-        print(f"     Entry Cost: ${position.entry_cost:.2f}")
-        print(f"     Exit Value: ${position.exit_value:.2f}")
-        print(f"     P&L: ${pnl:+.2f} ({pnl_pct:+.2f}%)")
-        print(f"     Cash After: ${cash_after:,.2f}")
+        logger.debug(f"\n  {emoji} POSITION CLOSED")
+        logger.debug(f"     Position ID: {position.position_id}")
+        logger.debug(f"     Exit Time: {self._format_time_et(position.exit_time)}")
+        logger.debug(f"     Exit Reason: {exit_reason}")
+        logger.debug(f"     Duration: {duration:.0f} minutes")
+        logger.debug(f"     Entry Cost: ${position.entry_cost:.2f}")
+        logger.debug(f"     Exit Value: ${position.exit_value:.2f}")
+        logger.debug(f"     P&L: ${pnl:+.2f} ({pnl_pct:+.2f}%)")
+        logger.debug(f"     Cash After: ${cash_after:,.2f}")
 
     def _calculate_results(self, strategy: OptionsStrategy, final_cash: float) -> None:
         """Calculate and store backtest results.

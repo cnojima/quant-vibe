@@ -1,16 +1,30 @@
+import { useState } from 'react';
 import { useServices } from '../api/queries';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
 import { useServiceAction } from '../api/queries';
 import { formatUptime } from '../utils/formatters';
+import { LogViewer } from '../components/services/LogViewer';
 
 export function Dashboard() {
   const { data: services, isLoading, error } = useServices();
   const serviceAction = useServiceAction();
+  const [logViewerState, setLogViewerState] = useState<{
+    isOpen: boolean;
+    serviceName: string | null;
+  }>({ isOpen: false, serviceName: null });
 
   const handleAction = (serviceName: string, action: 'start' | 'stop' | 'restart') => {
     serviceAction.mutate({ serviceName, action });
+  };
+
+  const openLogViewer = (serviceName: string) => {
+    setLogViewerState({ isOpen: true, serviceName });
+  };
+
+  const closeLogViewer = () => {
+    setLogViewerState({ isOpen: false, serviceName: null });
   };
 
   if (isLoading) {
@@ -80,7 +94,7 @@ export function Dashboard() {
               </div>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               {service.status === 'running' ? (
                 <>
                   <Button
@@ -99,21 +113,46 @@ export function Dashboard() {
                   >
                     Restart
                   </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => openLogViewer(service.name)}
+                  >
+                    Logs
+                  </Button>
                 </>
               ) : (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => handleAction(service.name, 'start')}
-                  disabled={serviceAction.isPending}
-                >
-                  Start
-                </Button>
+                <>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => handleAction(service.name, 'start')}
+                    disabled={serviceAction.isPending}
+                  >
+                    Start
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => openLogViewer(service.name)}
+                  >
+                    Logs
+                  </Button>
+                </>
               )}
             </div>
           </Card>
         ))}
       </div>
+
+      {/* Log Viewer Modal */}
+      {logViewerState.serviceName && (
+        <LogViewer
+          serviceName={logViewerState.serviceName}
+          isOpen={logViewerState.isOpen}
+          onClose={closeLogViewer}
+        />
+      )}
     </div>
   );
 }

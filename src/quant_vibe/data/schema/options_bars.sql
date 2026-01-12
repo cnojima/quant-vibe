@@ -44,7 +44,10 @@ CREATE TABLE IF NOT EXISTS options_bars (
     data_source TEXT, -- 'massive', 'schwab', 'combined'
     created_at TIMESTAMPTZ DEFAULT NOW(),
 
-    PRIMARY KEY (timestamp, option_ticker)
+    -- Auto-incrementing ID (added via migration 007)
+    id BIGSERIAL,
+
+    PRIMARY KEY (id, timestamp)
 );
 
 -- Convert to hypertable (partitioned by time)
@@ -71,6 +74,10 @@ SELECT add_compression_policy('options_bars', INTERVAL '7 days', if_not_exists =
 CREATE INDEX IF NOT EXISTS idx_options_bars_ticker_time
     ON options_bars (option_ticker, timestamp DESC);
 
+-- Index for timestamp + option_ticker lookups (replaces old primary key)
+CREATE INDEX IF NOT EXISTS idx_options_bars_timestamp_ticker
+    ON options_bars (timestamp, option_ticker);
+
 -- Index for querying by underlying ticker (for entire chain queries)
 CREATE INDEX IF NOT EXISTS idx_options_bars_underlying_time
     ON options_bars (underlying_ticker, timestamp DESC);
@@ -96,6 +103,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS options_bars_5min
 WITH (timescaledb.continuous) AS
 SELECT
     time_bucket('5 minutes', timestamp) AS bucket,
+    id,
     option_ticker,
     underlying_ticker,
     strike_price,
@@ -117,7 +125,8 @@ SELECT
     LAST(gamma, timestamp) AS gamma,
     LAST(theta, timestamp) AS theta,
     LAST(vega, timestamp) AS vega,
-    LAST(rho, timestamp) AS rho
+    LAST(rho, timestamp) AS rho,
+    LAST(expired, timestamp) AS expired
 FROM options_bars
 GROUP BY bucket, option_ticker, underlying_ticker, strike_price, contract_type, expiration_date;
 
@@ -134,6 +143,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS options_bars_15min
 WITH (timescaledb.continuous) AS
 SELECT
     time_bucket('15 minutes', timestamp) AS bucket,
+    id,
     option_ticker,
     underlying_ticker,
     strike_price,
@@ -155,7 +165,8 @@ SELECT
     LAST(gamma, timestamp) AS gamma,
     LAST(theta, timestamp) AS theta,
     LAST(vega, timestamp) AS vega,
-    LAST(rho, timestamp) AS rho
+    LAST(rho, timestamp) AS rho,
+    LAST(expired, timestamp) AS expired
 FROM options_bars
 GROUP BY bucket, option_ticker, underlying_ticker, strike_price, contract_type, expiration_date;
 
@@ -171,6 +182,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS options_bars_1hour
 WITH (timescaledb.continuous) AS
 SELECT
     time_bucket('1 hour', timestamp) AS bucket,
+    id,
     option_ticker,
     underlying_ticker,
     strike_price,
@@ -192,7 +204,8 @@ SELECT
     LAST(gamma, timestamp) AS gamma,
     LAST(theta, timestamp) AS theta,
     LAST(vega, timestamp) AS vega,
-    LAST(rho, timestamp) AS rho
+    LAST(rho, timestamp) AS rho,
+    LAST(expired, timestamp) AS expired
 FROM options_bars
 GROUP BY bucket, option_ticker, underlying_ticker, strike_price, contract_type, expiration_date;
 
@@ -208,6 +221,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS options_bars_daily
 WITH (timescaledb.continuous) AS
 SELECT
     time_bucket('1 day', timestamp) AS bucket,
+    id,
     option_ticker,
     underlying_ticker,
     strike_price,
@@ -229,7 +243,8 @@ SELECT
     LAST(gamma, timestamp) AS gamma,
     LAST(theta, timestamp) AS theta,
     LAST(vega, timestamp) AS vega,
-    LAST(rho, timestamp) AS rho
+    LAST(rho, timestamp) AS rho,
+    LAST(expired, timestamp) AS expired
 FROM options_bars
 GROUP BY bucket, option_ticker, underlying_ticker, strike_price, contract_type, expiration_date;
 
@@ -260,7 +275,8 @@ RETURNS TABLE (
     close NUMERIC,
     volume BIGINT,
     bid NUMERIC,
-    ask NUMERIC
+    ask NUMERIC,
+    expired BOOLEAN
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -272,7 +288,8 @@ BEGIN
         o.close,
         o.volume,
         o.bid,
-        o.ask
+        o.ask,
+        o.expired
     FROM options_bars o
     WHERE o.option_ticker = ticker
     ORDER BY o.timestamp DESC

@@ -4,7 +4,7 @@
 -- This migration adds tables to persist backtest results in PostgreSQL
 --
 -- Usage:
---   docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < scripts/migrations/001_add_backtest_results.sql
+--   docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < src/quant_vibe/data/schema/migrations/001_add_backtest_results.sql
 -- ============================================================================
 
 -- ============================================================================

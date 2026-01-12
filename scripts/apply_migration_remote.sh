@@ -111,7 +111,7 @@ fi
 echo ""
 echo "3. Applying migration 001_add_backtest_results.sql..."
 
-if psql -h "$REMOTE_HOST" -p "$REMOTE_PORT" -U "$REMOTE_USER" -d "$REMOTE_DB" < scripts/migrations/001_add_backtest_results.sql; then
+if psql -h "$REMOTE_HOST" -p "$REMOTE_PORT" -U "$REMOTE_USER" -d "$REMOTE_DB" < src/quant_vibe/data/schema/migrations/001_add_backtest_results.sql; then
     echo ""
     echo "✅ Migration applied successfully!"
     echo ""

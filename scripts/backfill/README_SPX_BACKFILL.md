@@ -278,7 +278,7 @@ python scripts/backfill/backfill_stream_greeks.py --stats-only
 
 ## Database Schema
 
-See `scripts/init_timescale.sql` for complete schema definition.
+See `src/quant_vibe/data/schema/init_timescale.sql` for complete schema definition.
 
 ## Dependencies
 

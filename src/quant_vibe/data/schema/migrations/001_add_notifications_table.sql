@@ -5,7 +5,7 @@
 -- the system for audit and historical analysis purposes.
 --
 -- Usage:
---   docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < scripts/migrations/001_add_notifications_table.sql
+--   docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < src/quant_vibe/data/schema/migrations/001_add_notifications_table.sql
 -- ============================================================================
 
 -- ============================================================================

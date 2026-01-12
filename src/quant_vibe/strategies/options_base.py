@@ -8,6 +8,10 @@ from datetime import datetime, timedelta, date
 
 import pandas as pd
 
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class OptionType(Enum):
     """Option type enum."""
@@ -470,7 +474,7 @@ class OptionsStrategy(ABC):
                     if underlying_price is not None:
                         # Use intrinsic value (conservative estimate)
                         current_price = self._calculate_intrinsic_value(leg, underlying_price)
-                        print(f"      ⚠️  Using intrinsic value for {leg.contract_symbol}: ${current_price:.2f} (invalid mark price)")
+                        logger.debug(f"      ⚠️  Using intrinsic value for {leg.contract_symbol}: ${current_price:.2f} (invalid mark price)")
                     else:
                         # No underlying price - use entry price as last resort
                         current_price = leg.entry_price if leg.entry_price else 0
@@ -533,17 +537,17 @@ class OptionsStrategy(ABC):
                                     leg_value = -(estimated_price * abs(leg.quantity) * 100)  # Short: negative
                                 current_value += leg_value
 
-                                print(f"      ⚠️  Interpolated {leg.contract_symbol}: ${estimated_price:.2f} (from ${mark_below:.2f} @ {strike_below['strike_price']} and ${mark_above:.2f} @ {strike_above['strike_price']})")
+                                logger.debug(f"      ⚠️  Interpolated {leg.contract_symbol}: ${estimated_price:.2f} (from ${mark_below:.2f} @ {strike_below['strike_price']} and ${mark_above:.2f} @ {strike_above['strike_price']})")
                                 continue
 
                 # Fallback: use intrinsic value if we have underlying price, else entry price
                 if underlying_price is not None:
                     # Calculate intrinsic value (conservative, no time value)
                     current_price = self._calculate_intrinsic_value(leg, underlying_price)
-                    print(f"      ⚠️  Using intrinsic value for {leg.contract_symbol}: ${current_price:.2f} (NO CURRENT DATA, underlying=${underlying_price:.2f})")
+                    logger.debug(f"      ⚠️  Using intrinsic value for {leg.contract_symbol}: ${current_price:.2f} (NO CURRENT DATA, underlying=${underlying_price:.2f})")
                 else:
                     # Last resort: use entry price
-                    print(f"      ⚠️  Using entry price for {leg.contract_symbol}: ${leg.entry_price:.2f} (NO CURRENT DATA)")
+                    logger.debug(f"      ⚠️  Using entry price for {leg.contract_symbol}: ${leg.entry_price:.2f} (NO CURRENT DATA)")
                     current_price = leg.entry_price if leg.entry_price else 0
 
                 leg.current_price = current_price
@@ -556,7 +560,7 @@ class OptionsStrategy(ABC):
                 current_value += leg_value
 
         if missing_legs:
-            print(f"   ⚠️  Missing/invalid data for legs: {', '.join(missing_legs)}")
+            logger.debug(f"   ⚠️  Missing/invalid data for legs: {', '.join(missing_legs)}")
 
         # Ensure current_value is float (in case of Decimal arithmetic)
         position.current_value = float(current_value) if current_value is not None else None
@@ -570,9 +574,9 @@ class OptionsStrategy(ABC):
             # If current_value (cost to buy back) exceeds max risk, something is wrong
             max_risk = abs(position.entry_cost) * 10  # Allow 10x for safety check
             if abs(current_value) > max_risk:
-                print(f"⚠️  WARNING: Position value ${current_value:,.2f} exceeds reasonable max ${max_risk:,.2f}")
-                print(f"   Entry cost: ${position.entry_cost:,.2f}, Entry time: {position.entry_time}")
-                print("   This may indicate bad data or calculation error")
+                logger.debug(f"⚠️  WARNING: Position value ${current_value:,.2f} exceeds reasonable max ${max_risk:,.2f}")
+                logger.debug(f"   Entry cost: ${position.entry_cost:,.2f}, Entry time: {position.entry_time}")
+                logger.debug("   This may indicate bad data or calculation error")
 
         # Track highest value for trailing stop
         if position.highest_value is None or current_value > position.highest_value:
@@ -685,7 +689,7 @@ class OptionsStrategy(ABC):
         ]
 
         if historical_data.empty:
-            print("   ⚠️  No historical data available for completeness check")
+            logger.debug("   ⚠️  No historical data available for completeness check")
             return False, {}
 
         # Get unique timestamps in the window
@@ -693,7 +697,7 @@ class OptionsStrategy(ABC):
         total_timestamps = len(all_timestamps)
 
         if total_timestamps == 0:
-            print("   ⚠️  No timestamps found in lookback window")
+            logger.debug("   ⚠️  No timestamps found in lookback window")
             return False, {}
 
         # Check completeness for each contract

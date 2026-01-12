@@ -356,7 +356,7 @@ docker-compose restart timescaledb
 
 ```bash
 # Manually run init script
-docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < scripts/init_timescale.sql
+docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < src/quant_vibe/data/schema/init_timescale.sql
 ```
 
 ### Slow Queries

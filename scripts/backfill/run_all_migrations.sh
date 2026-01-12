@@ -4,7 +4,7 @@
 
 set -e
 
-MIGRATIONS_DIR="scripts/migrations"
+MIGRATIONS_DIR="src/quant_vibe/data/schema/migrations"
 CONTAINER="quant-vibe-timescaledb"
 DB_USER="quantvibe"
 DB_NAME="options_data"
