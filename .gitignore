@@ -1,3 +1,7 @@
+# configs
+config/backtest.yaml
+config/live_trading.yaml
+
 # Python
 __pycache__/
 .eggs/
