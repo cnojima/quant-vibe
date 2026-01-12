@@ -339,10 +339,20 @@ class RedisDataFeed:
 
         # Extract price from bar (prioritize close, fallback to bid/ask mid)
         close_price = bar.get('close')
+        if close_price:
+            # Convert to float if it's a string
+            close_price = float(close_price) if isinstance(close_price, str) else close_price
+
         if not close_price:
             # Try to calculate from bid/ask
             bid = bar.get('bid')
             ask = bar.get('ask')
+            # Convert to float if strings
+            if bid:
+                bid = float(bid) if isinstance(bid, str) else bid
+            if ask:
+                ask = float(ask) if isinstance(ask, str) else ask
+
             if bid and ask:
                 close_price = (bid + ask) / 2
                 print(f"DEBUG   Using bid/ask mid: ({bid} + {ask}) / 2 = {close_price:.2f}")
