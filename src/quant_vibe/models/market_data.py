@@ -369,6 +369,56 @@ class OptionsBar(BaseModel):
                 data['ask'] = bid
         return data
 
+    @model_validator(mode='before')
+    @classmethod
+    def fix_ohlc_consistency(cls, data: dict) -> dict:
+        """
+        Fix inconsistent OHLC values by adjusting high/low to maintain invariants.
+
+        Inconsistent OHLC data can occur in real-time streaming data when values
+        arrive out of order or from different market data sources. This ensures:
+        - high >= max(open, low, close)
+        - low <= min(open, high, close)
+
+        We adjust high/low rather than open/close to preserve the opening and
+        closing prices which are semantically important.
+        """
+        open_val = data.get('open')
+        high_val = data.get('high')
+        low_val = data.get('low')
+        close_val = data.get('close')
+
+        # Convert to Decimal if they're not None
+        if open_val is not None:
+            open_val = Decimal(str(open_val))
+        if high_val is not None:
+            high_val = Decimal(str(high_val))
+        if low_val is not None:
+            low_val = Decimal(str(low_val))
+        if close_val is not None:
+            close_val = Decimal(str(close_val))
+
+        # Only fix if all OHLC values are present
+        if all(v is not None for v in [open_val, high_val, low_val, close_val]):
+            # Ensure high >= max(open, low, close)
+            required_high = max(open_val, low_val, close_val)
+            if high_val < required_high:
+                data['high'] = required_high
+
+            # Ensure low <= min(open, high, close)
+            # Use the potentially adjusted high value
+            adjusted_high = data.get('high')
+            if adjusted_high is not None:
+                adjusted_high = Decimal(str(adjusted_high))
+            else:
+                adjusted_high = high_val
+
+            required_low = min(open_val, adjusted_high, close_val)
+            if low_val > required_low:
+                data['low'] = required_low
+
+        return data
+
     # Helper methods
     def to_dict(self) -> dict:
         """Convert to dictionary (alias for model_dump)."""
@@ -563,6 +613,56 @@ class UnderlyingBar(BaseModel):
         if "close" in data and v > data["close"]:
             raise ValueError(f"Low {v} must be <= close {data['close']}")
         return v
+
+    @model_validator(mode='before')
+    @classmethod
+    def fix_ohlc_consistency(cls, data: dict) -> dict:
+        """
+        Fix inconsistent OHLC values by adjusting high/low to maintain invariants.
+
+        Inconsistent OHLC data can occur in real-time streaming data when values
+        arrive out of order or from different market data sources. This ensures:
+        - high >= max(open, low, close)
+        - low <= min(open, high, close)
+
+        We adjust high/low rather than open/close to preserve the opening and
+        closing prices which are semantically important.
+        """
+        open_val = data.get('open')
+        high_val = data.get('high')
+        low_val = data.get('low')
+        close_val = data.get('close')
+
+        # Convert to Decimal if they're not None
+        if open_val is not None:
+            open_val = Decimal(str(open_val))
+        if high_val is not None:
+            high_val = Decimal(str(high_val))
+        if low_val is not None:
+            low_val = Decimal(str(low_val))
+        if close_val is not None:
+            close_val = Decimal(str(close_val))
+
+        # Only fix if all OHLC values are present
+        if all(v is not None for v in [open_val, high_val, low_val, close_val]):
+            # Ensure high >= max(open, low, close)
+            required_high = max(open_val, low_val, close_val)
+            if high_val < required_high:
+                data['high'] = required_high
+
+            # Ensure low <= min(open, high, close)
+            # Use the potentially adjusted high value
+            adjusted_high = data.get('high')
+            if adjusted_high is not None:
+                adjusted_high = Decimal(str(adjusted_high))
+            else:
+                adjusted_high = high_val
+
+            required_low = min(open_val, adjusted_high, close_val)
+            if low_val > required_low:
+                data['low'] = required_low
+
+        return data
 
     # Helper methods
     def to_dict(self) -> dict:
