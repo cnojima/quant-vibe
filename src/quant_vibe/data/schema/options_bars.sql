@@ -103,6 +103,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS options_bars_5min
 WITH (timescaledb.continuous) AS
 SELECT
     time_bucket('5 minutes', timestamp) AS bucket,
+    id,
     option_ticker,
     underlying_ticker,
     strike_price,
@@ -124,7 +125,8 @@ SELECT
     LAST(gamma, timestamp) AS gamma,
     LAST(theta, timestamp) AS theta,
     LAST(vega, timestamp) AS vega,
-    LAST(rho, timestamp) AS rho
+    LAST(rho, timestamp) AS rho,
+    LAST(expired, timestamp) AS expired
 FROM options_bars
 GROUP BY bucket, option_ticker, underlying_ticker, strike_price, contract_type, expiration_date;
 
@@ -141,6 +143,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS options_bars_15min
 WITH (timescaledb.continuous) AS
 SELECT
     time_bucket('15 minutes', timestamp) AS bucket,
+    id,
     option_ticker,
     underlying_ticker,
     strike_price,
@@ -162,7 +165,8 @@ SELECT
     LAST(gamma, timestamp) AS gamma,
     LAST(theta, timestamp) AS theta,
     LAST(vega, timestamp) AS vega,
-    LAST(rho, timestamp) AS rho
+    LAST(rho, timestamp) AS rho,
+    LAST(expired, timestamp) AS expired
 FROM options_bars
 GROUP BY bucket, option_ticker, underlying_ticker, strike_price, contract_type, expiration_date;
 
@@ -178,6 +182,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS options_bars_1hour
 WITH (timescaledb.continuous) AS
 SELECT
     time_bucket('1 hour', timestamp) AS bucket,
+    id,
     option_ticker,
     underlying_ticker,
     strike_price,
@@ -199,7 +204,8 @@ SELECT
     LAST(gamma, timestamp) AS gamma,
     LAST(theta, timestamp) AS theta,
     LAST(vega, timestamp) AS vega,
-    LAST(rho, timestamp) AS rho
+    LAST(rho, timestamp) AS rho,
+    LAST(expired, timestamp) AS expired
 FROM options_bars
 GROUP BY bucket, option_ticker, underlying_ticker, strike_price, contract_type, expiration_date;
 
@@ -215,6 +221,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS options_bars_daily
 WITH (timescaledb.continuous) AS
 SELECT
     time_bucket('1 day', timestamp) AS bucket,
+    id,
     option_ticker,
     underlying_ticker,
     strike_price,
@@ -236,7 +243,8 @@ SELECT
     LAST(gamma, timestamp) AS gamma,
     LAST(theta, timestamp) AS theta,
     LAST(vega, timestamp) AS vega,
-    LAST(rho, timestamp) AS rho
+    LAST(rho, timestamp) AS rho,
+    LAST(expired, timestamp) AS expired
 FROM options_bars
 GROUP BY bucket, option_ticker, underlying_ticker, strike_price, contract_type, expiration_date;
 
@@ -267,7 +275,8 @@ RETURNS TABLE (
     close NUMERIC,
     volume BIGINT,
     bid NUMERIC,
-    ask NUMERIC
+    ask NUMERIC,
+    expired BOOLEAN
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -279,7 +288,8 @@ BEGIN
         o.close,
         o.volume,
         o.bid,
-        o.ask
+        o.ask,
+        o.expired
     FROM options_bars o
     WHERE o.option_ticker = ticker
     ORDER BY o.timestamp DESC
