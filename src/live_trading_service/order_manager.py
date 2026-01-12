@@ -486,7 +486,7 @@ class OrderManager:
             # Get account number
             if not hasattr(self.schwab_client, 'account_number') or not self.schwab_client.account_number:
                 # Fetch account number if not already set
-                response = self.schwab_client.client.account_numbers()
+                response = self.schwab_client.client.linked_accounts()
                 response.raise_for_status()
                 accounts = response.json()
                 if not accounts:
@@ -495,7 +495,7 @@ class OrderManager:
                 self.logger.info(f"Using Schwab account: {self.schwab_client.account_number[:8]}...")
 
             # Submit order to Schwab API
-            response = self.schwab_client.client.order_place(
+            response = self.schwab_client.client.place_order(
                 self.schwab_client.account_number,
                 schwab_order
             )
@@ -597,7 +597,7 @@ class OrderManager:
             # Get account number
             if not hasattr(self.schwab_client, 'account_number') or not self.schwab_client.account_number:
                 # Fetch account number if not already set
-                response = self.schwab_client.client.account_numbers()
+                response = self.schwab_client.client.linked_accounts()
                 response.raise_for_status()
                 accounts = response.json()
                 if not accounts:
@@ -610,7 +610,7 @@ class OrderManager:
             )
 
             # Cancel order via Schwab API
-            response = self.schwab_client.client.order_cancel(
+            response = self.schwab_client.client.cancel_order(
                 self.schwab_client.account_number,
                 order.broker_order_id
             )
@@ -656,7 +656,7 @@ class OrderManager:
             # Get account number
             if not hasattr(self.schwab_client, 'account_number') or not self.schwab_client.account_number:
                 # Fetch account number if not already set
-                response = self.schwab_client.client.account_numbers()
+                response = self.schwab_client.client.linked_accounts()
                 response.raise_for_status()
                 accounts = response.json()
                 if not accounts:
@@ -665,7 +665,7 @@ class OrderManager:
                 self.logger.info(f"Using Schwab account: {self.schwab_client.account_number[:8]}...")
 
             # Submit OCO order to Schwab API
-            response = self.schwab_client.client.order_place(
+            response = self.schwab_client.client.place_order(
                 self.schwab_client.account_number,
                 schwab_structure
             )
