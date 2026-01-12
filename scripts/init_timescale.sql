@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS options_bars (
     strike_price NUMERIC(12, 4),
     contract_type TEXT, -- 'call' or 'put'
     expiration_date DATE,
+    expired BOOLEAN DEFAULT false,
 
     -- Greeks (if available)
     -- NOTE: Using NUMERIC(10,6) instead of NUMERIC(8,6) to support IV > 100%
@@ -84,6 +85,12 @@ SELECT add_compression_policy('options_bars', INTERVAL '7 days', if_not_exists =
 -- ============================================================================
 -- INDEXES FOR FAST QUERIES (OPTIONS)
 -- ============================================================================
+CREATE INDEX IF NOT EXISTS idx_options_bars_expired
+ON options_bars(expired)
+WHERE expired = true;
+
+COMMENT ON COLUMN options_bars.expired IS
+'Flag indicating if contract has expired (true) or is still valid (false). Replaces -9.0 sentinel value.';
 
 -- Index for querying by option ticker and time range
 CREATE INDEX IF NOT EXISTS idx_options_bars_ticker_time
@@ -138,7 +145,8 @@ SELECT
     LAST(gamma, timestamp) AS gamma,
     LAST(theta, timestamp) AS theta,
     LAST(vega, timestamp) AS vega,
-    LAST(rho, timestamp) AS rho
+    LAST(rho, timestamp) AS rho,
+    MAX(expired) AS expired
 FROM options_bars
 GROUP BY bucket, option_ticker, underlying_ticker, strike_price, contract_type, expiration_date;
 
@@ -176,7 +184,8 @@ SELECT
     LAST(gamma, timestamp) AS gamma,
     LAST(theta, timestamp) AS theta,
     LAST(vega, timestamp) AS vega,
-    LAST(rho, timestamp) AS rho
+    LAST(rho, timestamp) AS rho,
+    MAX(expired) AS expired
 FROM options_bars
 GROUP BY bucket, option_ticker, underlying_ticker, strike_price, contract_type, expiration_date;
 
@@ -213,7 +222,8 @@ SELECT
     LAST(gamma, timestamp) AS gamma,
     LAST(theta, timestamp) AS theta,
     LAST(vega, timestamp) AS vega,
-    LAST(rho, timestamp) AS rho
+    LAST(rho, timestamp) AS rho,
+    MAX(expired) AS expired
 FROM options_bars
 GROUP BY bucket, option_ticker, underlying_ticker, strike_price, contract_type, expiration_date;
 
@@ -250,7 +260,8 @@ SELECT
     LAST(gamma, timestamp) AS gamma,
     LAST(theta, timestamp) AS theta,
     LAST(vega, timestamp) AS vega,
-    LAST(rho, timestamp) AS rho
+    LAST(rho, timestamp) AS rho,
+    MAX(expired) AS expired
 FROM options_bars
 GROUP BY bucket, option_ticker, underlying_ticker, strike_price, contract_type, expiration_date;
 

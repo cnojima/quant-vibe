@@ -44,7 +44,10 @@ CREATE TABLE IF NOT EXISTS options_bars (
     data_source TEXT, -- 'massive', 'schwab', 'combined'
     created_at TIMESTAMPTZ DEFAULT NOW(),
 
-    PRIMARY KEY (timestamp, option_ticker)
+    -- Auto-incrementing ID (added via migration 007)
+    id BIGSERIAL,
+
+    PRIMARY KEY (id, timestamp)
 );
 
 -- Convert to hypertable (partitioned by time)
@@ -70,6 +73,10 @@ SELECT add_compression_policy('options_bars', INTERVAL '7 days', if_not_exists =
 -- Index for querying by option ticker and time range
 CREATE INDEX IF NOT EXISTS idx_options_bars_ticker_time
     ON options_bars (option_ticker, timestamp DESC);
+
+-- Index for timestamp + option_ticker lookups (replaces old primary key)
+CREATE INDEX IF NOT EXISTS idx_options_bars_timestamp_ticker
+    ON options_bars (timestamp, option_ticker);
 
 -- Index for querying by underlying ticker (for entire chain queries)
 CREATE INDEX IF NOT EXISTS idx_options_bars_underlying_time
