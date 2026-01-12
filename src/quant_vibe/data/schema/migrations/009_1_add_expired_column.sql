@@ -57,30 +57,7 @@ WHERE expired = false
     rho = -9.0
   );
 
--- =============================================================================
--- Step 3: Handle continuous aggregates
--- =============================================================================
-
--- Note: Continuous aggregates are materialized views and don't support ALTER TABLE ADD COLUMN.
--- The aggregates will continue to work without the 'expired' column.
---
--- If you need to query expired contracts from aggregates in the future, you have two options:
---
--- Option A: Query the base table with time_bucket():
---   SELECT time_bucket('5 minutes', timestamp) as bucket, ...
---   FROM options_bars
---   WHERE expired = false
---   GROUP BY bucket, ...
---
--- Option B: Recreate the continuous aggregates with the expired column (future task)
---   This requires dropping and recreating each aggregate with a new query definition
---   that includes the expired column in the aggregation logic.
---
--- For now, we skip modifying the continuous aggregates to avoid complexity.
-
-RAISE NOTICE 'Continuous aggregates (5min, 15min, 1hour, daily) were not modified.';
-RAISE NOTICE 'They will continue to include expired contracts in their aggregations.';
-RAISE NOTICE 'Use the base table with expired filter for queries requiring this distinction.';
+COMMIT;
 
 -- =============================================================================
 -- Step 4: Verification
@@ -106,8 +83,6 @@ SELECT
 FROM options_bars
 WHERE expired = true
 LIMIT 5;
-
-COMMIT;
 
 -- =============================================================================
 -- Rollback (if needed)
