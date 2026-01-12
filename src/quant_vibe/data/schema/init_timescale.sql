@@ -5,10 +5,10 @@
 -- It creates hypertables, indexes, continuous aggregates, and helper functions
 --
 -- Usage:
---   docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < scripts/init_timescale.sql
+--   docker exec -i quant-vibe-timescaledb psql -U quantvibe -d options_data < src/quant_vibe/data/schema/init_timescale.sql
 --
 -- Or automatically executed via docker-compose on first run:
---   Volume mount: ./scripts/init_timescale.sql:/docker-entrypoint-initdb.d/init.sql
+--   Volume mount: ./src/quant_vibe/data/schema/init_timescale.sql:/docker-entrypoint-initdb.d/init.sql
 -- ============================================================================
 
 -- Enable TimescaleDB extension

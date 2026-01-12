@@ -8,7 +8,7 @@ MIGRATION_FILE=$1
 
 if [ -z "$MIGRATION_FILE" ]; then
     echo "Usage: $0 <migration_file>"
-    echo "Example: $0 scripts/migrations/004_add_strategy_name_to_trades.sql"
+    echo "Example: $0 src/quant_vibe/data/schema/migrations/004_add_strategy_name_to_trades.sql"
     exit 1
 fi
 

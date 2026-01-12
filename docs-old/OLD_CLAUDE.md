@@ -748,7 +748,7 @@ The system now supports **options backtesting and real-time data collection** fo
 - `MassiveClient`: Historical options data from Massive.io (formerly Polygon)
 - `SchwabDevClient`: Real-time quotes and OAuth2 authentication using schwabdev
 - Streaming service: Websocket streaming for live options data (uses schwabdev)
-- Database schema: `scripts/init_timescale.sql`
+- Database schema: `src/quant_vibe/data/schema/init_timescale.sql`
 
 **Options Strategy Layer** (`src/quant_vibe/strategies/`)
 - `OptionsStrategy` (base class): Abstract base for multi-leg options strategies

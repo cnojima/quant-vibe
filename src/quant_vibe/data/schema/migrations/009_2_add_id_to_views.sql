@@ -1,5 +1,5 @@
 -- PGPASSWORD=quantvibe_dev psql -h localhost -U quantvibe -d options_data \
---    -f /Users/curisu/dev/quant-vibe/scripts/migrations/009_2_add_id_to_views.sql
+--    -f /Users/curisu/dev/quant-vibe/src/quant_vibe/data/schema/migrations/009_2_add_id_to_views.sql
 -- 5-minute bars
 -- DROP MATERIALIZED VIEW IF EXISTS options_bars_5min;
 -- CREATE MATERIALIZED VIEW IF NOT EXISTS options_bars_5min

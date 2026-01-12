@@ -4,7 +4,7 @@
 -- This migration adds tables to persist optimization results in PostgreSQL
 --
 -- Usage:
---   PGPASSWORD=quantvibe_dev psql -h localhost -U quantvibe -d options_data < scripts/migrations/006_add_optimization_tables.sql
+--   PGPASSWORD=quantvibe_dev psql -h localhost -U quantvibe -d options_data < src/quant_vibe/data/schema/migrations/006_add_optimization_tables.sql
 -- ============================================================================
 
 -- ============================================================================

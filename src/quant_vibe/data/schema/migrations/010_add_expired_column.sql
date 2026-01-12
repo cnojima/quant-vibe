@@ -2,7 +2,7 @@
 -- Replaces the -9.0 sentinel value approach with proper boolean flag
 --
 -- Run with:
--- PGPASSWORD=quantvibe_dev psql -h localhost -U quantvibe -d options_data -f scripts/migrations/007_add_expired_column.sql
+-- PGPASSWORD=quantvibe_dev psql -h localhost -U quantvibe -d options_data -f src/quant_vibe/data/schema/migrations/007_add_expired_column.sql
 SET timescaledb.max_tuples_decompressed_per_dml_transaction TO 0;
 
 BEGIN;
