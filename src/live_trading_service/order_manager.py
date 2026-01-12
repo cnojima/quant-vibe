@@ -472,11 +472,228 @@ class OrderManager:
         Returns:
             Tuple of (success, message)
         """
-        # TODO: Implement Schwab API submission
-        # This will be implemented when we integrate schwabdev's order API
+        try:
+            # Build Schwab API order structure
+            schwab_order = self._build_schwab_order_structure(order)
 
-        self.logger.error("Live order submission not yet implemented")
-        return False, "Live order submission not yet implemented"
+            # Log order details
+            self.logger.info(
+                f"Submitting {order.action_type} order to Schwab: "
+                f"Order ID={order.order_id}, Position={order.position_id}, "
+                f"Legs={len(order.legs)}, Type={order.order_type}"
+            )
+
+            # Get account number
+            if not hasattr(self.schwab_client, 'account_number') or not self.schwab_client.account_number:
+                # Fetch account number if not already set
+                response = self.schwab_client.client.account_numbers()
+                response.raise_for_status()
+                accounts = response.json()
+                if not accounts:
+                    return False, "No Schwab accounts found"
+                self.schwab_client.account_number = accounts[0]['hashValue']
+                self.logger.info(f"Using Schwab account: {self.schwab_client.account_number[:8]}...")
+
+            # Submit order to Schwab API
+            response = self.schwab_client.client.order_place(
+                self.schwab_client.account_number,
+                schwab_order
+            )
+            response.raise_for_status()
+
+            # Extract order ID from Location header
+            location = response.headers.get('Location', '')
+            broker_order_id = location.split('/')[-1] if location else None
+
+            # Update order status
+            order.status = OrderStatus.SUBMITTED
+            order.submitted_time = now_utc()
+            order.broker_order_id = broker_order_id
+
+            self.logger.info(
+                f"Order submitted successfully: {order.order_id} -> "
+                f"Broker Order ID: {broker_order_id}"
+            )
+
+            return True, f"Order submitted successfully (Broker ID: {broker_order_id})"
+
+        except Exception as e:
+            error_msg = f"Failed to submit order to Schwab: {str(e)}"
+            self.logger.error(error_msg, exc_info=True)
+            order.status = OrderStatus.ERROR
+            order.error_message = error_msg
+            return False, error_msg
+
+    def _build_schwab_order_structure(self, order: Order) -> Dict:
+        """
+        Build Schwab API order structure from Order object.
+
+        Args:
+            order: Order to convert
+
+        Returns:
+            Schwab API order structure
+        """
+        # Build order legs in Schwab format
+        order_legs = []
+        for leg in order.legs:
+            # Map our side to Schwab instruction
+            if order.action_type == "opening":
+                instruction = "BUY_TO_OPEN" if leg['side'] == 'buy' else "SELL_TO_OPEN"
+            else:  # closing
+                instruction = "BUY_TO_CLOSE" if leg['side'] == 'buy' else "SELL_TO_CLOSE"
+
+            order_legs.append({
+                'instruction': instruction,
+                'quantity': leg['quantity'],
+                'instrument': {
+                    'assetType': 'OPTION',
+                    'symbol': leg['symbol']
+                }
+            })
+
+        # Build base order structure
+        schwab_order = {
+            'orderStrategyType': 'SINGLE',
+            'session': 'NORMAL',
+            'duration': order.time_in_force,
+            'orderType': order.order_type,
+            'orderLegCollection': order_legs
+        }
+
+        # Add price for LIMIT orders
+        if order.order_type == 'LIMIT' and order.expected_total_price is not None:
+            # Convert total price to per-spread price
+            # expected_total_price already includes the × 100 multiplier
+            # For Schwab API, we need price per contract (not total)
+            # Calculate the net credit/debit per spread
+            if len(order.legs) > 0:
+                # Total contracts in the spread
+                total_quantity = sum(leg['quantity'] for leg in order.legs)
+                if total_quantity > 0:
+                    # Price per spread = total_price / (quantity × 100)
+                    price_per_spread = abs(order.expected_total_price) / (total_quantity * 100)
+                    schwab_order['price'] = round(price_per_spread, 2)
+
+        return schwab_order
+
+    def _cancel_schwab_order(self, order: Order) -> Tuple[bool, str]:
+        """
+        Cancel order via Schwab API.
+
+        Args:
+            order: Order to cancel
+
+        Returns:
+            Tuple of (success, message)
+        """
+        try:
+            # Check if we have a broker order ID
+            if not order.broker_order_id:
+                error_msg = "Cannot cancel order: no broker order ID"
+                self.logger.error(f"{error_msg} for order {order.order_id}")
+                return False, error_msg
+
+            # Get account number
+            if not hasattr(self.schwab_client, 'account_number') or not self.schwab_client.account_number:
+                # Fetch account number if not already set
+                response = self.schwab_client.client.account_numbers()
+                response.raise_for_status()
+                accounts = response.json()
+                if not accounts:
+                    return False, "No Schwab accounts found"
+                self.schwab_client.account_number = accounts[0]['hashValue']
+
+            self.logger.info(
+                f"Cancelling order with Schwab: Order ID={order.order_id}, "
+                f"Broker ID={order.broker_order_id}"
+            )
+
+            # Cancel order via Schwab API
+            response = self.schwab_client.client.order_cancel(
+                self.schwab_client.account_number,
+                order.broker_order_id
+            )
+            response.raise_for_status()
+
+            # Update order status
+            order.status = OrderStatus.CANCELLED
+            self._persist_order(order)
+
+            self.logger.info(f"Order cancelled successfully: {order.order_id}")
+            return True, "Order cancelled successfully"
+
+        except Exception as e:
+            error_msg = f"Failed to cancel order: {str(e)}"
+            self.logger.error(error_msg, exc_info=True)
+
+            # If the order was already filled/cancelled at the broker, update our status
+            if "not found" in str(e).lower() or "already" in str(e).lower():
+                self.logger.warning(f"Order may already be filled/cancelled at broker: {order.order_id}")
+                # You might want to query the order status here to verify
+
+            return False, error_msg
+
+    def _submit_schwab_oco_order(self, order: Order, schwab_structure: Dict) -> Tuple[bool, str]:
+        """
+        Submit OCO order structure to Schwab API.
+
+        Args:
+            order: Order object to update with submission results
+            schwab_structure: Complete Schwab OCO order structure
+
+        Returns:
+            Tuple of (success, message)
+        """
+        try:
+            # Log order details
+            self.logger.info(
+                f"Submitting OCO order to Schwab: "
+                f"Order ID={order.order_id}, Position={order.position_id}, "
+                f"Entry Legs={len(order.legs)}, OCO Children=2"
+            )
+
+            # Get account number
+            if not hasattr(self.schwab_client, 'account_number') or not self.schwab_client.account_number:
+                # Fetch account number if not already set
+                response = self.schwab_client.client.account_numbers()
+                response.raise_for_status()
+                accounts = response.json()
+                if not accounts:
+                    return False, "No Schwab accounts found"
+                self.schwab_client.account_number = accounts[0]['hashValue']
+                self.logger.info(f"Using Schwab account: {self.schwab_client.account_number[:8]}...")
+
+            # Submit OCO order to Schwab API
+            response = self.schwab_client.client.order_place(
+                self.schwab_client.account_number,
+                schwab_structure
+            )
+            response.raise_for_status()
+
+            # Extract order ID from Location header
+            location = response.headers.get('Location', '')
+            broker_order_id = location.split('/')[-1] if location else None
+
+            # Update order status
+            order.status = OrderStatus.SUBMITTED
+            order.submitted_time = now_utc()
+            order.broker_order_id = broker_order_id
+
+            self.logger.info(
+                f"OCO order submitted successfully: {order.order_id} -> "
+                f"Broker Order ID: {broker_order_id} "
+                f"(Entry + Profit Target + Stop Loss)"
+            )
+
+            return True, f"OCO order submitted successfully (Broker ID: {broker_order_id})"
+
+        except Exception as e:
+            error_msg = f"Failed to submit OCO order to Schwab: {str(e)}"
+            self.logger.error(error_msg, exc_info=True)
+            order.status = OrderStatus.ERROR
+            order.error_message = error_msg
+            return False, error_msg
 
     def _persist_order(self, order: Order):
         """Save order to state store."""
@@ -560,8 +777,8 @@ class OrderManager:
             self._persist_order(order)
             return True, "Order cancelled (simulated)"
         else:
-            # TODO: Implement live cancellation
-            return False, "Live order cancellation not yet implemented"
+            # Live cancellation via Schwab API
+            return self._cancel_schwab_order(order)
 
     # ========================================================================
     # OCO (One Cancels Other) Order Construction
@@ -754,8 +971,14 @@ class OrderManager:
         }
 
         # Add price for LIMIT entry orders
-        if entry_order.expected_total_price is not None:
-            schwab_order['price'] = abs(entry_order.expected_total_price)
+        if entry_order.order_type == 'LIMIT' and entry_order.expected_total_price is not None:
+            # Convert total price to per-spread price (same logic as _build_schwab_order_structure)
+            if len(entry_order.legs) > 0:
+                total_quantity = sum(leg['quantity'] for leg in entry_order.legs)
+                if total_quantity > 0:
+                    # Price per spread = total_price / (quantity × 100)
+                    price_per_spread = abs(entry_order.expected_total_price) / (total_quantity * 100)
+                    schwab_order['price'] = round(price_per_spread, 2)
 
         self.logger.debug(
             f"Built Schwab OCO structure: Entry order {entry_order.order_id} with 2 OCO children"
@@ -834,11 +1057,7 @@ class OrderManager:
         else:
             # Live mode: Submit with OCO to Schwab API
             schwab_structure = self._build_schwab_oco_structure(order, oco_children)
-
-            # TODO: Submit schwab_structure to Schwab API
-            self.logger.error("Live OCO submission not yet implemented")
-            success = False
-            message = "Live OCO submission not yet implemented"
+            success, message = self._submit_schwab_oco_order(order, schwab_structure)
 
         if success:
             self.active_orders[order.order_id] = order
