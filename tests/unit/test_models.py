@@ -81,61 +81,106 @@ class TestOptionsBar:
         assert bar.contract_symbol == "SPXW260123P06860000"
         assert " " not in bar.contract_symbol
 
-    def test_contract_type_lowercase(self, valid_options_bar_data):
-        """Test that contract type must be lowercase"""
-        # Pydantic Literal is strict - uppercase is rejected
+    def test_contract_type_normalized_to_lowercase(self, valid_options_bar_data):
+        """Test that contract type is normalized to lowercase"""
+        # Uppercase is normalized to lowercase
         valid_options_bar_data["contract_type"] = "PUT"
 
-        with pytest.raises(ValidationError):
-            OptionsBar(**valid_options_bar_data)
+        bar = OptionsBar(**valid_options_bar_data)
+        assert bar.contract_type == "put"
 
-    def test_high_must_be_gte_low(self, valid_options_bar_data):
-        """Test that high must be >= low"""
+    def test_high_auto_corrected_when_less_than_low(self, valid_options_bar_data):
+        """Test that high is auto-corrected when < low"""
         valid_options_bar_data["high"] = Decimal("9.00")
         valid_options_bar_data["low"] = Decimal("10.00")
+        valid_options_bar_data["open"] = Decimal("9.50")
+        valid_options_bar_data["close"] = Decimal("9.80")
 
-        with pytest.raises(ValidationError, match=r"(High|must be >= low)"):
-            OptionsBar(**valid_options_bar_data)
+        bar = OptionsBar(**valid_options_bar_data)
 
-    def test_high_must_be_gte_open(self, valid_options_bar_data):
-        """Test that high must be >= open"""
+        # High should be corrected to max(open, low, close) = 10.00
+        assert bar.high == Decimal("10.00")
+        # Low should be corrected to min(open, high, close) = 9.50
+        assert bar.low == Decimal("9.50")
+
+    def test_high_auto_corrected_when_less_than_open(self, valid_options_bar_data):
+        """Test that high is auto-corrected when < open"""
         valid_options_bar_data["high"] = Decimal("9.00")
         valid_options_bar_data["open"] = Decimal("10.00")
+        valid_options_bar_data["low"] = Decimal("8.00")
+        valid_options_bar_data["close"] = Decimal("9.50")
 
-        with pytest.raises(ValidationError, match=r"(High|must be >= open)"):
-            OptionsBar(**valid_options_bar_data)
+        bar = OptionsBar(**valid_options_bar_data)
 
-    def test_high_must_be_gte_close(self, valid_options_bar_data):
-        """Test that high must be >= close"""
+        # High should be corrected to max(open, low, close) = 10.00
+        assert bar.high == Decimal("10.00")
+        assert bar.open == Decimal("10.00")
+
+    def test_high_auto_corrected_when_less_than_close(self, valid_options_bar_data):
+        """Test that high is auto-corrected when < close"""
         valid_options_bar_data["high"] = Decimal("9.00")
         valid_options_bar_data["close"] = Decimal("10.00")
+        valid_options_bar_data["open"] = Decimal("9.50")
+        valid_options_bar_data["low"] = Decimal("8.00")
 
-        with pytest.raises(ValidationError, match=r"(High|must be >= close)"):
-            OptionsBar(**valid_options_bar_data)
+        bar = OptionsBar(**valid_options_bar_data)
 
-    def test_low_must_be_lte_open(self, valid_options_bar_data):
-        """Test that low must be <= open"""
+        # High should be corrected to max(open, low, close) = 10.00
+        assert bar.high == Decimal("10.00")
+        assert bar.close == Decimal("10.00")
+
+    def test_low_auto_corrected_when_greater_than_open(self, valid_options_bar_data):
+        """Test that low is auto-corrected when > open"""
         valid_options_bar_data["low"] = Decimal("11.00")
         valid_options_bar_data["open"] = Decimal("10.00")
+        valid_options_bar_data["high"] = Decimal("12.00")
+        valid_options_bar_data["close"] = Decimal("10.50")
 
-        with pytest.raises(ValidationError, match=r"(Low|must be <= open)"):
-            OptionsBar(**valid_options_bar_data)
+        bar = OptionsBar(**valid_options_bar_data)
 
-    def test_low_must_be_lte_close(self, valid_options_bar_data):
-        """Test that low must be <= close"""
+        # Low should be corrected to min(open, high, close) = 10.00
+        assert bar.low == Decimal("10.00")
+        assert bar.open == Decimal("10.00")
+
+    def test_ohlc_auto_correction_with_schwab_streaming_data(self, valid_options_bar_data):
+        """Test OHLC auto-correction handles real Schwab streaming edge case"""
+        # Real-world case from Schwab streaming: low=1.97 > open=1.95
+        valid_options_bar_data["open"] = Decimal("1.95")
+        valid_options_bar_data["high"] = Decimal("2.00")
+        valid_options_bar_data["low"] = Decimal("1.97")  # Greater than open!
+        valid_options_bar_data["close"] = Decimal("1.98")
+
+        bar = OptionsBar(**valid_options_bar_data)
+
+        # Low should be auto-corrected to min(open, high, close) = 1.95
+        assert bar.low == Decimal("1.95")
+        assert bar.open == Decimal("1.95")
+        assert bar.high == Decimal("2.00")
+        assert bar.close == Decimal("1.98")
+
+    def test_low_auto_corrected_when_greater_than_close(self, valid_options_bar_data):
+        """Test that low is auto-corrected when > close"""
         valid_options_bar_data["low"] = Decimal("11.00")
         valid_options_bar_data["close"] = Decimal("10.00")
+        valid_options_bar_data["open"] = Decimal("10.50")
+        valid_options_bar_data["high"] = Decimal("12.00")
 
-        with pytest.raises(ValidationError, match=r"(Low|must be <= close)"):
-            OptionsBar(**valid_options_bar_data)
+        bar = OptionsBar(**valid_options_bar_data)
 
-    def test_ask_must_be_gte_bid(self, valid_options_bar_data):
-        """Test that ask must be >= bid"""
+        # Low should be corrected to min(open, high, close) = 10.00
+        assert bar.low == Decimal("10.00")
+        assert bar.close == Decimal("10.00")
+
+    def test_inverted_spread_auto_corrected(self, valid_options_bar_data):
+        """Test that inverted bid-ask spread is auto-corrected by swapping"""
         valid_options_bar_data["ask"] = Decimal("10.00")
         valid_options_bar_data["bid"] = Decimal("10.50")
 
-        with pytest.raises(ValidationError, match=r"(Ask|must be >= bid)"):
-            OptionsBar(**valid_options_bar_data)
+        bar = OptionsBar(**valid_options_bar_data)
+
+        # Bid and ask should be swapped to maintain bid <= ask
+        assert bar.bid == Decimal("10.00")
+        assert bar.ask == Decimal("10.50")
 
     def test_ask_gte_bid_validation_skipped_when_none(self, valid_options_bar_data):
         """Test that ask >= bid validation is skipped when bid is None"""
