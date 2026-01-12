@@ -5,7 +5,8 @@
 -- Background: When adding a BIGSERIAL column to a hypertable, new chunks
 -- created after the migration may not properly inherit the default value.
 -- This migration ensures all chunks have the correct default.
-
+-- Usage:
+--    PGPASSWORD=quantvibe_dev psql -h localhost -U quantvibe -d options_data < src/quant_vibe/data/schema/migrations/008_fix_id_column_default.sql
 -- Step 1: Verify the sequence exists
 DO $$
 BEGIN

@@ -1,63 +1,64 @@
+-- Usage:
 -- PGPASSWORD=quantvibe_dev psql -h localhost -U quantvibe -d options_data \
 --    -f /Users/curisu/dev/quant-vibe/src/quant_vibe/data/schema/migrations/009_2_add_id_to_views.sql
 -- 5-minute bars
--- DROP MATERIALIZED VIEW IF EXISTS options_bars_5min;
--- CREATE MATERIALIZED VIEW IF NOT EXISTS options_bars_5min
--- WITH (timescaledb.continuous) AS
--- SELECT
---     time_bucket('5 minutes', timestamp) AS bucket,
---     id,
---     option_ticker,
---     underlying_ticker,
---     strike_price,
---     contract_type,
---     expiration_date,
---     FIRST(open, timestamp) AS open,
---     MAX(high) AS high,
---     MIN(low) AS low,
---     LAST(close, timestamp) AS close,
---     SUM(volume) AS volume,
---     AVG(vwap) AS vwap,
---     SUM(transactions) AS transactions,
---     LAST(bid, timestamp) AS bid,
---     LAST(ask, timestamp) AS ask,
---     LAST(bid_size, timestamp) AS bid_size,
---     LAST(ask_size, timestamp) AS ask_size,
---     AVG(implied_volatility) AS implied_volatility,
---     LAST(delta, timestamp) AS delta,
---     LAST(gamma, timestamp) AS gamma,
---     LAST(theta, timestamp) AS theta,
---     LAST(vega, timestamp) AS vega,
---     LAST(rho, timestamp) AS rho,
---     LAST(expired, timestamp) AS expired
--- FROM options_bars
--- GROUP BY bucket, id, option_ticker, underlying_ticker, strike_price, contract_type, expiration_date
--- WITH NO DATA;
+DROP MATERIALIZED VIEW IF EXISTS options_bars_5min;
+CREATE MATERIALIZED VIEW IF NOT EXISTS options_bars_5min
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('5 minutes', timestamp) AS bucket,
+    id,
+    option_ticker,
+    underlying_ticker,
+    strike_price,
+    contract_type,
+    expiration_date,
+    FIRST(open, timestamp) AS open,
+    MAX(high) AS high,
+    MIN(low) AS low,
+    LAST(close, timestamp) AS close,
+    SUM(volume) AS volume,
+    AVG(vwap) AS vwap,
+    SUM(transactions) AS transactions,
+    LAST(bid, timestamp) AS bid,
+    LAST(ask, timestamp) AS ask,
+    LAST(bid_size, timestamp) AS bid_size,
+    LAST(ask_size, timestamp) AS ask_size,
+    AVG(implied_volatility) AS implied_volatility,
+    LAST(delta, timestamp) AS delta,
+    LAST(gamma, timestamp) AS gamma,
+    LAST(theta, timestamp) AS theta,
+    LAST(vega, timestamp) AS vega,
+    LAST(rho, timestamp) AS rho,
+    LAST(expired, timestamp) AS expired
+FROM options_bars
+GROUP BY bucket, id, option_ticker, underlying_ticker, strike_price, contract_type, expiration_date
+WITH NO DATA;
 
--- CALL refresh_continuous_aggregate('options_bars_5min', '2024-02-14 00:00:00', '2024-03-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2024-03-01 00:05:00', '2024-04-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2024-04-01 00:05:00', '2024-05-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2024-05-01 00:05:00', '2024-06-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2024-06-01 00:05:00', '2024-07-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2024-07-01 00:05:00', '2024-08-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2024-08-01 00:05:00', '2024-09-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2024-09-01 00:05:00', '2024-10-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2024-10-01 00:05:00', '2024-11-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2024-11-01 00:05:00', '2024-12-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2024-12-01 00:05:00', '2025-01-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2025-01-01 00:05:00', '2025-02-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2025-02-01 00:05:00', '2025-03-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2025-03-01 00:05:00', '2025-04-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2025-04-01 00:05:00', '2025-05-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2025-05-01 00:05:00', '2025-06-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2025-06-01 00:05:00', '2025-07-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2025-07-01 00:05:00', '2025-08-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2025-08-01 00:05:00', '2025-09-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2025-09-01 00:05:00', '2025-10-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2025-10-01 00:05:00', '2025-11-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2025-11-01 00:05:00', '2025-12-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2025-12-01 00:05:00', '2026-01-01 00:00:00');
--- CALL refresh_continuous_aggregate('options_bars_5min', '2026-01-01 00:05:00', now());
+CALL refresh_continuous_aggregate('options_bars_5min', '2024-02-14 00:00:00', '2024-03-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2024-03-01 00:05:00', '2024-04-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2024-04-01 00:05:00', '2024-05-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2024-05-01 00:05:00', '2024-06-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2024-06-01 00:05:00', '2024-07-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2024-07-01 00:05:00', '2024-08-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2024-08-01 00:05:00', '2024-09-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2024-09-01 00:05:00', '2024-10-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2024-10-01 00:05:00', '2024-11-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2024-11-01 00:05:00', '2024-12-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2024-12-01 00:05:00', '2025-01-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2025-01-01 00:05:00', '2025-02-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2025-02-01 00:05:00', '2025-03-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2025-03-01 00:05:00', '2025-04-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2025-04-01 00:05:00', '2025-05-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2025-05-01 00:05:00', '2025-06-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2025-06-01 00:05:00', '2025-07-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2025-07-01 00:05:00', '2025-08-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2025-08-01 00:05:00', '2025-09-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2025-09-01 00:05:00', '2025-10-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2025-10-01 00:05:00', '2025-11-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2025-11-01 00:05:00', '2025-12-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2025-12-01 00:05:00', '2026-01-01 00:00:00');
+CALL refresh_continuous_aggregate('options_bars_5min', '2026-01-01 00:05:00', now());
 
 -- Refresh policy for 5-minute aggregates
 SELECT add_continuous_aggregate_policy('options_bars_5min',

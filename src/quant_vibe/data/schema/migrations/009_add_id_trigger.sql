@@ -4,7 +4,8 @@
 --
 -- This is a defensive measure to handle edge cases where something
 -- tries to INSERT or UPDATE with a NULL id value.
-
+-- Usage:
+--    PGPASSWORD=quantvibe_dev psql -h localhost -U quantvibe -d options_data < src/quant_vibe/data/schema/migrations/009_add_id_trigger.sql
 -- Create trigger function
 CREATE OR REPLACE FUNCTION ensure_options_bars_id()
 RETURNS TRIGGER AS $$

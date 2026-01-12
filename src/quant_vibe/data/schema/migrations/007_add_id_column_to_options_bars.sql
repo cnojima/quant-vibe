@@ -2,6 +2,8 @@
 -- Date: 2026-01-11
 -- Purpose: Replace composite (timestamp, option_ticker) key with auto-incrementing ID
 --          to handle duplicate entries and improve performance
+-- Usage:
+--   PGPASSWORD=quantvibe_dev psql -h localhost -U quantvibe -d options_data < src/quant_vibe/data/schema/migrations/007_add_id_column_to_options_bars.sql
 
 -- Step 1: Drop existing primary key constraint if it exists
 DO $$
