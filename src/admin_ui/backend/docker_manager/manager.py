@@ -159,6 +159,8 @@ class DockerManager:
             "watcher",
             "token-service",
             "dyndns",
+            "scheduler",
+            "optimization_worker",
         ]
 
         return [self.get_service_status(service) for service in services]

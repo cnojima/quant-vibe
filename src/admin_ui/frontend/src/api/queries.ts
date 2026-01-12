@@ -75,10 +75,10 @@ export function useServiceLogs(serviceName: string, tail: number = 100) {
   return useQuery({
     queryKey: ['service-logs', serviceName, tail],
     queryFn: async () => {
-      const response = await apiClient.get<{ logs: string }>(`/services/${serviceName}/logs`, {
+      const response = await apiClient.get<{ success: boolean; logs: string; lines: number }>(`/services/${serviceName}/logs`, {
         params: { tail },
       });
-      return response.data.logs;
+      return response.data;
     },
     enabled: !!serviceName,
   });
