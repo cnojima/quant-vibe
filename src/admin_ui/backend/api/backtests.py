@@ -20,11 +20,38 @@ from pydantic import BaseModel
 
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
+from admin_ui.backend.redis_client import get_redis
 from backtest.config_loader import BacktestConfig
 from quant_vibe.data.timescale_store import TimescaleStore
 from quant_vibe.utils.backtest_helpers import _convert_decimals_to_float
+from quant_vibe.services.backtest_service import BacktestService
 
 router = APIRouter()
+
+# Global backtest service instance
+_backtest_service: Optional[BacktestService] = None
+
+
+def get_backtest_service() -> BacktestService:
+    """Get or create BacktestService singleton."""
+    global _backtest_service
+    if _backtest_service is None:
+        settings = get_settings()
+        redis_client = get_redis()
+
+        # Build database connection string
+        db_url = (
+            f"postgresql://{settings.timescale_user}:{settings.timescale_password}@"
+            f"{settings.timescale_host}:{settings.timescale_port}/{settings.timescale_db}"
+        )
+
+        _backtest_service = BacktestService(
+            redis_client=redis_client,
+            db_connection_string=db_url,
+            data_cache_ttl=3600,  # 1 hour
+            results_base_dir=str(settings.project_root / "reports" / "backtests"),
+        )
+    return _backtest_service
 
 # Track running backtests (persistent storage)
 def _get_backtest_state_file() -> Path:
@@ -100,180 +127,79 @@ class BacktestStatus(BaseModel):
 
 async def run_backtest_task(backtest_id: str, request: BacktestRequest):
     """
-    Background task to run a backtest.
+    Background task to run a backtest using BacktestService.
 
     Args:
         backtest_id: Unique ID for this backtest run
         request: Backtest parameters
     """
-    settings = get_settings()
-
-    # Update status
-    _running_backtests[backtest_id]["status"] = "running"
-    _running_backtests[backtest_id]["started_at"] = now_utc()
-    _running_backtests[backtest_id]["progress"] = 10
-    _running_backtests[backtest_id]["message"] = "Loading data..."
-    _save_backtests(_running_backtests)
+    service = get_backtest_service()
 
     try:
-        # Build command to run backtest
-        cmd = [
-            "python",
-            str(settings.project_root / "scripts" / "run_backtest.py"),
-            "--strategy",
-            request.strategy_name,
-            "--start-date",
-            request.start_date.strftime("%Y-%m-%d"),
-            "--end-date",
-            request.end_date.strftime("%Y-%m-%d"),
-        ]
+        # Extract parameters
+        min_dte = request.parameters.get("min_dte", 0) if request.parameters else 0
+        max_dte = request.parameters.get("max_dte", 60) if request.parameters else 60
+        timeframe = request.parameters.get("timeframe", "5min") if request.parameters else "5min"
+        max_trades_daily = request.parameters.get("max_trades_daily") if request.parameters else None
 
-        # Add initial capital if provided
-        if request.initial_capital is not None:
-            cmd.extend(["--initial-capital", str(request.initial_capital)])
-
-        # Add backtest ID to ensure database and API use the same ID
-        cmd.extend(["--backtest-id", backtest_id])
-
-        # Add DTE parameters if provided
+        # Build strategy parameters (filter out backtest-level params)
+        strategy_params = {}
         if request.parameters:
-            if "min_dte" in request.parameters:
-                cmd.extend(["--min-dte", str(request.parameters["min_dte"])])
-            if "max_dte" in request.parameters:
-                cmd.extend(["--max-dte", str(request.parameters["max_dte"])])
-            if "max_trades_daily" in request.parameters:
-                cmd.extend(["--max-trades-daily", str(request.parameters["max_trades_daily"])])
-            if "timeframe" in request.parameters:
-                cmd.extend(["--timeframe", str(request.parameters["timeframe"])])
+            # Copy all params except the ones we use at backtest level
+            backtest_level_params = {"min_dte", "max_dte", "timeframe"}
+            strategy_params = {
+                k: v for k, v in request.parameters.items()
+                if k not in backtest_level_params
+            }
 
-        # Run backtest as subprocess
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(settings.project_root),
+        # Add max_trades_daily if provided
+        if max_trades_daily is not None:
+            strategy_params["max_trades_daily"] = max_trades_daily
+
+        # Create backtest with our provided ID
+        from quant_vibe.utils.timestamp_utils import to_utc
+
+        await service.create_backtest(
+            strategy_name=request.strategy_name,
+            start_date=to_utc(request.start_date),
+            end_date=to_utc(request.end_date),
+            initial_capital=request.initial_capital or 100000.0,
+            parameters=strategy_params,
+            min_dte=min_dte,
+            max_dte=max_dte,
+            timeframe=timeframe,
+            ticker="SPX",
+            backtest_id=backtest_id,  # Pass our ID directly
         )
 
-        # Update progress while running
-        _running_backtests[backtest_id]["progress"] = 30
-        _running_backtests[backtest_id]["message"] = "Running backtest..."
+        # Update legacy state tracking for backward compatibility
+        _running_backtests[backtest_id] = {
+            "backtest_id": backtest_id,
+            "status": "running",
+            "started_at": now_utc(),
+            "progress": 0,
+            "message": "Starting backtest...",
+            "request": request.dict(),
+        }
         _save_backtests(_running_backtests)
 
-        # Create a task to update progress periodically while process runs
-        async def update_progress():
-            """Simulate progress updates while backtest runs"""
-            start_time = now_utc()
-            while process.returncode is None:
-                await asyncio.sleep(2)  # Update every 2 seconds
+        # Run the backtest
+        await service.run_backtest(backtest_id)
 
-                # Calculate elapsed time
-                elapsed = (now_utc() - start_time).total_seconds()
-
-                # Estimate progress (30% to 70% over ~60 seconds)
-                # After 60 seconds, slow down to avoid hitting 100%
-                if elapsed < 60:
-                    progress = 30 + (elapsed / 60) * 40  # 30% -> 70%
-                else:
-                    progress = 70 + min((elapsed - 60) / 120 * 10, 10)  # 70% -> 80% slowly
-
-                _running_backtests[backtest_id]["progress"] = int(progress)
-                _save_backtests(_running_backtests)
-
-        # Start progress updater
-        progress_task = asyncio.create_task(update_progress())
-
-        # Wait for process to complete (with timeout for long-running backtests)
-        try:
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=600.0  # 10 minute timeout for longer backtests
-                )
-            finally:
-                # Cancel progress updater
-                progress_task.cancel()
-                try:
-                    await progress_task
-                except asyncio.CancelledError:
-                    pass
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            _running_backtests[backtest_id]["status"] = "failed"
-            _running_backtests[backtest_id]["completed_at"] = now_utc()
-            _running_backtests[backtest_id]["error"] = "Backtest timed out (exceeded 10 minutes)"
-            _save_backtests(_running_backtests)
-            return
-
-        if process.returncode == 0:
-            # Success - find result files
-            result_files = find_latest_backtest_results(request.strategy_name)
-
-            # Update progress
-            _running_backtests[backtest_id]["progress"] = 80
-            _running_backtests[backtest_id]["message"] = "Saving results to database..."
-            _save_backtests(_running_backtests)
-
-            # Wait for database writes to complete before marking as completed
-            # This prevents race condition where frontend fetches incomplete data
-            max_retries = 10
-            retry_count = 0
-            db_ready = False
-
-            while retry_count < max_retries and not db_ready:
-                try:
-                    ts_store = _get_timescale_store()
-                    try:
-                        # Check if backtest data is in database
-                        backtest_run = ts_store.get_backtest_run(backtest_id)
-                        if backtest_run:
-                            # Verify we have trades and equity data
-                            trades_df = ts_store.get_backtest_trades(backtest_id)
-                            equity_df = ts_store.get_backtest_equity_curve(backtest_id)
-
-                            if not trades_df.empty and not equity_df.empty:
-                                db_ready = True
-                                print(f"Database verification successful for {backtest_id}: {len(trades_df)} trades, {len(equity_df)} equity points")
-                            else:
-                                print(f"Database check {retry_count + 1}/{max_retries}: Backtest exists but data incomplete (trades: {len(trades_df)}, equity: {len(equity_df)})")
-                        else:
-                            print(f"Database check {retry_count + 1}/{max_retries}: Backtest not found yet")
-                    finally:
-                        ts_store.close()
-                except Exception as e:
-                    print(f"Database check {retry_count + 1}/{max_retries} failed: {e}")
-
-                if not db_ready:
-                    await asyncio.sleep(0.5)  # Wait 500ms before retry
-                    retry_count += 1
-
-            if not db_ready:
-                print(f"WARNING: Database verification failed after {max_retries} retries, marking as completed anyway")
-
-            _running_backtests[backtest_id]["status"] = "completed"
-            _running_backtests[backtest_id]["completed_at"] = now_utc()
-            _running_backtests[backtest_id]["progress"] = 100
-            _running_backtests[backtest_id]["message"] = "Backtest completed successfully"
-            _running_backtests[backtest_id]["result_files"] = result_files
-            _save_backtests(_running_backtests)
-        else:
-            # Failed - capture both stdout and stderr for better error messages
-            error_parts = []
-            if stderr:
-                error_parts.append("STDERR: " + stderr.decode("utf-8"))
-            if stdout:
-                # Get last 50 lines of stdout for context
-                stdout_lines = stdout.decode("utf-8").split('\n')
-                last_lines = stdout_lines[-50:] if len(stdout_lines) > 50 else stdout_lines
-                error_parts.append("STDOUT (last 50 lines): " + '\n'.join(last_lines))
-
-            error_msg = '\n\n'.join(error_parts) if error_parts else "Unknown error"
-            _running_backtests[backtest_id]["status"] = "failed"
-            _running_backtests[backtest_id]["completed_at"] = now_utc()
-            _running_backtests[backtest_id]["error"] = error_msg
-            _save_backtests(_running_backtests)
+        # Update legacy state from service state
+        service_state = service.running_backtests[backtest_id]
+        _running_backtests[backtest_id]["status"] = service_state["status"]
+        _running_backtests[backtest_id]["completed_at"] = now_utc()
+        _running_backtests[backtest_id]["progress"] = service_state["progress"]
+        _running_backtests[backtest_id]["message"] = service_state["message"]
+        _save_backtests(_running_backtests)
 
     except Exception as e:
+        # Update both service and legacy state
+        if backtest_id in service.running_backtests:
+            service.running_backtests[backtest_id]["status"] = "failed"
+            service.running_backtests[backtest_id]["error"] = str(e)
+
         _running_backtests[backtest_id]["status"] = "failed"
         _running_backtests[backtest_id]["completed_at"] = now_utc()
         _running_backtests[backtest_id]["error"] = str(e)
@@ -367,7 +293,7 @@ async def get_backtest_status(
     """
     Get the status of a running or completed backtest.
 
-    Checks both database and in-memory state.
+    Checks service state, in-memory state, and database.
 
     Args:
         backtest_id: Backtest ID
@@ -376,11 +302,19 @@ async def get_backtest_status(
     Returns:
         Backtest status
     """
-    # First check in-memory state (for running backtests)
+    # First check service state (for running backtests with real-time progress)
+    service = get_backtest_service()
+    try:
+        service_status = await service.get_status(backtest_id)
+        return service_status
+    except ValueError:
+        pass  # Not found in service, try legacy state
+
+    # Then check in-memory state (for legacy/compatibility)
     if backtest_id in _running_backtests:
         return _running_backtests[backtest_id]
 
-    # Then check database (for completed backtests)
+    # Finally check database (for completed backtests)
     try:
         ts_store = _get_timescale_store()
         try:
@@ -759,6 +693,39 @@ async def get_backtest_history(
         }
 
 
+@router.post("/{backtest_id}/cancel")
+async def cancel_backtest(
+    backtest_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Cancel a running backtest.
+
+    Args:
+        backtest_id: Backtest ID to cancel
+        current_user: Authenticated user
+
+    Returns:
+        Cancellation status
+    """
+    service = get_backtest_service()
+
+    try:
+        cancelled = await service.cancel_backtest(backtest_id)
+        if cancelled:
+            return {
+                "success": True,
+                "message": f"Backtest {backtest_id} cancelled",
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Backtest {backtest_id} is not running",
+            }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.delete("/{backtest_id}")
 async def delete_backtest(
     backtest_id: str,
@@ -780,6 +747,11 @@ async def delete_backtest(
         try:
             deleted = ts_store.delete_backtest(backtest_id)
             if deleted:
+                # Also clean up from service if present
+                service = get_backtest_service()
+                if backtest_id in service.running_backtests:
+                    del service.running_backtests[backtest_id]
+
                 return {
                     "success": True,
                     "message": f"Backtest {backtest_id} deleted successfully",
