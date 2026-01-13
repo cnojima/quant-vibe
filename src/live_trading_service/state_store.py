@@ -37,7 +37,12 @@ def _json_serialize_safe(obj):
 class StateStore:
     """Manages persistence of trading engine state."""
 
-    def __init__(self, db_config: Optional[Dict] = None, db_profile: Optional[str] = None):
+    def __init__(
+        self,
+        db_config: Optional[Dict] = None,
+        db_profile: Optional[str] = None,
+        trading_mode: Optional[str] = None
+    ):
         """
         Initialize state store.
 
@@ -45,7 +50,22 @@ class StateStore:
             db_config: Database configuration (defaults to TimescaleDB config from .env)
             db_profile: Database profile to use ('local' or 'remote').
                        If None, auto-detects from USE_REMOTE_TIMESCALE env var.
+            trading_mode: Trading mode ('real', 'paper', 'replay', or None for legacy public schema)
         """
+        # Validate trading mode
+        if trading_mode is not None and trading_mode not in ['real', 'paper']:
+            raise ValueError(f"Invalid trading_mode: {trading_mode}. Must be 'real' or 'paper' (or None for legacy)")
+
+        self.trading_mode = trading_mode
+
+        # Set schema based on trading mode
+        if trading_mode:
+            self.schema = f"{trading_mode}_trading"
+            self.table_prefix = ""  # Tables in mode schemas don't have live_ prefix
+        else:
+            self.schema = "public"
+            self.table_prefix = "live_"  # Legacy tables in public schema have live_ prefix
+
         if db_config is None:
             # Determine which database to use
             use_remote = os.getenv('USE_REMOTE_TIMESCALE', 'false').lower() == 'true'
@@ -80,7 +100,16 @@ class StateStore:
         self.conn = psycopg2.connect(**db_config)
         self.cursor = self.conn.cursor(cursor_factory=RealDictCursor)
 
-        self._ensure_tables_exist()
+        # Set search path to include the appropriate schema
+        if trading_mode:
+            self.cursor.execute(f"SET search_path TO {self.schema}, public")
+            self.conn.commit()
+            print(f"📊 Using schema: {self.schema} (trading_mode={trading_mode})")
+
+        # Only ensure tables exist for legacy public schema
+        # Mode-specific schemas should already have tables from migration
+        if not trading_mode:
+            self._ensure_tables_exist()
 
     def _ensure_tables_exist(self):
         """Create tables for state persistence if they don't exist."""
@@ -222,8 +251,8 @@ class StateStore:
             metadata: Additional metadata
         """
         try:
-            self.cursor.execute("""
-                INSERT INTO live_engine_state (timestamp, state, metadata)
+            self.cursor.execute(f"""
+                INSERT INTO {self.table_prefix}engine_state (timestamp, state, metadata)
                 VALUES (NOW(), %s, %s)
                 ON CONFLICT (timestamp) DO UPDATE
                 SET state = EXCLUDED.state, metadata = EXCLUDED.metadata
@@ -235,8 +264,8 @@ class StateStore:
 
     def get_latest_engine_state(self) -> Optional[Dict]:
         """Get the most recent engine state."""
-        self.cursor.execute("""
-            SELECT * FROM live_engine_state
+        self.cursor.execute(f"""
+            SELECT * FROM {self.table_prefix}engine_state
             ORDER BY timestamp DESC
             LIMIT 1
         """)
@@ -256,8 +285,8 @@ class StateStore:
                   entry_cost, underlying_price_at_entry, legs, status, etc.
         """
         try:
-            self.cursor.execute("""
-                INSERT INTO live_positions (
+            self.cursor.execute(f"""
+                INSERT INTO {self.table_prefix}positions (
                     position_id, strategy_name, spread_type, entry_time,
                     entry_cost, underlying_price_at_entry, status,
                     current_value, exit_time, exit_value, exit_reason,
@@ -277,7 +306,7 @@ class StateStore:
                     legs = EXCLUDED.legs,
                     metadata = EXCLUDED.metadata,
                     updated_at = NOW()
-                WHERE live_positions.status != 'closed' OR EXCLUDED.status = 'closed'
+                WHERE {self.table_prefix}positions.status != 'closed' OR EXCLUDED.status = 'closed'
             """, {
                 'position_id': position_data['position_id'],
                 'strategy_name': position_data['strategy_name'],
@@ -309,14 +338,14 @@ class StateStore:
             List of position dicts
         """
         if strategy_name:
-            self.cursor.execute("""
-                SELECT * FROM live_positions
+            self.cursor.execute(f"""
+                SELECT * FROM {self.table_prefix}positions
                 WHERE status = 'open' AND strategy_name = %s
                 ORDER BY entry_time DESC
             """, (strategy_name,))
         else:
-            self.cursor.execute("""
-                SELECT * FROM live_positions
+            self.cursor.execute(f"""
+                SELECT * FROM {self.table_prefix}positions
                 WHERE status = 'open'
                 ORDER BY entry_time DESC
             """)
@@ -334,8 +363,8 @@ class StateStore:
     def close_position(self, position_id: str, exit_value: float, exit_reason: str):
         """Mark a position as closed."""
         try:
-            self.cursor.execute("""
-                UPDATE live_positions
+            self.cursor.execute(f"""
+                UPDATE {self.table_prefix}positions
                 SET status = 'closed',
                     exit_time = NOW(),
                     exit_value = %s,
@@ -358,7 +387,7 @@ class StateStore:
         Returns:
             List of trade dicts with P&L calculated
         """
-        self.cursor.execute("""
+        self.cursor.execute(f"""
             SELECT
                 position_id,
                 strategy_name as strategy,
@@ -370,7 +399,7 @@ class StateStore:
                 exit_reason,
                 legs,
                 metadata
-            FROM live_positions
+            FROM {self.table_prefix}positions
             WHERE status = 'closed'
               AND DATE(exit_time) = %s
             ORDER BY exit_time ASC
@@ -399,8 +428,8 @@ class StateStore:
             order_data: Order data dict
         """
         try:
-            self.cursor.execute("""
-                INSERT INTO live_orders (
+            self.cursor.execute(f"""
+                INSERT INTO {self.table_prefix}orders (
                     order_id, position_id, strategy_name, order_type, action_type, side,
                     quantity, symbol, status, submitted_time, filled_time, expected_price,
                     filled_price, broker_order_id, metadata
@@ -413,10 +442,10 @@ class StateStore:
                 ON CONFLICT (order_id) DO UPDATE SET
                     status = EXCLUDED.status,
                     action_type = EXCLUDED.action_type,
-                    filled_time = COALESCE(EXCLUDED.filled_time, live_orders.filled_time),
-                    filled_price = COALESCE(EXCLUDED.filled_price, live_orders.filled_price),
-                    filled_quantity = COALESCE(EXCLUDED.filled_quantity, live_orders.filled_quantity),
-                    error_message = COALESCE(EXCLUDED.error_message, live_orders.error_message),
+                    filled_time = COALESCE(EXCLUDED.filled_time, {self.table_prefix}orders.filled_time),
+                    filled_price = COALESCE(EXCLUDED.filled_price, {self.table_prefix}orders.filled_price),
+                    filled_quantity = COALESCE(EXCLUDED.filled_quantity, {self.table_prefix}orders.filled_quantity),
+                    error_message = COALESCE(EXCLUDED.error_message, {self.table_prefix}orders.error_message),
                     metadata = EXCLUDED.metadata,
                     updated_at = NOW()
             """, {
@@ -451,8 +480,8 @@ class StateStore:
     ):
         """Update order status."""
         try:
-            self.cursor.execute("""
-                UPDATE live_orders
+            self.cursor.execute(f"""
+                UPDATE {self.table_prefix}orders
                 SET status = %s,
                     filled_time = CASE WHEN %s IN ('filled', 'partially_filled')
                                   THEN NOW() ELSE filled_time END,
@@ -474,8 +503,8 @@ class StateStore:
     def save_strategy_state(self, strategy_name: str, state: Dict):
         """Save strategy-specific state."""
         try:
-            self.cursor.execute("""
-                INSERT INTO live_strategy_state (strategy_name, state, updated_at)
+            self.cursor.execute(f"""
+                INSERT INTO {self.table_prefix}strategy_state (strategy_name, state, updated_at)
                 VALUES (%s, %s, NOW())
                 ON CONFLICT (strategy_name) DO UPDATE
                 SET state = EXCLUDED.state, updated_at = NOW()
@@ -487,8 +516,8 @@ class StateStore:
 
     def get_strategy_state(self, strategy_name: str) -> Optional[Dict]:
         """Get strategy state."""
-        self.cursor.execute("""
-            SELECT state FROM live_strategy_state
+        self.cursor.execute(f"""
+            SELECT state FROM {self.table_prefix}strategy_state
             WHERE strategy_name = %s
         """, (strategy_name,))
         result = self.cursor.fetchone()
@@ -497,9 +526,10 @@ class StateStore:
     def reset_strategy_state(self, strategy_name: str):
         """Reset strategy state (for daily reset)."""
         try:
-            self.cursor.execute("""
-                UPDATE live_strategy_state
-                SET state = '{}', last_reset = NOW(), updated_at = NOW()
+            # Note: Use {{}} to escape braces in f-string
+            self.cursor.execute(f"""
+                UPDATE {self.table_prefix}strategy_state
+                SET state = '{{}}', last_reset = NOW(), updated_at = NOW()
                 WHERE strategy_name = %s
             """, (strategy_name,))
             self.conn.commit()
@@ -540,8 +570,8 @@ class StateStore:
                 safe_details = _json_serialize_safe(details)
                 details_json = json.dumps(safe_details)
 
-            self.cursor.execute("""
-                INSERT INTO live_events (
+            self.cursor.execute(f"""
+                INSERT INTO {self.table_prefix}events (
                     timestamp, event_type, strategy_name, position_id, order_id,
                     severity, message, details
                 ) VALUES (
@@ -563,7 +593,7 @@ class StateStore:
         strategy_name: Optional[str] = None
     ) -> List[Dict]:
         """Get recent events from audit log."""
-        query = "SELECT * FROM live_events WHERE 1=1"
+        query = "SELECT * FROM {self.table_prefix}events WHERE 1=1"
         params = []
 
         if severity:
@@ -586,6 +616,188 @@ class StateStore:
                 event['details'] = json.loads(event['details'])
 
         return events
+
+    # ========================================================================
+    # Account Balance (NEW - for trading mode schemas)
+    # ========================================================================
+
+    def get_account_balance(self) -> Optional[Dict]:
+        """
+        Get current account balance for this trading mode.
+
+        Returns:
+            Dict with balance info, or None if not found (legacy mode)
+        """
+        if not self.trading_mode:
+            # Legacy mode doesn't have account_balance table
+            return None
+
+        self.cursor.execute(f"""
+            SELECT * FROM {self.table_prefix}account_balance
+            WHERE id = 1
+        """)
+        return self.cursor.fetchone()
+
+    def update_account_balance(
+        self,
+        cash: float,
+        portfolio_value: float,
+        daily_pnl: Optional[float] = None,
+        total_trades: Optional[int] = None,
+        winning_trades: Optional[int] = None,
+        losing_trades: Optional[int] = None
+    ):
+        """
+        Update account balance for this trading mode.
+
+        Args:
+            cash: Current cash balance
+            portfolio_value: Total portfolio value (cash + positions)
+            daily_pnl: Today's P&L
+            total_trades: Total trades count
+            winning_trades: Winning trades count
+            losing_trades: Losing trades count
+        """
+        if not self.trading_mode:
+            # Legacy mode doesn't have account_balance table
+            return
+
+        try:
+            # Build update fields dynamically
+            updates = ["cash = %s", "portfolio_value = %s", "updated_at = NOW()"]
+            params = [cash, portfolio_value]
+
+            if daily_pnl is not None:
+                updates.append("daily_pnl = %s")
+                params.append(daily_pnl)
+
+            if total_trades is not None:
+                updates.append("total_trades = %s")
+                params.append(total_trades)
+
+            if winning_trades is not None:
+                updates.append("winning_trades = %s")
+                params.append(winning_trades)
+
+            if losing_trades is not None:
+                updates.append("losing_trades = %s")
+                params.append(losing_trades)
+
+            # Calculate win_rate and total_pnl if we have trade counts
+            if total_trades is not None and total_trades > 0:
+                updates.append("win_rate = winning_trades::NUMERIC / total_trades")
+
+            # Calculate total P&L relative to initial capital
+            updates.append(f"""
+                total_pnl = %s - (
+                    SELECT cash FROM {self.table_prefix}account_balance WHERE id = 1 LIMIT 1
+                )
+            """)
+            params.append(portfolio_value)
+
+            query = f"""
+                UPDATE {self.table_prefix}account_balance
+                SET {', '.join(updates)}
+                WHERE id = 1
+            """
+
+            self.cursor.execute(query, params)
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def reset_account_balance(self, initial_capital: float = 100000.0):
+        """
+        Reset account balance to initial state.
+
+        Args:
+            initial_capital: Starting capital amount
+        """
+        if not self.trading_mode:
+            return
+
+        try:
+            self.cursor.execute(f"""
+                UPDATE {self.table_prefix}account_balance
+                SET
+                    cash = %s,
+                    portfolio_value = %s,
+                    total_pnl = 0,
+                    daily_pnl = 0,
+                    daily_return_pct = 0,
+                    total_trades = 0,
+                    winning_trades = 0,
+                    losing_trades = 0,
+                    win_rate = 0,
+                    max_drawdown = 0,
+                    sharpe_ratio = 0,
+                    updated_at = NOW()
+                WHERE id = 1
+            """, (initial_capital, initial_capital))
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def get_all_strategy_states(self) -> List[Dict]:
+        """
+        Get all strategy states.
+
+        Returns:
+            List of strategy state dicts
+        """
+        self.cursor.execute(f"""
+            SELECT * FROM {self.table_prefix}strategy_state
+            ORDER BY strategy_name
+        """)
+        states = self.cursor.fetchall()
+
+        # Parse JSON state field
+        for state in states:
+            if state.get('state'):
+                state['state'] = json.loads(state['state']) if isinstance(state['state'], str) else state['state']
+
+        return states
+
+    def clear_all_data(self):
+        """
+        Clear all trading data for current mode.
+
+        Useful for:
+        - Resetting paper trading to fresh state
+        - Clearing paper data before replay testing
+
+        Raises:
+            ValueError: If in real mode (safety check)
+        """
+        if self.trading_mode == 'real':
+            raise ValueError("Cannot clear real trading data! This is a safety check.")
+
+        if not self.trading_mode:
+            raise ValueError("Cannot clear data in legacy mode")
+
+        try:
+            # Truncate all tables
+            self.cursor.execute(f"TRUNCATE TABLE {self.table_prefix}positions CASCADE")
+            self.cursor.execute(f"TRUNCATE TABLE {self.table_prefix}orders CASCADE")
+            self.cursor.execute(f"TRUNCATE TABLE {self.table_prefix}strategy_state CASCADE")
+            self.cursor.execute(f"TRUNCATE TABLE {self.table_prefix}engine_state CASCADE")
+
+            # Delete events (hypertable)
+            self.cursor.execute(f"DELETE FROM {self.table_prefix}events")
+
+            # Reset account balance
+            self.cursor.execute(f"DELETE FROM {self.table_prefix}account_balance")
+            self.cursor.execute(f"""
+                INSERT INTO {self.table_prefix}account_balance (id, cash, portfolio_value, total_pnl)
+                VALUES (1, 100000.00, 100000.00, 0)
+            """)
+
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
 
     # ========================================================================
     # Cleanup

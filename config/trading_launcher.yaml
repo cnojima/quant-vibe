@@ -1,0 +1,89 @@
+# Trading Launcher Configuration
+# ============================================================================
+# This launcher manages parallel real and paper trading engines.
+# Both engines consume the same Redis data feed.
+#
+# Data Source Options:
+#   - 'live': StreamingService publishes live market data to Redis
+#   - 'replay': ReplayService publishes historical data to Redis
+#
+# The data source is independent of trading modes.
+# You can run real + paper simultaneously with either live or replay data.
+# ============================================================================
+
+# Data source configuration
+data_source:
+  # Mode: 'live' or 'replay'
+  mode: live
+
+  # Replay settings (only used when mode=replay)
+  replay:
+    start_date: "2024-12-01"
+    end_date: "2024-12-31"
+    speed_multiplier: 1.0  # 1.0 = realtime, 2.0 = 2x speed
+
+# Trading engines configuration
+engines:
+  # Real money trading
+  real_trading:
+    enabled: true  # CRITICAL: Disabled by default for safety
+    config: config/live_trading_real.yaml
+
+    # NOTE: Before enabling real trading:
+    # 1. Test extensively in paper mode
+    # 2. Verify Schwab API credentials
+    # 3. Confirm you want to trade with real money
+    # 4. Set paper_trading: false in live_trading_real.yaml
+
+  # Paper trading (simulated)
+  paper_trading:
+    enabled: true  # Safe to enable by default
+    config: config/live_trading_paper.yaml
+
+    # NOTE: Paper trading uses same data as real trading
+    # but fills are simulated and no real orders are placed
+
+# ============================================================================
+# Usage Examples
+# ============================================================================
+#
+# Run both real and paper (if both enabled):
+#   python scripts/run_trading_launcher.py
+#
+# Run only paper trading:
+#   python scripts/run_trading_launcher.py --paper-only
+#
+# Run only real trading (when ready):
+#   python scripts/run_trading_launcher.py --real-only
+#
+# Use custom config:
+#   python scripts/run_trading_launcher.py --config my_config.yaml
+#
+# ============================================================================
+# How It Works
+# ============================================================================
+#
+# Architecture:
+#
+#   StreamingService (live data)   or   ReplayService (historical data)
+#            ↓                                    ↓
+#      Redis Pub/Sub Topics
+#      (options_bars, underlying_bars)
+#            ↓
+#      ┌─────┴─────┐
+#      ↓           ↓
+#   Real Engine   Paper Engine
+#   (separate     (separate
+#    process)      process)
+#      ↓           ↓
+#   real_trading  paper_trading
+#   schema        schema
+#
+# Benefits:
+#   - Complete isolation between real and paper
+#   - Can run simultaneously
+#   - Same data source for both
+#   - Independent crash recovery
+#   - Easy to start/stop each mode
+#
+# ============================================================================
