@@ -114,11 +114,7 @@ class OrderManager:
         self.schwab_client = schwab_client
         self.state_store = state_store
         self.use_oco = use_oco
-        # self.logger = setup_normalized_logging(
-        #     app_name="order_manager",
-        #     log_dir="logs/live_trading"
-        # )
-        self.logger = get_logger('live_trading')
+        self.logger = get_logger(f'live_trading{self.paper_trading and "_paper" or "_real"}')
 
         # OCO configuration defaults
         self.oco_config = oco_config or {

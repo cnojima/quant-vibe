@@ -525,7 +525,7 @@ class RedisDataFeed:
             True if data hasn't been received in timeout_seconds
         """
         if not self.last_update_time:
-            self.logger.debug("Data is stale: no updates received yet")
+            # self.logger.debug("Data is stale: no updates received yet")
             return True
 
         elapsed = (now_utc() - self.last_update_time).total_seconds()

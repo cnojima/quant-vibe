@@ -56,30 +56,52 @@ class LiveTradingEngine:
     position tracking, and risk management.
     """
 
-    def __init__(self, config_path: str = "config/live_trading.yaml"):
+    def __init__(
+        self,
+        trading_mode: str,
+        config_path: str = "config/live_trading_paper.yaml"
+    ):
         """
         Initialize live trading engine.
 
         Args:
+            trading_mode: Trading mode ('real' or 'paper')
             config_path: Path to configuration file
         """
+        # Validate trading mode
+        if trading_mode not in ['real', 'paper']:
+            raise ValueError(f"trading_mode must be 'real' or 'paper', got: {trading_mode}")
+
+        self.trading_mode = trading_mode
+
         # Load configuration
         self.config = self._load_config(config_path)
 
-        # Setup normalized logging
-        # self.logger = setup_normalized_logging(
-        #     app_name="live_trading",
-        #     log_dir="logs/live_trading",
-        # )
-        self.logger = get_logger('live_trading')
-
+        # Setup logging with file output (important for multiprocessing)
+        from quant_vibe.logging import setup_normalized_logging
+        self.logger = setup_normalized_logging(
+            app_name=f'live_trading_{self.trading_mode}',
+            log_dir=f'logs/live_trading',
+            console_output=True,
+            capture_submodules=True
+        )
         self.logger.info("="*70)
-        self.logger.info("Initializing Live Trading Engine")
+        self.logger.info("Initializing Live Trading Engine {} Mode".format(self.trading_mode.upper()))
         self.logger.info("="*70)
 
         # State
         self.state = TradingState.STOPPED
-        self.paper_trading = self.config['engine'].get('paper_trading', True)
+
+        # Validate config matches trading mode
+        config_paper = self.config['engine'].get('paper_trading', True)
+        if (self.trading_mode == 'real' and config_paper) or \
+           (self.trading_mode == 'paper' and not config_paper):
+            self.logger.warning(f"⚠️  Config mismatch: trading_mode={self.trading_mode} but paper_trading={config_paper}")
+            self.logger.warning(f"⚠️  Using trading_mode={self.trading_mode} (ignoring config)")
+
+        # Set paper_trading flag for backward compatibility
+        self.paper_trading = (self.trading_mode == 'paper')
+
         self.use_token_service = self.config['engine'].get('use_token_service', True)
         self.token_service_url = os.getenv("TOKEN_SERVICE_URL")
 
@@ -110,8 +132,15 @@ class LiveTradingEngine:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
-        self.logger.info(f"Paper Trading Mode: {self.paper_trading}")
-        self.logger.info(f"Configuration loaded from: {config_path}")
+        mode_emoji = '💵' if self.trading_mode == 'real' else '📝'
+        self.logger.info(f"{mode_emoji} Trading Mode: {self.trading_mode.upper()}")
+        self.logger.info(f"📊 Database Schema: {self.trading_mode}_trading")
+        self.logger.info(f"📄 Configuration: {config_path}")
+
+        if self.trading_mode == 'real':
+            self.logger.warning("⚠️  REAL MONEY TRADING - TRADES WILL EXECUTE WITH REAL FUNDS")
+        else:
+            self.logger.info("ℹ️  Paper Trading - Simulated fills, no real orders")
 
     def _load_config(self, config_path: str) -> Dict:
         """Load configuration from YAML file."""
@@ -183,6 +212,38 @@ class LiveTradingEngine:
         """Get the current data feed mode."""
         return self.config.get('data_feed', {}).get('mode', 'live')
 
+    def _load_mode_state(self):
+        """Load existing state for current trading mode."""
+        self.logger.info(f"  - Loading state for {self.trading_mode.upper()} mode...")
+
+        # Get account balance if available
+        balance = self.state_store.get_account_balance()
+        if balance:
+            self.logger.info(f"    💰 Cash: ${balance['cash']:,.2f}")
+            self.logger.info(f"    📈 Portfolio Value: ${balance['portfolio_value']:,.2f}")
+            self.logger.info(f"    📊 Total P&L: ${balance.get('total_pnl', 0):,.2f}")
+            if balance.get('total_trades', 0) > 0:
+                win_rate = balance.get('win_rate', 0) * 100
+                self.logger.info(f"    🎯 Win Rate: {win_rate:.1f}% ({balance.get('winning_trades', 0)}/{balance.get('total_trades', 0)} trades)")
+        else:
+            self.logger.info(f"    ℹ️  No existing balance found (will be initialized)")
+
+        # Get open positions
+        positions = self.state_store.get_open_positions()
+        self.logger.info(f"    📍 Open Positions: {len(positions)}")
+        if positions:
+            for pos in positions[:3]:  # Show first 3
+                self.logger.info(f"       - {pos['position_id']}: {pos['strategy_name']}")
+            if len(positions) > 3:
+                self.logger.info(f"       ... and {len(positions) - 3} more")
+
+        # Get strategy states
+        try:
+            strategies = self.state_store.get_all_strategy_states()
+            self.logger.info(f"    ⚙️  Strategy States: {len(strategies)}")
+        except Exception as e:
+            self.logger.debug(f"    Could not load strategy states: {e}")
+
     def initialize(self):
         """Initialize all components."""
         self.logger.info("Initializing components...")
@@ -202,10 +263,13 @@ class LiveTradingEngine:
             self.logger.warning("    Heartbeats and control messages will be disabled")
             self.message_broker = None
 
-        # Initialize state store
+        # Initialize state store with trading mode
         self.logger.info("  - Initializing state store...")
-        self.state_store = StateStore()
+        self.state_store = StateStore(trading_mode=self.trading_mode)
         self.logger.info("    ✓ State store ready")
+
+        # Load existing state for this trading mode
+        self._load_mode_state()
 
         # Initialize data feed (Redis)
         self.logger.info("  - Initializing Redis data feed...")
@@ -231,29 +295,32 @@ class LiveTradingEngine:
         self.market_data = LiveMarketDataProvider(feed)
         self.logger.info("    ✓ Market data provider ready")
 
-        # Initialize token service client if enabled
-        if data_feed_mode != 'replay' and self.use_token_service and TOKEN_SERVICE_AVAILABLE and self.token_service_url:
-            self.logger.info(f"  - Connecting to token service ({self.token_service_url})...")
-            try:
-                self.token_service_client = TokenServiceClient(
-                    base_url=self.token_service_url,
-                    logger=self.logger
-                )
-                health = self.token_service_client.health_check()
-                if health.get("status") == "healthy":
-                    self.logger.info("    ✓ Token service connected")
-                else:
-                    self.logger.warning(f"    ⚠️ Token service unhealthy: {health}")
-                    self.logger.warning("    Falling back to local token management")
-                    self.token_service_client = None
-            except Exception as e:
-                self.logger.warning(f"    ⚠️ Failed to connect to token service: {e}")
-                self.logger.warning("    Falling back to local token management")
-                self.token_service_client = None
+        # Initialize Schwab client for real trading (needed for order execution)
+        # Paper trading doesn't need Schwab client (simulated fills)
+        if self.trading_mode == 'real':
+            self.logger.info("  - Initializing Schwab client for REAL trading...")
 
-        if data_feed_mode != 'replay':
-            # Initialize Schwab client (only for order execution, not streaming)
-            self.logger.info("  - Initializing Schwab client...")
+            # Initialize token service client if enabled
+            if self.use_token_service and TOKEN_SERVICE_AVAILABLE and self.token_service_url:
+                self.logger.info(f"    - Connecting to token service ({self.token_service_url})...")
+                try:
+                    self.token_service_client = TokenServiceClient(
+                        base_url=self.token_service_url,
+                        logger=self.logger
+                    )
+                    health = self.token_service_client.health_check()
+                    if health.get("status") == "healthy":
+                        self.logger.info("      ✓ Token service connected")
+                    else:
+                        self.logger.warning(f"      ⚠️ Token service unhealthy: {health}")
+                        self.logger.warning("      Falling back to local token management")
+                        self.token_service_client = None
+                except Exception as e:
+                    self.logger.warning(f"      ⚠️ Failed to connect to token service: {e}")
+                    self.logger.warning("      Falling back to local token management")
+                    self.token_service_client = None
+
+            # Initialize Schwab client (required for real trading)
             tokens_db = "tokens/schwabdev_tokens.db"
             self.schwab_client = schwabdev.Client(
                 os.getenv("SCHWAB_API_KEY"),
@@ -263,9 +330,14 @@ class LiveTradingEngine:
             )
 
             if self.token_service_client:
-                self.logger.info("    ✓ Schwab client ready (order execution only, tokens via token service)")
+                self.logger.info("    ✓ Schwab client ready (tokens via token service)")
             else:
-                self.logger.info("    ✓ Schwab client ready (order execution only, tokens via local database)")
+                self.logger.info("    ✓ Schwab client ready (tokens via local database)")
+        else:
+            # Paper trading - no Schwab client needed
+            self.logger.info("  - Schwab client: Not needed for paper trading (simulated fills)")
+            self.schwab_client = None
+            self.token_service_client = None
 
         # Initialize OrderManager
         self.logger.info("  - Initializing OrderManager...")

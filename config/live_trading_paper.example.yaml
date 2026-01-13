@@ -1,5 +1,13 @@
+# ============================================================================
+# PAPER TRADING CONFIGURATION
+# ============================================================================
+# This config is for simulated trading with live or replay data.
+# No real money - fills are simulated, orders are not sent to broker.
+# Safe for testing aggressive strategies and engine validation.
+# ============================================================================
+
 engine:
-  paper_trading: true
+  paper_trading: true  # Simulated trading
   use_redis_feed: true
   max_positions: 5
   max_capital_per_trade: 10000

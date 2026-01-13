@@ -1,6 +1,8 @@
 # configs
 config/backtest.yaml
-config/live_trading.yaml
+config/live_trading_paper.yaml
+config/live_trading_real.yaml
+
 
 # Python
 __pycache__/
