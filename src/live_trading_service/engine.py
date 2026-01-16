@@ -219,12 +219,12 @@ class LiveTradingEngine:
         # Get account balance if available
         balance = self.state_store.get_account_balance()
         if balance:
-            self.logger.info(f"    💰 Cash: ${balance['cash']:,.2f}")
-            self.logger.info(f"    📈 Portfolio Value: ${balance['portfolio_value']:,.2f}")
+            self.logger.info(f"    💰 Cash: ${balance.get('cash_balance', 0):,.2f}")
+            self.logger.info(f"    📈 Portfolio Value: ${balance.get('portfolio_value', 0):,.2f}")
             self.logger.info(f"    📊 Total P&L: ${balance.get('total_pnl', 0):,.2f}")
-            if balance.get('total_trades', 0) > 0:
+            if balance.get('win_rate'):
                 win_rate = balance.get('win_rate', 0) * 100
-                self.logger.info(f"    🎯 Win Rate: {win_rate:.1f}% ({balance.get('winning_trades', 0)}/{balance.get('total_trades', 0)} trades)")
+                self.logger.info(f"    🎯 Win Rate: {win_rate:.1f}%")
         else:
             self.logger.info(f"    ℹ️  No existing balance found (will be initialized)")
 
@@ -343,6 +343,7 @@ class LiveTradingEngine:
         self.logger.info("  - Initializing OrderManager...")
         oco_config = self.config.get('oco', {})
         broker_config = self.config.get('broker', {})
+        account_hash = broker_config.get('account_hash')
         account_index = broker_config.get('account_index', 0)
 
         self.order_manager = OrderManager(
@@ -351,9 +352,14 @@ class LiveTradingEngine:
             paper_trading=self.paper_trading,
             use_oco=oco_config.get('enabled', False),
             oco_config=oco_config,
+            account_hash=account_hash,
             account_index=account_index,
         )
-        self.logger.info(f"    ✓ OrderManager ready (account_index={account_index})")
+
+        if account_hash:
+            self.logger.info(f"    ✓ OrderManager ready (account_hash={account_hash[:8]}...)")
+        else:
+            self.logger.info(f"    ✓ OrderManager ready (account_index={account_index})")
 
         # Initialize PositionManager
         self.logger.info("  - Initializing PositionManager...")
@@ -416,10 +422,14 @@ class LiveTradingEngine:
         for strategy in self.strategies:
             self.logger.info(f"    Loaded strategy: {strategy.name}")
 
-    def _reconcile_with_broker(self):
+    def _reconcile_with_broker(self, account_hash: Optional[str] = None):
         """
         Reconcile internal positions with Schwab broker.
         Called on startup for real trading mode.
+
+        Args:
+            account_hash: Optional specific account hash to reconcile.
+                         If not provided, uses the configured account.
         """
         try:
             # 1. List available accounts
@@ -433,7 +443,11 @@ class LiveTradingEngine:
             if accounts:
                 self.logger.info(f"📊 Found {len(accounts)} Schwab account(s):")
                 for acc in accounts:
-                    marker = "✓ ACTIVE" if acc['is_current'] else ""
+                    # Mark the account we're reconciling
+                    if account_hash:
+                        marker = "🎯 RECONCILING" if acc['hash_value'] == account_hash else ""
+                    else:
+                        marker = "✓ ACTIVE" if acc['is_current'] else ""
                     self.logger.info(
                         f"  [{acc['index']}] Account ending in ...{acc['hash_value'][-4:]} "
                         f"({acc['type']}) {marker}"
@@ -442,9 +456,13 @@ class LiveTradingEngine:
                 self.logger.warning("⚠️  No Schwab accounts found")
                 return
 
-            # 2. Get broker positions
+            # 2. Get broker positions (pass account_hash if provided)
             self.logger.info("\nStep 2: Fetching positions from Schwab...")
-            success, broker_positions, error = self.order_manager.get_broker_positions()
+            if account_hash:
+                # Temporarily override the order manager's account for this reconciliation
+                success, broker_positions, error = self.order_manager.get_broker_positions_for_account(account_hash)
+            else:
+                success, broker_positions, error = self.order_manager.get_broker_positions()
 
             if not success:
                 self.logger.error(f"❌ Failed to fetch broker positions: {error}")
@@ -481,7 +499,8 @@ class LiveTradingEngine:
 
             # 4. Reconcile
             self.logger.info("\nStep 4: Reconciling positions...")
-            success, report, error = self.order_manager.reconcile_positions(internal_positions)
+            # Pass the broker positions we already fetched to avoid duplicate API call
+            success, report, error = self.order_manager.reconcile_positions(internal_positions, broker_positions)
 
             if not success:
                 self.logger.error(f"❌ Reconciliation failed: {error}")
@@ -523,7 +542,7 @@ class LiveTradingEngine:
                     self._shutdown_requested = True
                 elif on_mismatch == 'sync':
                     self.logger.warning("🔄 Syncing internal state to match broker...")
-                    self._sync_broker_positions(broker_positions, report)
+                    self._sync_broker_positions(broker_positions, report, account_hash)
                 else:  # warn (default)
                     self.logger.warning("⚠️  Continuing with warning - manual review recommended")
 
@@ -551,7 +570,47 @@ class LiveTradingEngine:
                 severity='error'
             )
 
-    def _sync_broker_positions(self, broker_positions: List[Dict], reconciliation_report: Dict):
+    def _cleanup_synthetic_positions(self):
+        """
+        Clean up old synthetic positions from state store.
+
+        This removes any positions with IDs starting with SYNC_ to prevent
+        accumulation of duplicate synthetic positions across reconciliations.
+        """
+        # Note: This method is currently not called to avoid removing valid synthetic positions
+        # The _find_existing_sync_position check is sufficient to prevent duplicates
+        pass
+
+    def _find_existing_sync_position(self, symbol: str) -> Optional[Dict]:
+        """
+        Check if a synthetic position already exists for the given symbol.
+
+        Args:
+            symbol: The contract symbol to check
+
+        Returns:
+            The existing synthetic position if found, None otherwise
+        """
+        try:
+            # Get all positions from state store
+            positions = self.state_store.get_all_positions()
+
+            # Look for synthetic position with matching symbol in legs
+            for pos in positions:
+                if pos.get('position_id', '').startswith('SYNC_'):
+                    # Check if any leg has the matching symbol
+                    legs = pos.get('legs', [])
+                    for leg in legs:
+                        if leg.get('contract_symbol') == symbol:
+                            return pos
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error finding existing sync position: {e}", exc_info=True)
+            return None
+
+    def _sync_broker_positions(self, broker_positions: List[Dict], reconciliation_report: Dict, account_hash: Optional[str] = None):
         """
         Sync internal state with broker positions.
 
@@ -560,16 +619,26 @@ class LiveTradingEngine:
         Args:
             broker_positions: List of positions from broker
             reconciliation_report: Reconciliation report with discrepancies
+            account_hash: Account hash for the positions being synced
         """
         from quant_vibe.strategies.options_base import OptionsPosition, OptionLeg, OptionType, SpreadType
 
         try:
+            # Note: We don't call _cleanup_synthetic_positions() anymore as it's too aggressive
+            # The _find_existing_sync_position check is sufficient to prevent duplicates
+
             # Process each discrepancy
             for discrepancy in reconciliation_report.get('discrepancies', []):
                 if discrepancy['type'] == 'missing_internal':
                     # Find the full broker position data
                     symbol = discrepancy['symbol']
                     broker_qty = discrepancy['broker_quantity']
+
+                    # Check if we already have a synthetic position for this symbol
+                    existing_sync_position = self._find_existing_sync_position(symbol)
+                    if existing_sync_position:
+                        self.logger.info(f"♻️ Synthetic position already exists for {symbol}: {existing_sync_position}")
+                        continue
 
                     # Find the broker position details
                     broker_pos = None
@@ -592,8 +661,8 @@ class LiveTradingEngine:
                     put_call = instrument.get('putCall', 'CALL')
                     option_type = OptionType.CALL if put_call == 'CALL' else OptionType.PUT
 
-                    # Create a synthetic position for tracking
-                    position_id = f"SYNC_{symbol}_{now_utc().strftime('%Y%m%d_%H%M%S')}"
+                    # Create a synthetic position for tracking (use symbol as base ID)
+                    position_id = f"SYNC_{symbol.replace(' ', '_')}"
 
                     self.logger.info(f"📥 Creating synthetic position {position_id} for {symbol}")
 
@@ -661,6 +730,9 @@ class LiveTradingEngine:
                     # Add to position manager
                     self.position_manager.open_positions[position_id] = position
 
+                    # Use the account_hash passed to this function, or fall back to default
+                    position_account_hash = account_hash or (self.order_manager._get_account_hash() if hasattr(self.order_manager, '_get_account_hash') else None)
+
                     # Create position data dict for database (includes strategy_name)
                     position_data = {
                         'position_id': position_id,
@@ -671,6 +743,7 @@ class LiveTradingEngine:
                         'underlying_price_at_entry': underlying_price,
                         'status': 'open',
                         'current_value': broker_pos.get('marketValue', 0),
+                        'account_hash': position_account_hash,  # Use correct account_hash
                         'legs': [{
                             'contract_symbol': leg.contract_symbol,
                             'option_type': leg.option_type.value,
@@ -940,10 +1013,14 @@ class LiveTradingEngine:
                         if self.paper_trading:
                             self.logger.info("ℹ️  Paper trading mode - skipping broker reconciliation")
                         else:
+                            # Extract account_hash from data if provided
+                            account_hash = data.get('account_hash')
+                            if account_hash:
+                                self.logger.info(f"🎯 Using specific account: {account_hash[:8]}...")
                             self.logger.info("\n" + "="*70)
                             self.logger.info("MANUAL RECONCILIATION TRIGGERED")
                             self.logger.info("="*70)
-                            self._reconcile_with_broker()
+                            self._reconcile_with_broker(account_hash=account_hash)
                             self.logger.info("="*70 + "\n")
 
                     else:

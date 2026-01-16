@@ -99,6 +99,7 @@ class OrderManager:
         use_oco: bool = False,
         oco_config: Optional[Dict] = None,
         account_index: int = 0,
+        account_hash: Optional[str] = None,
     ):
         """
         Initialize order manager.
@@ -109,13 +110,16 @@ class OrderManager:
             state_store: StateStore for persistence
             use_oco: If True, build OCO child orders for profit/stop
             oco_config: OCO configuration dict with profit_target_pct, stop_loss_pct
-            account_index: Index of Schwab account to use (default: 0 for first account)
+            account_index: Index of Schwab account to use (default: 0 for first account) - DEPRECATED
+            account_hash: Account hash identifier to use for trading - PREFERRED
         """
         self.paper_trading = paper_trading
         self.schwab_client = schwab_client
         self.state_store = state_store
         self.use_oco = use_oco
-        self.account_index = account_index
+        self.account_index = account_index  # Keep for backward compatibility
+        self.account_hash = account_hash  # Preferred method
+        self._resolved_account_hash = None  # Cache the resolved account hash
         self.logger = get_logger(f'live_trading{self.paper_trading and "_paper" or "_real"}')
 
         # OCO configuration defaults
@@ -137,9 +141,63 @@ class OrderManager:
             f"OrderManager initialized in {'SIMULATED' if paper_trading else 'LIVE'} mode"
         )
         if not paper_trading:
-            self.logger.info(f"Using Schwab account index: {account_index}")
+            if self.account_hash:
+                self.logger.info(f"Using Schwab account hash: {self.account_hash[:8]}...")
+            else:
+                self.logger.info(f"Using Schwab account index: {account_index}")
         if use_oco:
             self.logger.info(f"OCO orders enabled: PT={self.oco_config['profit_target_pct']*100}%, SL={self.oco_config['stop_loss_pct']*100}%")
+
+    def _get_account_hash(self) -> str:
+        """
+        Get the account hash to use for trading.
+
+        Returns account_hash if provided, otherwise resolves from account_index.
+        Caches the result for efficiency.
+
+        Returns:
+            Account hash string
+
+        Raises:
+            ValueError: If no valid account can be determined
+        """
+        # Return cached value if available
+        if self._resolved_account_hash:
+            return self._resolved_account_hash
+
+        # If account_hash is provided, use it directly
+        if self.account_hash:
+            self._resolved_account_hash = self.account_hash
+            return self.account_hash
+
+        # Otherwise, resolve from account_index
+        if not self.schwab_client:
+            raise ValueError("Cannot resolve account without Schwab client")
+
+        try:
+            response = self.schwab_client.linked_accounts()
+            response.raise_for_status()
+            accounts = response.json()
+
+            if not accounts:
+                raise ValueError("No Schwab accounts found")
+
+            if self.account_index >= len(accounts):
+                raise ValueError(
+                    f"Invalid account index {self.account_index}. "
+                    f"Only {len(accounts)} accounts available"
+                )
+
+            self._resolved_account_hash = accounts[self.account_index]["hashValue"]
+            self.logger.info(
+                f"Resolved account index {self.account_index} to hash: "
+                f"{self._resolved_account_hash[:8]}..."
+            )
+
+            return self._resolved_account_hash
+
+        except Exception as e:
+            raise ValueError(f"Failed to resolve account hash: {e}")
 
     def submit_position_entry(
         self,
@@ -483,20 +541,15 @@ class OrderManager:
                 f"Legs={len(order.legs)}, Type={order.order_type}"
             )
 
-            # Get account number
-            if not hasattr(self.schwab_client, 'account_number') or not self.schwab_client.account_number:
-                # Fetch account number if not already set
-                response = self.schwab_client.linked_accounts()
-                response.raise_for_status()
-                accounts = response.json()
-                if not accounts:
-                    return False, "No Schwab accounts found"
-                self.schwab_client.account_number = accounts[0]['hashValue']
-                self.logger.info(f"Using Schwab account: {self.schwab_client.account_number[:8]}...")
+            # Get account hash
+            try:
+                account_hash = self._get_account_hash()
+            except ValueError as e:
+                return False, str(e)
 
             # Submit order to Schwab API
             response = self.schwab_client.place_order(
-                self.schwab_client.account_number,
+                account_hash,
                 schwab_order
             )
             response.raise_for_status()
@@ -653,20 +706,15 @@ class OrderManager:
                 f"Entry Legs={len(order.legs)}, OCO Children=2"
             )
 
-            # Get account number
-            if not hasattr(self.schwab_client, 'account_number') or not self.schwab_client.account_number:
-                # Fetch account number if not already set
-                response = self.schwab_client.linked_accounts()
-                response.raise_for_status()
-                accounts = response.json()
-                if not accounts:
-                    return False, "No Schwab accounts found"
-                self.schwab_client.account_number = accounts[0]['hashValue']
-                self.logger.info(f"Using Schwab account: {self.schwab_client.account_number[:8]}...")
+            # Get account hash
+            try:
+                account_hash = self._get_account_hash()
+            except ValueError as e:
+                return False, str(e)
 
             # Submit OCO order to Schwab API
             response = self.schwab_client.place_order(
-                self.schwab_client.account_number,
+                account_hash,
                 schwab_structure
             )
             response.raise_for_status()
@@ -1091,7 +1139,10 @@ class OrderManager:
                     "account_number": account.get("accountNumber", "N/A"),
                     "hash_value": account["hashValue"],
                     "type": account.get("type", "UNKNOWN"),
-                    "is_current": (idx == self.account_index)
+                    "is_current": (
+                        account["hashValue"] == self.account_hash if self.account_hash
+                        else idx == self.account_index
+                    )
                 })
 
             self.logger.info(f"Found {len(account_list)} Schwab accounts")
@@ -1104,7 +1155,7 @@ class OrderManager:
 
     def get_broker_positions(self) -> Tuple[bool, List[Dict], Optional[str]]:
         """
-        Fetch current positions from Schwab broker.
+        Fetch current positions from Schwab broker using configured account.
 
         Returns:
             Tuple of (success, positions_list, error_message)
@@ -1113,19 +1164,26 @@ class OrderManager:
             return True, [], "Paper trading mode - no broker positions"
 
         try:
-            # Get account number for the configured account index
-            response = self.schwab_client.linked_accounts()
-            response.raise_for_status()
-            accounts = response.json()
+            # Get the account hash
+            account_hash = self._get_account_hash()
+            return self.get_broker_positions_for_account(account_hash)
+        except ValueError as e:
+            return False, [], str(e)
 
-            if not accounts:
-                return False, [], "No Schwab accounts found"
+    def get_broker_positions_for_account(self, account_hash: str) -> Tuple[bool, List[Dict], Optional[str]]:
+        """
+        Fetch current positions from Schwab broker for a specific account.
 
-            if self.account_index >= len(accounts):
-                return False, [], f"Invalid account index {self.account_index}. Only {len(accounts)} accounts available"
+        Args:
+            account_hash: The specific account hash to fetch positions for
 
-            account_hash = accounts[self.account_index]["hashValue"]
+        Returns:
+            Tuple of (success, positions_list, error_message)
+        """
+        if self.paper_trading:
+            return True, [], "Paper trading mode - no broker positions"
 
+        try:
             # Fetch account details with positions
             response = self.schwab_client.account_details(
                 account_hash,
@@ -1170,7 +1228,8 @@ class OrderManager:
 
     def reconcile_positions(
         self,
-        internal_positions: List[Dict]
+        internal_positions: List[Dict],
+        broker_positions: Optional[List[Dict]] = None
     ) -> Tuple[bool, Dict, Optional[str]]:
         """
         Reconcile internal positions with broker positions.
@@ -1180,6 +1239,8 @@ class OrderManager:
                 - position_id
                 - contract_symbols (list of symbols)
                 - quantities (dict mapping symbol to quantity)
+            broker_positions: Optional list of broker positions. If not provided,
+                            will fetch using get_broker_positions()
 
         Returns:
             Tuple of (success, reconciliation_report, error_message)
@@ -1187,10 +1248,11 @@ class OrderManager:
         if self.paper_trading:
             return True, {"status": "paper_trading", "discrepancies": []}, None
 
-        # Fetch broker positions
-        success, broker_positions, error = self.get_broker_positions()
-        if not success:
-            return False, {}, error
+        # Use provided broker positions or fetch them
+        if broker_positions is None:
+            success, broker_positions, error = self.get_broker_positions()
+            if not success:
+                return False, {}, error
 
         self.logger.info(f"🔍 RECONCILIATION START")
         self.logger.info(f"Internal positions input: {internal_positions}")

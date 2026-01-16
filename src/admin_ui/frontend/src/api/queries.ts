@@ -18,6 +18,8 @@ import type {
   StrategyListResponse,
   ActiveStrategiesResponse,
   AnalysisResult,
+  AccountsResponse,
+  AccountBalanceResponse,
 } from '../types/api';
 
 // Auth queries
@@ -140,12 +142,97 @@ export function useLiveStatus(tradingMode: 'real' | 'paper' | 'replay' = 'paper'
   });
 }
 
-export function useLivePositions(status: 'open' | 'closed' | 'all' = 'open', limit: number = 100, tradingMode: 'real' | 'paper' | 'replay' = 'paper') {
+// Account Management queries
+export function useBrokerAccounts(tradingMode: 'real' | 'paper' = 'real') {
   return useQuery({
-    queryKey: ['live-positions', status, limit, tradingMode],
+    queryKey: ['broker-accounts', tradingMode],
     queryFn: async () => {
+      const response = await apiClient.get<AccountsResponse>('/live/accounts', {
+        params: { trading_mode: tradingMode },
+      });
+      return response.data;
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+}
+
+export function useAccountBalance(accountHash: string, tradingMode: 'real' | 'paper' = 'real', realtime: boolean = false) {
+  return useQuery({
+    queryKey: ['account-balance', accountHash, tradingMode, realtime],
+    queryFn: async () => {
+      const response = await apiClient.get<AccountBalanceResponse>(`/live/accounts/${accountHash}/balance`, {
+        params: { trading_mode: tradingMode, realtime },
+      });
+      return response.data;
+    },
+    refetchInterval: realtime ? 30000 : 60000, // Refresh every 30s for realtime, 60s otherwise
+    enabled: !!accountHash, // Only run if accountHash is provided
+  });
+}
+
+export function useSetDefaultAccount() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ accountHash, tradingMode }: { accountHash: string; tradingMode: 'real' | 'paper' }) => {
+      const response = await apiClient.post(`/live/accounts/${accountHash}/set-default`, null, {
+        params: { trading_mode: tradingMode },
+      });
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      // Invalidate accounts query to refresh the list
+      queryClient.invalidateQueries({ queryKey: ['broker-accounts', variables.tradingMode] });
+    },
+  });
+}
+
+export function useRefreshAccounts() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (tradingMode: 'real' | 'paper' = 'real') => {
+      const response = await apiClient.post('/live/accounts/refresh', null, {
+        params: { trading_mode: tradingMode },
+      });
+      return response.data;
+    },
+    onSuccess: (_, tradingMode) => {
+      // Invalidate accounts query to refresh the list
+      queryClient.invalidateQueries({ queryKey: ['broker-accounts', tradingMode] });
+    },
+  });
+}
+
+export function useSyncAccountOrders() {
+  return useMutation({
+    mutationFn: async ({ accountHash, daysBack = 30, tradingMode = 'real' }: {
+      accountHash: string;
+      daysBack?: number;
+      tradingMode?: 'real' | 'paper'
+    }) => {
+      const response = await apiClient.post(`/live/accounts/${accountHash}/sync-orders`, null, {
+        params: { days_back: daysBack, trading_mode: tradingMode },
+      });
+      return response.data;
+    },
+  });
+}
+
+export function useLivePositions(
+  status: 'open' | 'closed' | 'all' = 'open',
+  limit: number = 100,
+  tradingMode: 'real' | 'paper' | 'replay' = 'paper',
+  accountHash?: string
+) {
+  return useQuery({
+    queryKey: ['live-positions', status, limit, tradingMode, accountHash],
+    queryFn: async () => {
+      const params: any = { status, limit, trading_mode: tradingMode };
+      if (accountHash) params.account_hash = accountHash;
+
       const response = await apiClient.get<{ positions: Position[]; count: number; filter: string }>('/live/positions', {
-        params: { status, limit, trading_mode: tradingMode },
+        params,
       });
       return response.data.positions;
     },
@@ -153,12 +240,20 @@ export function useLivePositions(status: 'open' | 'closed' | 'all' = 'open', lim
   });
 }
 
-export function useLiveOrders(limit: number = 100, status: 'open' | 'filled' | 'rejected' | 'cancelled' | 'all' = 'all', tradingMode: 'real' | 'paper' | 'replay' = 'paper') {
+export function useLiveOrders(
+  limit: number = 100,
+  status: 'open' | 'filled' | 'rejected' | 'cancelled' | 'all' = 'all',
+  tradingMode: 'real' | 'paper' | 'replay' = 'paper',
+  accountHash?: string
+) {
   return useQuery({
-    queryKey: ['live-orders', limit, status, tradingMode],
+    queryKey: ['live-orders', limit, status, tradingMode, accountHash],
     queryFn: async () => {
+      const params: any = { limit, status, trading_mode: tradingMode };
+      if (accountHash) params.account_hash = accountHash;
+
       const response = await apiClient.get<{ orders: Order[]; count: number; filter: string }>('/live/orders', {
-        params: { limit, status, trading_mode: tradingMode },
+        params,
       });
       return response.data.orders;
     },
@@ -720,18 +815,26 @@ export function useReconcilePositions() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (tradingMode: 'real' | 'paper' = 'real') => {
+    mutationFn: async ({ tradingMode = 'real', accountHash }: {
+      tradingMode?: 'real' | 'paper';
+      accountHash?: string;
+    }) => {
+      let url = `/live/reconcile?trading_mode=${tradingMode}`;
+      if (accountHash) {
+        url += `&account_hash=${accountHash}`;
+      }
       const response = await apiClient.post<{
         success: boolean;
         message: string;
         status: string;
-      }>(`/live/reconcile?trading_mode=${tradingMode}`);
+      }>(url);
       return response.data;
     },
     onSuccess: () => {
       // Invalidate position queries to refresh
       queryClient.invalidateQueries({ queryKey: ['live-positions'] });
       queryClient.invalidateQueries({ queryKey: ['live-events'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
     },
   });
 }
