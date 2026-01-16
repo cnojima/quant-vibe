@@ -119,9 +119,8 @@ class NormalizedFormatter(logging.Formatter):
         # Format timestamp in EST timezone (using cached timezone)
         timestamp = datetime.fromtimestamp(record.created, tz=self.tz).strftime(self.datefmt)
 
-        # Format level (pad to 8 chars for alignment)
-        level = f"{record.levelname:<8}"
-
+        # Format level
+        level = f"{record.levelname}"
         # Build base prefix
         if self.include_func:
             prefix = f"[{timestamp}][{self.app_name}][{level}][{record.funcName}:{record.lineno}]"

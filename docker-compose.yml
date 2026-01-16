@@ -142,11 +142,11 @@ services:
       - quant-vibe-network
     command: ["python", "scripts/run_streaming.py"]
 
-  live_trading:
+  live_trading_real:
     build:
       context: .
       dockerfile: docker/Dockerfile.streaming
-    container_name: quant-vibe-live-trading
+    container_name: quant-vibe-live-trading-real
     restart: unless-stopped
     depends_on:
       redis:
@@ -185,7 +185,52 @@ services:
       - live_trading_state:/app/state
     networks:
       - quant-vibe-network
-    command: ["python", "scripts/run_live_trading.py"]
+    command: ["python", "scripts/run_trading_launcher.py", "--real-only"]
+
+  live_trading_paper:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.streaming
+    container_name: quant-vibe-live-trading-paper
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      token_service:
+        condition: service_healthy
+      streaming:
+        condition: service_started
+    environment:
+      # Token service (centralized OAuth management)
+      TOKEN_SERVICE_URL: http://token_service:8100
+      # Schwab API credentials (legacy - can be removed after migration)
+      SCHWAB_API_KEY: ${SCHWAB_API_KEY}
+      SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}
+      SCHWAB_CALLBACK_URL: ${SCHWAB_CALLBACK_URL}
+      SCHWAB_ACCOUNT_NUMBER: ${SCHWAB_ACCOUNT_NUMBER}
+      # Redis connection (use service name as host)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # TimescaleDB connection (use service name as host)
+      TIMESCALE_HOST: timescaledb
+      TIMESCALE_PORT: 5432
+      TIMESCALE_DB: options_data
+      TIMESCALE_USER: quantvibe
+      TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD:-quantvibe_dev}
+      # Logging
+      LIVE_TRADING_LOG_LEVEL: ${LIVE_TRADING_LOG_LEVEL:-${LOG_LEVEL:-INFO}}
+    volumes:
+      # Mount entire repo for live code updates
+      - .:/app
+      # Bind mount tokens for easy sharing across services (development)
+      - ./tokens:/app/tokens
+      # Persist state across container restarts
+      - live_trading_state:/app/state
+    networks:
+      - quant-vibe-network
+    command: ["python", "scripts/run_trading_launcher.py", "--paper-only"]
 
   admin_ui:
     build:

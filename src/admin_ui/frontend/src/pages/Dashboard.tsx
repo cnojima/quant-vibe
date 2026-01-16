@@ -64,24 +64,42 @@ export function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-        {servicesList.map((service) => (
-          <Card key={service.name}>
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="text-lg font-semibold capitalize">
-                {service.name.replace(/_/g, ' ')}
-              </h3>
-              <Badge
-                variant={
-                  service.status === 'running'
-                    ? 'success'
-                    : service.status === 'error'
-                    ? 'error'
-                    : 'default'
-                }
-              >
-                {service.status}
-              </Badge>
-            </div>
+        {servicesList.map((service) => {
+          // Determine if this is a trading service
+          const isLiveTradingReal = service.name === 'live_trading_real';
+          const isLiveTradingPaper = service.name === 'live_trading_paper';
+          const isTradingService = isLiveTradingReal || isLiveTradingPaper;
+
+          return (
+            <Card key={service.name} className={isTradingService ? 'border-2 border-blue-200 dark:border-blue-800' : ''}>
+              <div className="flex justify-between items-start mb-4">
+                <div className="flex flex-col gap-1">
+                  <h3 className="text-lg font-semibold capitalize">
+                    {service.name.replace(/_/g, ' ')}
+                  </h3>
+                  {isLiveTradingReal && (
+                    <Badge variant="error" className="text-xs">
+                      LIVE TRADING
+                    </Badge>
+                  )}
+                  {isLiveTradingPaper && (
+                    <Badge variant="default" className="text-xs">
+                      PAPER TRADING
+                    </Badge>
+                  )}
+                </div>
+                <Badge
+                  variant={
+                    service.status === 'running'
+                      ? 'success'
+                      : service.status === 'error'
+                      ? 'error'
+                      : 'default'
+                  }
+                >
+                  {service.status}
+                </Badge>
+              </div>
 
             <div className="space-y-2 mb-4">
               <div className="flex items-center text-sm">
@@ -142,7 +160,8 @@ export function Dashboard() {
               )}
             </div>
           </Card>
-        ))}
+          );
+        })}
       </div>
 
       {/* Log Viewer Modal */}

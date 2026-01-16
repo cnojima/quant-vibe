@@ -13,6 +13,18 @@ engine:
   max_capital_per_trade: 10000
   daily_loss_limit_pct: 0.05
   data_stale_timeout_seconds: 300
+
+# Broker/Account Configuration (Real Trading Only)
+broker:
+  # Which Schwab account to use (0 = first account, 1 = second, etc.)
+  account_index: 0
+
+  # Reconciliation settings
+  reconcile_on_startup: true  # Verify positions match broker on startup
+  reconcile_interval_minutes: 60  # Periodic reconciliation (0 = disabled)
+
+  # What to do on reconciliation mismatch
+  on_mismatch: warn  # Options: 'warn' (log only), 'halt' (stop engine), 'sync' (update internal state)
 strategies:
   enabled:
   - name: bullish_vertical_put

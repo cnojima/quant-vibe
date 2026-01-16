@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useLiveStatus, useLivePositions, useLiveOrders, useLiveEvents, useClearEvents, useLiveStats, useDailyReport, useRecentDailyReports, useActiveStrategies, useLiveTradesVisualization, useToggleDataFeedMode } from '../api/queries';
+import { useLiveStatus, useLivePositions, useLiveOrders, useLiveEvents, useClearEvents, useLiveStats, useDailyReport, useRecentDailyReports, useActiveStrategies, useLiveTradesVisualization, useToggleDataFeedMode, useReconcilePositions } from '../api/queries';
 // import { useWebSocket } from '../hooks/useWebSocket';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
@@ -7,16 +7,20 @@ import { LiveTradesChart } from '../components/charts/LiveTradesChart';
 import { formatDistanceToNow } from 'date-fns';
 
 export function LiveTradingMonitor() {
+  const [tradingMode, setTradingMode] = useState<'real' | 'paper'>('paper');
   const [selectedTab, setSelectedTab] = useState<'positions' | 'orders' | 'events' | 'reports' | 'trades'>('positions');
   const [orderStatusFilter, setOrderStatusFilter] = useState<'open' | 'filled' | 'rejected' | 'cancelled' | 'all'>('all');
   const [tradesDays, setTradesDays] = useState<number>(7);
-  const { data: status, isLoading: statusLoading } = useLiveStatus();
-  const { data: positions } = useLivePositions('open');
-  const { data: orders } = useLiveOrders(50, orderStatusFilter);
-  const { data: events } = useLiveEvents(50);
+
+  // Fetch data for current trading mode
+  const { data: status, isLoading: statusLoading } = useLiveStatus(tradingMode);
+  const { data: positions } = useLivePositions('open', 100, tradingMode);
+  const { data: orders } = useLiveOrders(50, orderStatusFilter, tradingMode);
+  const { data: events } = useLiveEvents(50, undefined, undefined, tradingMode);
   const clearEventsMutation = useClearEvents();
   const toggleDataFeedMode = useToggleDataFeedMode();
-  const { data: stats} = useLiveStats();
+  const reconcilePositions = useReconcilePositions();
+  const { data: stats} = useLiveStats(undefined, undefined, tradingMode);
   const { data: todayReport } = useDailyReport();
   const { data: recentReports } = useRecentDailyReports(7);
   const { data: activeStrategies } = useActiveStrategies();
@@ -32,8 +36,28 @@ export function LiveTradingMonitor() {
     const currentMode = status?.data_feed_mode || 'live';
     const newMode = currentMode === 'live' ? 'replay' : 'live';
 
-    if (window.confirm(`Switch data feed mode from "${currentMode}" to "${newMode}"?\n\nNote: You must restart the live trading engine for this change to take effect.`)) {
-      toggleDataFeedMode.mutate();
+    if (window.confirm(`Switch data feed mode from "${currentMode}" to "${newMode}"?\n\n⚠️ IMPORTANT: You must restart the ${tradingMode} trading engine for this change to take effect.\n\nProceed with config update?`)) {
+      toggleDataFeedMode.mutate(tradingMode, {
+        onSuccess: (data) => {
+          alert(`✅ ${data.message}\n\n${data.note}`);
+        },
+        onError: (error: any) => {
+          alert(`Failed to toggle data feed mode: ${error.response?.data?.detail || error.message}`);
+        }
+      });
+    }
+  };
+
+  const handleReconcile = () => {
+    if (window.confirm('Trigger position reconciliation with Schwab broker?\n\nThis will compare internal positions with your broker account and log any discrepancies.')) {
+      reconcilePositions.mutate(tradingMode, {
+        onSuccess: (data) => {
+          alert(data.message);
+        },
+        onError: (error: any) => {
+          alert(`Reconciliation failed: ${error.response?.data?.detail || error.message}`);
+        }
+      });
     }
   };
 
@@ -67,10 +91,11 @@ export function LiveTradingMonitor() {
     if (!status?.running) {
       return <Badge variant="default">Stopped</Badge>;
     }
-    if (status.paper_trading) {
-      return <Badge variant="warning">Paper Trading</Badge>;
+    // Badge color matches the selected trading mode
+    if (tradingMode === 'real') {
+      return <Badge variant="error">LIVE TRADING</Badge>;
     }
-    return <Badge variant="success">Live Trading</Badge>;
+    return <Badge variant="warning">PAPER TRADING</Badge>;
   };
 
   const formatCurrency = (value: number) => {
@@ -92,6 +117,30 @@ export function LiveTradingMonitor() {
             </p>
           </div>
           <div className="flex items-center gap-2 md:gap-3">
+            {/* Trading Mode Selector */}
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setTradingMode('paper')}
+                className={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
+                  tradingMode === 'paper'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Paper Trading
+              </button>
+              <button
+                onClick={() => setTradingMode('real')}
+                className={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
+                  tradingMode === 'real'
+                    ? 'bg-white text-red-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Real Trading
+              </button>
+            </div>
+
             {isConnected && (
               <Badge variant="success">
                 <span className="flex items-center gap-1">
@@ -104,6 +153,39 @@ export function LiveTradingMonitor() {
           </div>
         </div>
       </div>
+
+      {/* Real Trading Warning Banner */}
+      {tradingMode === 'real' && (
+        <div className="mb-4 md:mb-6 bg-red-50 border-2 border-red-500 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0">
+              <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-bold text-red-900">⚠️ REAL MONEY TRADING</h3>
+              <p className="text-sm text-red-800 mt-1">
+                You are viewing the LIVE TRADING engine. All positions and orders involve real money.
+                Exercise extreme caution when making changes.
+              </p>
+            </div>
+            <div className="flex-shrink-0">
+              <button
+                onClick={handleReconcile}
+                disabled={reconcilePositions.isPending}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+                title="Reconcile positions with Schwab broker"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {reconcilePositions.isPending ? 'Syncing...' : 'Reconcile'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Engine Status Overview */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4 mb-4 md:mb-6">

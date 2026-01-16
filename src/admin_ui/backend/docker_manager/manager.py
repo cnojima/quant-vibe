@@ -151,7 +151,8 @@ class DockerManager:
         # Known quant-vibe services
         services = [
             "streaming",
-            "live_trading",
+            "live_trading_real",
+            "live_trading_paper",
             "timescaledb",
             "redis",
             "admin_ui",

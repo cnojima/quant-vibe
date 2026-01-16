@@ -161,7 +161,7 @@ def main():
     print("2. Initializing OrderManager (LIVE MODE)...")
     order_manager = OrderManager(
         paper_trading=False,  # LIVE MODE
-        schwab_client=schwab_client,
+        schwab_client=schwab_client.client,  # Pass the raw schwabdev.Client, not the wrapper
         state_store=None  # No persistence for test
     )
     print("   ✓ OrderManager initialized in LIVE mode\n")

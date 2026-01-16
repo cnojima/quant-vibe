@@ -98,6 +98,7 @@ class OrderManager:
         state_store=None,
         use_oco: bool = False,
         oco_config: Optional[Dict] = None,
+        account_index: int = 0,
     ):
         """
         Initialize order manager.
@@ -108,12 +109,13 @@ class OrderManager:
             state_store: StateStore for persistence
             use_oco: If True, build OCO child orders for profit/stop
             oco_config: OCO configuration dict with profit_target_pct, stop_loss_pct
-            logger: Logger instance
+            account_index: Index of Schwab account to use (default: 0 for first account)
         """
         self.paper_trading = paper_trading
         self.schwab_client = schwab_client
         self.state_store = state_store
         self.use_oco = use_oco
+        self.account_index = account_index
         self.logger = get_logger(f'live_trading{self.paper_trading and "_paper" or "_real"}')
 
         # OCO configuration defaults
@@ -134,6 +136,8 @@ class OrderManager:
         self.logger.info(
             f"OrderManager initialized in {'SIMULATED' if paper_trading else 'LIVE'} mode"
         )
+        if not paper_trading:
+            self.logger.info(f"Using Schwab account index: {account_index}")
         if use_oco:
             self.logger.info(f"OCO orders enabled: PT={self.oco_config['profit_target_pct']*100}%, SL={self.oco_config['stop_loss_pct']*100}%")
 
@@ -482,7 +486,7 @@ class OrderManager:
             # Get account number
             if not hasattr(self.schwab_client, 'account_number') or not self.schwab_client.account_number:
                 # Fetch account number if not already set
-                response = self.schwab_client.client.linked_accounts()
+                response = self.schwab_client.linked_accounts()
                 response.raise_for_status()
                 accounts = response.json()
                 if not accounts:
@@ -491,7 +495,7 @@ class OrderManager:
                 self.logger.info(f"Using Schwab account: {self.schwab_client.account_number[:8]}...")
 
             # Submit order to Schwab API
-            response = self.schwab_client.client.place_order(
+            response = self.schwab_client.place_order(
                 self.schwab_client.account_number,
                 schwab_order
             )
@@ -593,7 +597,7 @@ class OrderManager:
             # Get account number
             if not hasattr(self.schwab_client, 'account_number') or not self.schwab_client.account_number:
                 # Fetch account number if not already set
-                response = self.schwab_client.client.linked_accounts()
+                response = self.schwab_client.linked_accounts()
                 response.raise_for_status()
                 accounts = response.json()
                 if not accounts:
@@ -606,7 +610,7 @@ class OrderManager:
             )
 
             # Cancel order via Schwab API
-            response = self.schwab_client.client.cancel_order(
+            response = self.schwab_client.cancel_order(
                 self.schwab_client.account_number,
                 order.broker_order_id
             )
@@ -652,7 +656,7 @@ class OrderManager:
             # Get account number
             if not hasattr(self.schwab_client, 'account_number') or not self.schwab_client.account_number:
                 # Fetch account number if not already set
-                response = self.schwab_client.client.linked_accounts()
+                response = self.schwab_client.linked_accounts()
                 response.raise_for_status()
                 accounts = response.json()
                 if not accounts:
@@ -661,7 +665,7 @@ class OrderManager:
                 self.logger.info(f"Using Schwab account: {self.schwab_client.account_number[:8]}...")
 
             # Submit OCO order to Schwab API
-            response = self.schwab_client.client.place_order(
+            response = self.schwab_client.place_order(
                 self.schwab_client.account_number,
                 schwab_structure
             )
@@ -1060,3 +1064,208 @@ class OrderManager:
             self._persist_order(order)
 
         return success, message, order if success else None
+
+    def list_available_accounts(self) -> Tuple[bool, List[Dict], Optional[str]]:
+        """
+        List all available Schwab accounts.
+
+        Returns:
+            Tuple of (success, accounts_list, error_message)
+        """
+        if self.paper_trading:
+            return True, [], "Paper trading mode - no broker accounts"
+
+        try:
+            response = self.schwab_client.linked_accounts()
+            response.raise_for_status()
+            accounts = response.json()
+
+            # Log the raw response for debugging
+            self.logger.info(f"Schwab API linked_accounts() response: {accounts}")
+
+            # Format account info
+            account_list = []
+            for idx, account in enumerate(accounts):
+                account_list.append({
+                    "index": idx,
+                    "account_number": account.get("accountNumber", "N/A"),
+                    "hash_value": account["hashValue"],
+                    "type": account.get("type", "UNKNOWN"),
+                    "is_current": (idx == self.account_index)
+                })
+
+            self.logger.info(f"Found {len(account_list)} Schwab accounts")
+            return True, account_list, None
+
+        except Exception as e:
+            error_msg = f"Failed to list accounts: {str(e)}"
+            self.logger.error(error_msg, exc_info=True)
+            return False, [], error_msg
+
+    def get_broker_positions(self) -> Tuple[bool, List[Dict], Optional[str]]:
+        """
+        Fetch current positions from Schwab broker.
+
+        Returns:
+            Tuple of (success, positions_list, error_message)
+        """
+        if self.paper_trading:
+            return True, [], "Paper trading mode - no broker positions"
+
+        try:
+            # Get account number for the configured account index
+            response = self.schwab_client.linked_accounts()
+            response.raise_for_status()
+            accounts = response.json()
+
+            if not accounts:
+                return False, [], "No Schwab accounts found"
+
+            if self.account_index >= len(accounts):
+                return False, [], f"Invalid account index {self.account_index}. Only {len(accounts)} accounts available"
+
+            account_hash = accounts[self.account_index]["hashValue"]
+
+            # Fetch account details with positions
+            response = self.schwab_client.account_details(
+                account_hash,
+                fields="positions"
+            )
+            response.raise_for_status()
+            account_data = response.json()
+
+            # Log the raw response for debugging
+            self.logger.info(f"Schwab API account_details() response: {account_data}")
+
+            # Extract positions
+            positions = []
+            if "securitiesAccount" in account_data:
+                positions_raw = account_data["securitiesAccount"].get("positions", [])
+                self.logger.info(f"Found {len(positions_raw)} total positions (all asset types)")
+
+                # Filter for option positions only
+                for pos in positions_raw:
+                    instrument = pos.get("instrument", {})
+                    asset_type = instrument.get("assetType")
+                    symbol = instrument.get('symbol')
+                    self.logger.debug(f"Position asset type: {asset_type}, symbol: {symbol}")
+
+                    if asset_type == "OPTION":
+                        positions.append({
+                            "symbol": instrument.get("symbol", ""),
+                            "quantity": pos.get("longQuantity", 0) - pos.get("shortQuantity", 0),
+                            "average_price": pos.get("averagePrice", 0.0),
+                            "market_value": pos.get("marketValue", 0.0),
+                            "instrument": instrument
+                        })
+
+            self.logger.info(f"Retrieved {len(positions)} option positions from Schwab")
+            self.logger.info(f"Option positions detail: {positions}")
+            return True, positions, None
+
+        except Exception as e:
+            error_msg = f"Failed to fetch broker positions: {str(e)}"
+            self.logger.error(error_msg, exc_info=True)
+            return False, [], error_msg
+
+    def reconcile_positions(
+        self,
+        internal_positions: List[Dict]
+    ) -> Tuple[bool, Dict, Optional[str]]:
+        """
+        Reconcile internal positions with broker positions.
+
+        Args:
+            internal_positions: List of internal position dicts with keys:
+                - position_id
+                - contract_symbols (list of symbols)
+                - quantities (dict mapping symbol to quantity)
+
+        Returns:
+            Tuple of (success, reconciliation_report, error_message)
+        """
+        if self.paper_trading:
+            return True, {"status": "paper_trading", "discrepancies": []}, None
+
+        # Fetch broker positions
+        success, broker_positions, error = self.get_broker_positions()
+        if not success:
+            return False, {}, error
+
+        self.logger.info(f"🔍 RECONCILIATION START")
+        self.logger.info(f"Internal positions input: {internal_positions}")
+
+        # Build broker position map: symbol -> quantity
+        broker_map = {}
+        for pos in broker_positions:
+            symbol = pos["symbol"]
+            quantity = pos["quantity"]
+            broker_map[symbol] = quantity
+
+        self.logger.info(f"Broker position map: {broker_map}")
+
+        # Build internal position map: symbol -> quantity
+        internal_map = {}
+        for pos in internal_positions:
+            self.logger.info(f"Processing internal position: {pos}")
+            if "quantities" in pos:
+                for symbol, qty in pos["quantities"].items():
+                    internal_map[symbol] = internal_map.get(symbol, 0) + qty
+
+        self.logger.info(f"Internal position map: {internal_map}")
+
+        # Find discrepancies
+        discrepancies = []
+
+        # Check for missing positions (in broker but not internal)
+        for symbol, broker_qty in broker_map.items():
+            internal_qty = internal_map.get(symbol, 0)
+            if internal_qty == 0:
+                discrepancies.append({
+                    "type": "missing_internal",
+                    "symbol": symbol,
+                    "broker_quantity": broker_qty,
+                    "internal_quantity": 0,
+                    "difference": broker_qty
+                })
+            elif internal_qty != broker_qty:
+                discrepancies.append({
+                    "type": "quantity_mismatch",
+                    "symbol": symbol,
+                    "broker_quantity": broker_qty,
+                    "internal_quantity": internal_qty,
+                    "difference": broker_qty - internal_qty
+                })
+
+        # Check for extra positions (in internal but not broker)
+        for symbol, internal_qty in internal_map.items():
+            if symbol not in broker_map:
+                discrepancies.append({
+                    "type": "missing_broker",
+                    "symbol": symbol,
+                    "broker_quantity": 0,
+                    "internal_quantity": internal_qty,
+                    "difference": -internal_qty
+                })
+
+        # Build reconciliation report
+        report = {
+            "timestamp": now_utc().isoformat(),
+            "broker_positions_count": len(broker_positions),
+            "internal_positions_count": len(internal_positions),
+            "total_broker_legs": len(broker_map),
+            "total_internal_legs": len(internal_map),
+            "discrepancies_count": len(discrepancies),
+            "discrepancies": discrepancies,
+            "status": "matched" if len(discrepancies) == 0 else "mismatched"
+        }
+
+        self.logger.info(f"🔍 RECONCILIATION COMPLETE")
+        self.logger.info(f"Reconciliation report: {report}")
+
+        if discrepancies:
+            self.logger.warning(
+                f"Position reconciliation found {len(discrepancies)} discrepancies"
+            )
+
+        return True, report, None

@@ -25,22 +25,27 @@ router = APIRouter()
 
 
 @router.get("/status")
-async def get_live_status(current_user: User = Depends(get_current_user)):
+async def get_live_status(
+    trading_mode: str = Query('paper', pattern='^(real|paper|replay)$'),
+    current_user: User = Depends(get_current_user)
+):
     """
     Get current live trading engine status.
 
     Args:
+        trading_mode: Trading mode to query ('real', 'paper', or 'replay')
         current_user: Authenticated user
 
     Returns:
         Live trading engine status
     """
-    engine_state = await timescale.fetch_engine_state()
+    engine_state = await timescale.fetch_engine_state(trading_mode=trading_mode)
 
     if not engine_state:
         return {
             "running": False,
             "message": "No engine state found. Engine may not have started yet.",
+            "trading_mode": trading_mode,
         }
 
     return {
@@ -53,6 +58,7 @@ async def get_live_status(current_user: User = Depends(get_current_user)):
         "last_update": engine_state.get("timestamp"),
         "metadata": engine_state.get("metadata"),
         "data_feed_mode": engine_state.get("data_feed_mode", "live"),
+        "trading_mode": trading_mode,
     }
 
 
@@ -330,11 +336,15 @@ async def get_recent_daily_reports(
 
 
 @router.get("/strategies/active")
-async def get_active_strategies(current_user: User = Depends(get_current_user)):
+async def get_active_strategies(
+    trading_mode: str = Query('paper', pattern='^(real|paper|replay)$'),
+    current_user: User = Depends(get_current_user)
+):
     """
     Get list of active trading strategies from live trading config.
 
     Args:
+        trading_mode: Trading mode to query ('real', 'paper', or 'replay')
         current_user: Authenticated user
 
     Returns:
@@ -344,11 +354,12 @@ async def get_active_strategies(current_user: User = Depends(get_current_user)):
         import yaml
         from pathlib import Path
 
-        # Load live trading config
-        config_path = Path(__file__).parent.parent.parent.parent.parent / "config" / "live_trading.yaml"
+        # Load live trading config based on trading mode
+        config_filename = f"live_trading_{trading_mode}.yaml"
+        config_path = Path(__file__).parent.parent.parent.parent.parent / "config" / config_filename
 
         if not config_path.exists():
-            raise HTTPException(status_code=404, detail="Live trading config not found")
+            raise HTTPException(status_code=404, detail=f"Live trading config not found: {config_filename}")
 
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
@@ -362,7 +373,7 @@ async def get_active_strategies(current_user: User = Depends(get_current_user)):
             state_store = StateStore()
             try:
                 # Get all closed positions to calculate stats per strategy
-                closed_positions = await timescale.fetch_closed_positions(limit=1000)
+                closed_positions = await timescale.fetch_closed_positions(limit=1000, trading_mode=trading_mode)
 
                 # Group by strategy
                 from collections import defaultdict
@@ -467,14 +478,18 @@ async def reload_strategies(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/data-feed/toggle-mode")
-async def toggle_data_feed_mode(current_user: User = Depends(get_current_user)):
+async def toggle_data_feed_mode(
+    trading_mode: str = Query('paper', pattern='^(real|paper)$'),
+    current_user: User = Depends(get_current_user)
+):
     """
     Toggle data feed mode between 'live' and 'replay'.
 
-    This updates the live_trading.yaml config and requires the engine to be restarted
+    This updates the live_trading_{mode}.yaml config and requires the engine to be restarted
     or the data feed to be reconnected for the change to take effect.
 
     Args:
+        trading_mode: Trading mode ('real' or 'paper')
         current_user: Authenticated user
 
     Returns:
@@ -484,11 +499,12 @@ async def toggle_data_feed_mode(current_user: User = Depends(get_current_user)):
         import yaml
         from pathlib import Path
 
-        # Load live trading config
-        config_path = Path(__file__).parent.parent.parent.parent.parent / "config" / "live_trading.yaml"
+        # Load live trading config based on trading mode
+        config_filename = f"live_trading_{trading_mode}.yaml"
+        config_path = Path(__file__).parent.parent.parent.parent.parent / "config" / config_filename
 
         if not config_path.exists():
-            raise HTTPException(status_code=404, detail="Live trading config not found")
+            raise HTTPException(status_code=404, detail=f"Live trading config not found: {config_filename}")
 
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
@@ -510,14 +526,76 @@ async def toggle_data_feed_mode(current_user: User = Depends(get_current_user)):
 
         return {
             "success": True,
-            "message": f"Data feed mode changed from '{current_mode}' to '{new_mode}'",
+            "message": f"Config updated: Data feed mode changed from '{current_mode}' to '{new_mode}' in {config_filename}",
             "previous_mode": current_mode,
             "new_mode": new_mode,
-            "note": "Restart the live trading engine for this change to take effect",
+            "note": f"⚠️ RESTART REQUIRED: The {trading_mode} trading engine must be restarted for this change to take effect. Current running engine is still using '{current_mode}' mode.",
         }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to toggle data feed mode: {str(e)}")
+
+
+@router.post("/reconcile")
+async def trigger_reconciliation(
+    trading_mode: str = Query('real', pattern='^(real|paper)$'),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Trigger manual position reconciliation with broker.
+
+    This endpoint sends a control message to the live trading engine
+    to perform reconciliation. The engine must be running to respond.
+
+    Args:
+        trading_mode: Trading mode to reconcile ('real' or 'paper')
+        current_user: Authenticated user
+
+    Returns:
+        Status message indicating reconciliation was triggered
+    """
+    if trading_mode == 'paper':
+        return {
+            "success": True,
+            "message": "Paper trading mode - no broker reconciliation needed",
+            "status": "paper_trading"
+        }
+
+    try:
+        # Send control message to engine via Redis
+        from quant_vibe.messaging import RedisMessageBroker
+        from quant_vibe.messaging.topics import Topic
+
+        broker = RedisMessageBroker()
+
+        # Publish reconciliation command to control topic
+        message = {
+            "command": "reconcile",
+            "trading_mode": trading_mode,
+            "requested_by": "admin_ui",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+        # Publish to control.live_trading topic
+        success = broker.publish(Topic.CONTROL_LIVE_TRADING, message)
+
+        if success:
+            return {
+                "success": True,
+                "message": f"Reconciliation request sent to {trading_mode} trading engine. Check engine logs for results.",
+                "status": "requested"
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to publish message to Redis"
+            )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send reconciliation request: {str(e)}"
+        )
 
 
 @router.get("/trades/visualization")

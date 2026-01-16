@@ -33,6 +33,9 @@ class Topic(str, Enum):
     TRADING_ORDER = "trading.order"
     TRADING_FILL = "trading.fill"
 
+    # Control messages (admin_ui -> live_trading)
+    CONTROL_LIVE_TRADING = "control.live_trading"
+
     def __str__(self) -> str:
         """Return topic value as string."""
         return self.value

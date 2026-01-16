@@ -56,16 +56,48 @@ def get_pool() -> asyncpg.Pool:
     return _pool
 
 
-async def fetch_engine_state() -> Optional[dict[str, Any]]:
+def _get_table_name(base_table: str, trading_mode: str = 'paper') -> str:
+    """
+    Get the full table name including schema for a trading mode.
+
+    Args:
+        base_table: Base table name (e.g., 'positions', 'orders', 'engine_state')
+        trading_mode: Trading mode ('real', 'paper', or 'replay')
+
+    Returns:
+        Full table name with schema (e.g., 'real_trading.positions')
+    """
+    schema_map = {
+        'real': 'real_trading',
+        'paper': 'paper_trading',
+        'replay': 'replay_trading',
+    }
+    schema = schema_map.get(trading_mode, 'public')
+
+    # Map base table names to actual table names
+    # In new schemas, tables don't have 'live_' prefix
+    if schema == 'public':
+        # Old schema uses live_ prefix
+        return f'live_{base_table}'
+    else:
+        # New schemas use clean names
+        return f'{schema}.{base_table}'
+
+
+async def fetch_engine_state(trading_mode: str = 'paper') -> Optional[dict[str, Any]]:
     """
     Fetch the latest live trading engine state.
+
+    Args:
+        trading_mode: Trading mode schema ('real', 'paper', or 'replay')
 
     Returns:
         Dict with engine state or None if no state found
     """
     pool = get_pool()
+    table_name = _get_table_name('engine_state', trading_mode)
 
-    query = """
+    query = f"""
         SELECT
             timestamp,
             state,
@@ -74,7 +106,7 @@ async def fetch_engine_state() -> Optional[dict[str, Any]]:
             (metadata->>'total_bars_processed')::integer as total_bars_processed,
             (metadata->>'total_signals_generated')::integer as total_signals_generated,
             (metadata->>'uptime_seconds')::numeric as uptime_seconds
-        FROM live_engine_state
+        FROM {table_name}
         ORDER BY timestamp DESC
         LIMIT 1
     """
@@ -108,19 +140,21 @@ async def fetch_engine_state() -> Optional[dict[str, Any]]:
         return None
 
 
-async def fetch_active_positions(limit: int = 100) -> list[dict[str, Any]]:
+async def fetch_active_positions(limit: int = 100, trading_mode: str = 'paper') -> list[dict[str, Any]]:
     """
     Fetch active (open) positions.
 
     Args:
         limit: Maximum number of positions to return
+        trading_mode: Trading mode schema ('real', 'paper', or 'replay')
 
     Returns:
         List of position dictionaries
     """
     pool = get_pool()
+    table_name = _get_table_name('positions', trading_mode)
 
-    query = """
+    query = f"""
         SELECT
             position_id,
             strategy_name,
@@ -131,7 +165,7 @@ async def fetch_active_positions(limit: int = 100) -> list[dict[str, Any]]:
             (COALESCE(current_value, 0) - entry_cost) as unrealized_pnl,
             legs,
             metadata
-        FROM live_positions
+        FROM {table_name}
         WHERE status = 'open'
         ORDER BY entry_time DESC
         LIMIT $1
@@ -151,19 +185,21 @@ async def fetch_active_positions(limit: int = 100) -> list[dict[str, Any]]:
         return result
 
 
-async def fetch_closed_positions(limit: int = 100) -> list[dict[str, Any]]:
+async def fetch_closed_positions(limit: int = 100, trading_mode: str = 'paper') -> list[dict[str, Any]]:
     """
     Fetch closed positions.
 
     Args:
         limit: Maximum number of positions to return
+        trading_mode: Trading mode schema ('real', 'paper', or 'replay')
 
     Returns:
         List of position dictionaries
     """
     pool = get_pool()
+    table_name = _get_table_name('positions', trading_mode)
 
-    query = """
+    query = f"""
         SELECT
             position_id,
             strategy_name,
@@ -176,7 +212,7 @@ async def fetch_closed_positions(limit: int = 100) -> list[dict[str, Any]]:
             exit_reason,
             legs,
             metadata
-        FROM live_positions
+        FROM {table_name}
         WHERE status = 'closed'
         ORDER BY exit_time DESC
         LIMIT $1
@@ -196,7 +232,7 @@ async def fetch_closed_positions(limit: int = 100) -> list[dict[str, Any]]:
         return result
 
 
-async def fetch_open_orders(limit: int = 100, status_filter: Optional[str] = None) -> list[dict[str, Any]]:
+async def fetch_open_orders(limit: int = 100, status_filter: Optional[str] = None, trading_mode: str = 'paper') -> list[dict[str, Any]]:
     """
     Fetch orders with optional status filter.
 
@@ -205,11 +241,13 @@ async def fetch_open_orders(limit: int = 100, status_filter: Optional[str] = Non
         status_filter: Filter by status ('open', 'filled', 'rejected', 'all')
                       'open' = pending/submitted/accepted
                       None = same as 'open' (default for backwards compatibility)
+        trading_mode: Trading mode schema ('real', 'paper', or 'replay')
 
     Returns:
         List of order dictionaries
     """
     pool = get_pool()
+    table_name = _get_table_name('orders', trading_mode)
 
     # Build WHERE clause based on status filter
     if status_filter == 'all' or status_filter is None:
@@ -241,7 +279,7 @@ async def fetch_open_orders(limit: int = 100, status_filter: Optional[str] = Non
             expected_price as limit_price,
             filled_price,
             metadata
-        FROM live_orders
+        FROM {table_name}
         {where_clause}
         ORDER BY submitted_time DESC
         LIMIT $1
@@ -263,6 +301,7 @@ async def fetch_recent_events(
     limit: int = 100,
     event_type: Optional[str] = None,
     severity: Optional[str] = None,
+    trading_mode: str = 'paper',
 ) -> list[dict[str, Any]]:
     """
     Fetch recent events from the live trading system.
@@ -271,11 +310,13 @@ async def fetch_recent_events(
         limit: Maximum number of events to return
         event_type: Filter by event type (e.g., 'signal', 'order', 'error')
         severity: Filter by severity (e.g., 'info', 'warning', 'error')
+        trading_mode: Trading mode schema ('real', 'paper', or 'replay')
 
     Returns:
         List of event dictionaries
     """
     pool = get_pool()
+    table_name = _get_table_name('events', trading_mode)
 
     # Build query dynamically based on filters
     where_clauses = []
@@ -301,7 +342,7 @@ async def fetch_recent_events(
             severity,
             message,
             details as metadata
-        FROM live_events
+        FROM {table_name}
         {where_sql}
         ORDER BY timestamp DESC
         LIMIT ${param_idx}
@@ -321,16 +362,20 @@ async def fetch_recent_events(
         return result
 
 
-async def clear_live_events() -> int:
+async def clear_live_events(trading_mode: str = 'paper') -> int:
     """
-    Clear all events from the live_events table.
+    Clear all events from the events table.
+
+    Args:
+        trading_mode: Trading mode schema ('real', 'paper', or 'replay')
 
     Returns:
         Number of events deleted
     """
     pool = get_pool()
+    table_name = _get_table_name('events', trading_mode)
 
-    query = "DELETE FROM live_events"
+    query = f"DELETE FROM {table_name}"
 
     async with pool.acquire() as conn:
         result = await conn.execute(query)
@@ -342,6 +387,7 @@ async def clear_live_events() -> int:
 async def fetch_trading_stats(
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
+    trading_mode: str = 'paper',
 ) -> dict[str, Any]:
     """
     Calculate aggregate trading statistics.
@@ -349,11 +395,13 @@ async def fetch_trading_stats(
     Args:
         start_time: Start of time range (optional)
         end_time: End of time range (optional)
+        trading_mode: Trading mode schema ('real', 'paper', or 'replay')
 
     Returns:
         Dict with trading statistics
     """
     pool = get_pool()
+    table_name = _get_table_name('positions', trading_mode)
 
     # Build time filters
     where_clauses = ["status = 'closed'"]
@@ -376,7 +424,7 @@ async def fetch_trading_stats(
         WITH pnl_calc AS (
             SELECT
                 (COALESCE(exit_value, 0) - entry_cost) as realized_pnl
-            FROM live_positions
+            FROM {table_name}
             WHERE {where_sql}
         )
         SELECT
