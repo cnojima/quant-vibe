@@ -342,14 +342,18 @@ class LiveTradingEngine:
         # Initialize OrderManager
         self.logger.info("  - Initializing OrderManager...")
         oco_config = self.config.get('oco', {})
+        broker_config = self.config.get('broker', {})
+        account_index = broker_config.get('account_index', 0)
+
         self.order_manager = OrderManager(
             schwab_client=self.schwab_client,
             state_store=self.state_store,
             paper_trading=self.paper_trading,
             use_oco=oco_config.get('enabled', False),
             oco_config=oco_config,
+            account_index=account_index,
         )
-        self.logger.info("    ✓ OrderManager ready")
+        self.logger.info(f"    ✓ OrderManager ready (account_index={account_index})")
 
         # Initialize PositionManager
         self.logger.info("  - Initializing PositionManager...")
@@ -412,6 +416,319 @@ class LiveTradingEngine:
         for strategy in self.strategies:
             self.logger.info(f"    Loaded strategy: {strategy.name}")
 
+    def _reconcile_with_broker(self):
+        """
+        Reconcile internal positions with Schwab broker.
+        Called on startup for real trading mode.
+        """
+        try:
+            # 1. List available accounts
+            self.logger.info("Step 1: Listing Schwab accounts...")
+            success, accounts, error = self.order_manager.list_available_accounts()
+
+            if not success:
+                self.logger.error(f"❌ Failed to list accounts: {error}")
+                return
+
+            if accounts:
+                self.logger.info(f"📊 Found {len(accounts)} Schwab account(s):")
+                for acc in accounts:
+                    marker = "✓ ACTIVE" if acc['is_current'] else ""
+                    self.logger.info(
+                        f"  [{acc['index']}] Account ending in ...{acc['hash_value'][-4:]} "
+                        f"({acc['type']}) {marker}"
+                    )
+            else:
+                self.logger.warning("⚠️  No Schwab accounts found")
+                return
+
+            # 2. Get broker positions
+            self.logger.info("\nStep 2: Fetching positions from Schwab...")
+            success, broker_positions, error = self.order_manager.get_broker_positions()
+
+            if not success:
+                self.logger.error(f"❌ Failed to fetch broker positions: {error}")
+                return
+
+            self.logger.info(f"📊 Broker has {len(broker_positions)} open position(s)")
+            if broker_positions:
+                for pos in broker_positions:
+                    self.logger.info(
+                        f"  - {pos['symbol']}: {pos['quantity']} contracts "
+                        f"@ ${pos['average_price']:.2f} (MktVal: ${pos['market_value']:.2f})"
+                    )
+
+            # 3. Get internal positions
+            self.logger.info("\nStep 3: Fetching internal positions...")
+            internal_positions_raw = self.position_manager.get_active_positions()
+            self.logger.info(f"📊 Internal tracker has {len(internal_positions_raw)} open position(s)")
+
+            # Transform internal positions to format expected by reconcile_positions
+            internal_positions = []
+            for pos in internal_positions_raw:
+                quantities = {}
+                if hasattr(pos, 'legs') and pos.legs:
+                    for leg in pos.legs:
+                        symbol = leg.contract_symbol
+                        qty = leg.quantity
+                        quantities[symbol] = quantities.get(symbol, 0) + qty
+
+                internal_positions.append({
+                    'position_id': pos.position_id,
+                    'contract_symbols': list(quantities.keys()),
+                    'quantities': quantities
+                })
+
+            # 4. Reconcile
+            self.logger.info("\nStep 4: Reconciling positions...")
+            success, report, error = self.order_manager.reconcile_positions(internal_positions)
+
+            if not success:
+                self.logger.error(f"❌ Reconciliation failed: {error}")
+                return
+
+            # 5. Report results
+            self.logger.info("\n" + "─"*70)
+            self.logger.info("RECONCILIATION RESULTS")
+            self.logger.info("─"*70)
+            self.logger.info(f"Timestamp: {report['timestamp']}")
+            self.logger.info(f"Broker Positions: {report['broker_positions_count']}")
+            self.logger.info(f"Internal Positions: {report['internal_positions_count']}")
+            self.logger.info(f"Broker Contract Legs: {report['total_broker_legs']}")
+            self.logger.info(f"Internal Contract Legs: {report['total_internal_legs']}")
+            self.logger.info(f"Status: {report['status'].upper()}")
+
+            if report['discrepancies']:
+                self.logger.warning(f"\n⚠️  Found {report['discrepancies_count']} discrepancy(ies):")
+                for disc in report['discrepancies']:
+                    self.logger.warning(
+                        f"  [{disc['type']}] {disc['symbol']}: "
+                        f"Broker={disc['broker_quantity']}, "
+                        f"Internal={disc['internal_quantity']}, "
+                        f"Diff={disc['difference']:+.1f}"
+                    )
+
+                # Handle mismatch based on config
+                broker_config = self.config.get('broker', {})
+                on_mismatch = broker_config.get('on_mismatch', 'warn')
+
+                if on_mismatch == 'halt':
+                    self.logger.error("❌ HALTING ENGINE due to position mismatch")
+                    self.state_store.log_event(
+                        EventType.ENGINE_ERROR,
+                        f"Engine halted due to {report['discrepancies_count']} position discrepancies",
+                        severity='error',
+                        details=report
+                    )
+                    self._shutdown_requested = True
+                elif on_mismatch == 'sync':
+                    self.logger.warning("🔄 Syncing internal state to match broker...")
+                    self._sync_broker_positions(broker_positions, report)
+                else:  # warn (default)
+                    self.logger.warning("⚠️  Continuing with warning - manual review recommended")
+
+                # Log event
+                self.state_store.log_event(
+                    EventType.RECONCILIATION,
+                    f"Position reconciliation found {report['discrepancies_count']} discrepancies",
+                    severity='warning',
+                    details=report
+                )
+            else:
+                self.logger.info("\n✅ All positions matched! Internal state matches broker.")
+                self.state_store.log_event(
+                    EventType.RECONCILIATION,
+                    "Position reconciliation successful - all positions matched",
+                    severity='info',
+                    details=report
+                )
+
+        except Exception as e:
+            self.logger.error(f"❌ Reconciliation error: {str(e)}", exc_info=True)
+            self.state_store.log_event(
+                EventType.ENGINE_ERROR,
+                f"Reconciliation failed with error: {str(e)}",
+                severity='error'
+            )
+
+    def _sync_broker_positions(self, broker_positions: List[Dict], reconciliation_report: Dict):
+        """
+        Sync internal state with broker positions.
+
+        This adds missing positions from the broker to internal tracking.
+
+        Args:
+            broker_positions: List of positions from broker
+            reconciliation_report: Reconciliation report with discrepancies
+        """
+        from quant_vibe.strategies.options_base import OptionsPosition, OptionLeg, OptionType, SpreadType
+
+        try:
+            # Process each discrepancy
+            for discrepancy in reconciliation_report.get('discrepancies', []):
+                if discrepancy['type'] == 'missing_internal':
+                    # Find the full broker position data
+                    symbol = discrepancy['symbol']
+                    broker_qty = discrepancy['broker_quantity']
+
+                    # Find the broker position details
+                    broker_pos = None
+                    for pos in broker_positions:
+                        if pos['symbol'] == symbol:
+                            broker_pos = pos
+                            break
+
+                    if not broker_pos:
+                        self.logger.warning(f"Could not find broker position details for {symbol}")
+                        continue
+
+                    # Extract option details from the instrument
+                    instrument = broker_pos.get('instrument', {})
+
+                    # Parse the option symbol (format: "CRWV  260220C00090000")
+                    # This is Schwab's OCC format: SYMBOL(6) YYMMDD(6) P/C(1) STRIKE(8)
+                    symbol_parts = symbol.strip()
+                    underlying = instrument.get('underlyingSymbol', symbol[:4].strip())
+                    put_call = instrument.get('putCall', 'CALL')
+                    option_type = OptionType.CALL if put_call == 'CALL' else OptionType.PUT
+
+                    # Create a synthetic position for tracking
+                    position_id = f"SYNC_{symbol}_{now_utc().strftime('%Y%m%d_%H%M%S')}"
+
+                    self.logger.info(f"📥 Creating synthetic position {position_id} for {symbol}")
+
+                    # Parse strike price from symbol (last 8 digits divided by 1000)
+                    # CRWV  260220C00090000 -> strike = 90.00
+                    strike_str = symbol[-8:]  # "00090000"
+                    strike_price = float(strike_str) / 1000.0  # 90.00
+
+                    # Parse expiration date from symbol (YYMMDD)
+                    # CRWV  260220C00090000 -> 260220 -> 2026-02-20
+                    date_str = symbol[-15:-9]  # "260220"
+                    from datetime import date
+                    expiration_date = date(
+                        2000 + int(date_str[:2]),  # Year: 26 -> 2026
+                        int(date_str[2:4]),         # Month: 02
+                        int(date_str[4:6])          # Day: 20
+                    )
+
+                    # Get average price (try both snake_case and camelCase)
+                    avg_price = broker_pos.get('average_price', broker_pos.get('averagePrice', 0))
+                    if avg_price == 0:
+                        # Try to get from market value
+                        market_value = broker_pos.get('market_value', broker_pos.get('marketValue', 0))
+                        if market_value != 0 and broker_qty != 0:
+                            avg_price = abs(market_value) / abs(broker_qty) / 100
+
+                    # Create an OptionLeg
+                    leg = OptionLeg(
+                        contract_symbol=symbol,
+                        quantity=int(broker_qty),  # Positive for long
+                        option_type=option_type,
+                        strike_price=strike_price,
+                        expiration_date=expiration_date,
+                        entry_price=avg_price,
+                    )
+
+                    # Get current underlying price
+                    underlying_price = 0.0
+                    try:
+                        if self.data_feed and hasattr(self.data_feed, 'get_current_price'):
+                            underlying_price = self.data_feed.get_current_price(underlying)
+                        if underlying_price == 0.0:
+                            # Fallback to a reasonable estimate based on strike
+                            underlying_price = strike_price
+                    except Exception:
+                        underlying_price = strike_price  # Fallback
+
+                    # Calculate entry cost (negative for credit, positive for debit)
+                    # For single leg: entry_cost = quantity * entry_price * 100
+                    entry_cost = broker_qty * avg_price * 100
+
+                    # Create an OptionsPosition
+                    position = OptionsPosition(
+                        position_id=position_id,
+                        spread_type=SpreadType.SINGLE,  # Single leg position
+                        legs=[leg],
+                        entry_time=now_utc(),
+                        entry_cost=entry_cost,
+                        underlying_price_at_entry=underlying_price,
+                        profit_target_pct=0.5,  # Default 50% profit target
+                        stop_loss=None,
+                        trailing_stop=None
+                    )
+
+                    # Add to position manager
+                    self.position_manager.open_positions[position_id] = position
+
+                    # Create position data dict for database (includes strategy_name)
+                    position_data = {
+                        'position_id': position_id,
+                        'strategy_name': 'broker_sync',  # Strategy name for database
+                        'spread_type': 'SINGLE',
+                        'entry_time': now_utc(),
+                        'entry_cost': entry_cost,
+                        'underlying_price_at_entry': underlying_price,
+                        'status': 'open',
+                        'current_value': broker_pos.get('marketValue', 0),
+                        'legs': [{
+                            'contract_symbol': leg.contract_symbol,
+                            'option_type': leg.option_type.value,
+                            'strike_price': leg.strike_price,
+                            'expiration_date': leg.expiration_date.isoformat(),
+                            'quantity': leg.quantity,
+                            'entry_price': avg_price,
+                            'current_price': None
+                        }],
+                        'metadata': {
+                            'source': 'broker_reconciliation',
+                            'broker_data': broker_pos
+                        }
+                    }
+
+                    # Persist to database
+                    self.state_store.save_position(position_data)
+
+                    self.logger.info(
+                        f"✅ Synced position {position_id}: "
+                        f"{symbol} x{broker_qty} @ ${avg_price:.2f}"
+                    )
+
+                elif discrepancy['type'] == 'missing_broker':
+                    # Position exists internally but not at broker - should close it
+                    self.logger.warning(
+                        f"⚠️  Position {discrepancy['symbol']} exists internally but not at broker. "
+                        f"Consider closing with reason='broker_sync'"
+                    )
+                    # TODO: Implement closing phantom positions
+
+                elif discrepancy['type'] == 'quantity_mismatch':
+                    # Quantity mismatch - log for manual review
+                    self.logger.warning(
+                        f"⚠️  Quantity mismatch for {discrepancy['symbol']}: "
+                        f"Broker={discrepancy['broker_quantity']}, "
+                        f"Internal={discrepancy['internal_quantity']}"
+                    )
+                    # TODO: Implement quantity adjustment
+
+            self.logger.info("🔄 Sync complete - internal state updated")
+
+            # Log event
+            self.state_store.log_event(
+                EventType.RECONCILIATION,
+                f"Synced {len([d for d in reconciliation_report['discrepancies'] if d['type'] == 'missing_internal'])} positions from broker",
+                severity='info',
+                details=reconciliation_report
+            )
+
+        except Exception as e:
+            self.logger.error(f"Failed to sync broker positions: {str(e)}", exc_info=True)
+            self.state_store.log_event(
+                EventType.ENGINE_ERROR,
+                f"Position sync failed: {str(e)}",
+                severity='error'
+            )
+
     def start(self):
         """Start the live trading engine."""
         self.logger.info("\n" + "="*70)
@@ -457,6 +774,16 @@ class LiveTradingEngine:
 
         self.logger.info("✅ Engine is RUNNING")
         self.logger.info("="*70)
+
+        # Perform startup reconciliation for real trading
+        if not self.paper_trading:
+            broker_config = self.config.get('broker', {})
+            if broker_config.get('reconcile_on_startup', True):
+                self.logger.info("\n" + "="*70)
+                self.logger.info("PERFORMING ACCOUNT RECONCILIATION")
+                self.logger.info("="*70)
+                self._reconcile_with_broker()
+                self.logger.info("="*70 + "\n")
 
         # Send start notification
         if self.notifier:
@@ -607,6 +934,18 @@ class LiveTradingEngine:
                             self.logger.info(f"✅ {result['message']}")
                         else:
                             self.logger.error(f"❌ {result['message']}")
+
+                    elif command == 'reconcile':
+                        self.logger.info("Processing reconcile command...")
+                        if self.paper_trading:
+                            self.logger.info("ℹ️  Paper trading mode - skipping broker reconciliation")
+                        else:
+                            self.logger.info("\n" + "="*70)
+                            self.logger.info("MANUAL RECONCILIATION TRIGGERED")
+                            self.logger.info("="*70)
+                            self._reconcile_with_broker()
+                            self.logger.info("="*70 + "\n")
+
                     else:
                         self.logger.warning(f"Unknown control command: {command}")
 

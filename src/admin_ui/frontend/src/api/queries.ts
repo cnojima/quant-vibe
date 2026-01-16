@@ -127,23 +127,25 @@ export function useOAuthUrl() {
 }
 
 // Live trading queries
-export function useLiveStatus() {
+export function useLiveStatus(tradingMode: 'real' | 'paper' | 'replay' = 'paper') {
   return useQuery({
-    queryKey: ['live-status'],
+    queryKey: ['live-status', tradingMode],
     queryFn: async () => {
-      const response = await apiClient.get<LiveEngineStatus>('/live/status');
+      const response = await apiClient.get<LiveEngineStatus>('/live/status', {
+        params: { trading_mode: tradingMode },
+      });
       return response.data;
     },
     refetchInterval: 5000,
   });
 }
 
-export function useLivePositions(status: 'open' | 'closed' | 'all' = 'open', limit: number = 100) {
+export function useLivePositions(status: 'open' | 'closed' | 'all' = 'open', limit: number = 100, tradingMode: 'real' | 'paper' | 'replay' = 'paper') {
   return useQuery({
-    queryKey: ['live-positions', status, limit],
+    queryKey: ['live-positions', status, limit, tradingMode],
     queryFn: async () => {
       const response = await apiClient.get<{ positions: Position[]; count: number; filter: string }>('/live/positions', {
-        params: { status, limit },
+        params: { status, limit, trading_mode: tradingMode },
       });
       return response.data.positions;
     },
@@ -151,12 +153,12 @@ export function useLivePositions(status: 'open' | 'closed' | 'all' = 'open', lim
   });
 }
 
-export function useLiveOrders(limit: number = 100, status: 'open' | 'filled' | 'rejected' | 'cancelled' | 'all' = 'all') {
+export function useLiveOrders(limit: number = 100, status: 'open' | 'filled' | 'rejected' | 'cancelled' | 'all' = 'all', tradingMode: 'real' | 'paper' | 'replay' = 'paper') {
   return useQuery({
-    queryKey: ['live-orders', limit, status],
+    queryKey: ['live-orders', limit, status, tradingMode],
     queryFn: async () => {
       const response = await apiClient.get<{ orders: Order[]; count: number; filter: string }>('/live/orders', {
-        params: { limit, status },
+        params: { limit, status, trading_mode: tradingMode },
       });
       return response.data.orders;
     },
@@ -164,12 +166,12 @@ export function useLiveOrders(limit: number = 100, status: 'open' | 'filled' | '
   });
 }
 
-export function useLiveEvents(limit: number = 100, eventType?: string, severity?: string) {
+export function useLiveEvents(limit: number = 100, eventType?: string, severity?: string, tradingMode: 'real' | 'paper' | 'replay' = 'paper') {
   return useQuery({
-    queryKey: ['live-events', limit, eventType, severity],
+    queryKey: ['live-events', limit, eventType, severity, tradingMode],
     queryFn: async () => {
       const response = await apiClient.get<{ events: Event[]; count: number; filters: any }>('/live/events', {
-        params: { limit, event_type: eventType, severity },
+        params: { limit, event_type: eventType, severity, trading_mode: tradingMode },
       });
       return response.data.events;
     },
@@ -196,14 +198,14 @@ export function useToggleDataFeedMode() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async () => {
+    mutationFn: async (tradingMode: 'real' | 'paper' = 'paper') => {
       const response = await apiClient.post<{
         success: boolean;
         message: string;
         previous_mode: string;
         new_mode: string;
         note: string;
-      }>('/live/data-feed/toggle-mode');
+      }>(`/live/data-feed/toggle-mode?trading_mode=${tradingMode}`);
       return response.data;
     },
     onSuccess: () => {
@@ -214,12 +216,12 @@ export function useToggleDataFeedMode() {
   });
 }
 
-export function useLiveStats(startTime?: string, endTime?: string) {
+export function useLiveStats(startTime?: string, endTime?: string, tradingMode: 'real' | 'paper' | 'replay' = 'paper') {
   return useQuery({
-    queryKey: ['live-stats', startTime, endTime],
+    queryKey: ['live-stats', startTime, endTime, tradingMode],
     queryFn: async () => {
       const response = await apiClient.get<{stats: TradingStats; time_range: {start: string | null; end: string | null}}>('/live/stats', {
-        params: { start_time: startTime, end_time: endTime },
+        params: { start_time: startTime, end_time: endTime, trading_mode: tradingMode },
       });
       return response.data.stats;
     },
@@ -709,6 +711,27 @@ export function useClearOptimizationCache() {
         cache_key: cacheKey,
       });
       return response.data;
+    },
+  });
+}
+
+// Reconciliation
+export function useReconcilePositions() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (tradingMode: 'real' | 'paper' = 'real') => {
+      const response = await apiClient.post<{
+        success: boolean;
+        message: string;
+        status: string;
+      }>(`/live/reconcile?trading_mode=${tradingMode}`);
+      return response.data;
+    },
+    onSuccess: () => {
+      // Invalidate position queries to refresh
+      queryClient.invalidateQueries({ queryKey: ['live-positions'] });
+      queryClient.invalidateQueries({ queryKey: ['live-events'] });
     },
   });
 }

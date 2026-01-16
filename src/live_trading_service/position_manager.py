@@ -349,6 +349,16 @@ class PositionManager:
         else:
             return list(self.open_positions.values())
 
+    def get_active_positions(self) -> List[OptionsPosition]:
+        """
+        Get all active (open) positions.
+        Alias for get_open_positions() for compatibility.
+
+        Returns:
+            List of open positions
+        """
+        return self.get_open_positions()
+
     def get_position_count(self, strategy_name: Optional[str] = None) -> int:
         """Get count of open positions."""
         return len(self.get_open_positions(strategy_name))

@@ -164,6 +164,9 @@ class EventType:
     MAX_DRAWDOWN = "max_drawdown"
     POSITION_LIMIT = "position_limit"
 
+    # Reconciliation events
+    RECONCILIATION = "reconciliation"
+
     # Alert events
     ALERT_CRITICAL = "alert_critical"
     ALERT_WARNING = "alert_warning"
