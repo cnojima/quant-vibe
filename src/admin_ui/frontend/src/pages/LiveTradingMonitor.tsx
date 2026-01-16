@@ -4,18 +4,21 @@ import { useLiveStatus, useLivePositions, useLiveOrders, useLiveEvents, useClear
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { LiveTradesChart } from '../components/charts/LiveTradesChart';
+import { AccountSelector } from '../components/AccountSelector';
+import { AccountBalancePanel } from '../components/AccountBalancePanel';
 import { formatDistanceToNow } from 'date-fns';
 
 export function LiveTradingMonitor() {
   const [tradingMode, setTradingMode] = useState<'real' | 'paper'>('paper');
+  const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState<'positions' | 'orders' | 'events' | 'reports' | 'trades'>('positions');
   const [orderStatusFilter, setOrderStatusFilter] = useState<'open' | 'filled' | 'rejected' | 'cancelled' | 'all'>('all');
   const [tradesDays, setTradesDays] = useState<number>(7);
 
-  // Fetch data for current trading mode
+  // Fetch data for current trading mode and account
   const { data: status, isLoading: statusLoading } = useLiveStatus(tradingMode);
-  const { data: positions } = useLivePositions('open', 100, tradingMode);
-  const { data: orders } = useLiveOrders(50, orderStatusFilter, tradingMode);
+  const { data: positions } = useLivePositions('open', 100, tradingMode, selectedAccount || undefined);
+  const { data: orders } = useLiveOrders(50, orderStatusFilter, tradingMode, selectedAccount || undefined);
   const { data: events } = useLiveEvents(50, undefined, undefined, tradingMode);
   const clearEventsMutation = useClearEvents();
   const toggleDataFeedMode = useToggleDataFeedMode();
@@ -49,8 +52,19 @@ export function LiveTradingMonitor() {
   };
 
   const handleReconcile = () => {
-    if (window.confirm('Trigger position reconciliation with Schwab broker?\n\nThis will compare internal positions with your broker account and log any discrepancies.')) {
-      reconcilePositions.mutate(tradingMode, {
+    // Debug logging
+    console.log('Reconciling with selectedAccount:', selectedAccount);
+
+    if (!selectedAccount) {
+      alert('Please wait for accounts to load or select an account first');
+      return;
+    }
+
+    if (window.confirm(`Trigger position reconciliation with Schwab broker?\n\nAccount: ${selectedAccount}\nThis will compare internal positions with your broker account and log any discrepancies.`)) {
+      reconcilePositions.mutate({
+        tradingMode,
+        accountHash: selectedAccount
+      }, {
         onSuccess: (data) => {
           alert(data.message);
         },
@@ -152,6 +166,29 @@ export function LiveTradingMonitor() {
             {getStatusBadge()}
           </div>
         </div>
+      </div>
+
+      {/* Account Selector */}
+      <div className="mb-4 bg-white border border-gray-200 rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <h2 className="text-lg font-semibold text-gray-900">Account</h2>
+            <AccountSelector
+              tradingMode={tradingMode}
+              selectedAccount={selectedAccount}
+              onAccountChange={setSelectedAccount}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Account Balance Panel */}
+      <div className="mb-6">
+        <AccountBalancePanel
+          accountHash={selectedAccount}
+          tradingMode={tradingMode}
+          realtime={tradingMode === 'real'}
+        />
       </div>
 
       {/* Real Trading Warning Banner */}

@@ -82,6 +82,13 @@ def _run_engine_process(mode: str, config_path: str):
 
         engine.start()
 
+        with open(error_log, 'a') as f:
+            f.write(f"[{mode}] Engine started, entering main loop...\n")
+            f.flush()
+
+        # Run the main loop
+        engine._run_main_loop()
+
     except KeyboardInterrupt:
         with open(error_log, 'a') as f:
             f.write(f"\n[{mode}] Shutdown requested\n")

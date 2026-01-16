@@ -14,6 +14,7 @@ from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 import numpy as np
 from quant_vibe.utils import now_utc
+from quant_vibe.logging import get_logger
 
 load_dotenv()
 
@@ -57,6 +58,7 @@ class StateStore:
             raise ValueError(f"Invalid trading_mode: {trading_mode}. Must be 'real' or 'paper' (or None for legacy)")
 
         self.trading_mode = trading_mode
+        self.logger = get_logger('live_trading')
 
         # Set schema based on trading mode
         if trading_mode:
@@ -290,12 +292,12 @@ class StateStore:
                     position_id, strategy_name, spread_type, entry_time,
                     entry_cost, underlying_price_at_entry, status,
                     current_value, exit_time, exit_value, exit_reason,
-                    legs, metadata
+                    legs, metadata, account_hash
                 ) VALUES (
                     %(position_id)s, %(strategy_name)s, %(spread_type)s, %(entry_time)s,
                     %(entry_cost)s, %(underlying_price_at_entry)s, %(status)s,
                     %(current_value)s, %(exit_time)s, %(exit_value)s, %(exit_reason)s,
-                    %(legs)s, %(metadata)s
+                    %(legs)s, %(metadata)s, %(account_hash)s
                 )
                 ON CONFLICT (position_id) DO UPDATE SET
                     status = EXCLUDED.status,
@@ -305,6 +307,7 @@ class StateStore:
                     exit_reason = EXCLUDED.exit_reason,
                     legs = EXCLUDED.legs,
                     metadata = EXCLUDED.metadata,
+                    account_hash = COALESCE(EXCLUDED.account_hash, {self.table_prefix}positions.account_hash),
                     updated_at = NOW()
                 WHERE {self.table_prefix}positions.status != 'closed' OR EXCLUDED.status = 'closed'
             """, {
@@ -320,7 +323,8 @@ class StateStore:
                 'exit_value': position_data.get('exit_value'),
                 'exit_reason': position_data.get('exit_reason'),
                 'legs': json.dumps(position_data['legs']),
-                'metadata': json.dumps(position_data.get('metadata', {}))
+                'metadata': json.dumps(position_data.get('metadata', {})),
+                'account_hash': position_data.get('account_hash')
             })
             self.conn.commit()
         except Exception:
@@ -352,11 +356,8 @@ class StateStore:
 
         positions = self.cursor.fetchall()
 
-        # Parse JSON fields
-        for pos in positions:
-            pos['legs'] = json.loads(pos['legs'])
-            if pos.get('metadata'):
-                pos['metadata'] = json.loads(pos['metadata'])
+        # JSONB fields are automatically parsed by psycopg2, no need to json.loads()
+        # The legs and metadata columns are JSONB type, so they come back as Python objects
 
         return positions
 
@@ -376,6 +377,24 @@ class StateStore:
         except Exception:
             self.conn.rollback()
             raise
+
+    def remove_position(self, position_id: str):
+        """Remove a position from the database (used for cleaning up synthetic positions)."""
+        try:
+            self.cursor.execute(f"""
+                DELETE FROM {self.table_prefix}positions
+                WHERE position_id = %s
+            """, (position_id,))
+            self.conn.commit()
+            self.logger.info(f"Removed position {position_id} from database")
+        except Exception as e:
+            self.conn.rollback()
+            self.logger.error(f"Failed to remove position {position_id}: {e}")
+            raise
+
+    def get_all_positions(self) -> List[Dict]:
+        """Get all open positions (alias for get_open_positions)."""
+        return self.get_open_positions()
 
     def get_trades_for_date(self, trade_date) -> List[Dict]:
         """
@@ -407,12 +426,8 @@ class StateStore:
 
         trades = self.cursor.fetchall()
 
-        # Parse JSON fields
-        for trade in trades:
-            if trade.get('legs'):
-                trade['legs'] = json.loads(trade['legs']) if isinstance(trade['legs'], str) else trade['legs']
-            if trade.get('metadata'):
-                trade['metadata'] = json.loads(trade['metadata']) if isinstance(trade['metadata'], str) else trade['metadata']
+        # JSONB fields (legs, metadata) are automatically parsed by psycopg2
+        # No need to parse as they're already Python objects
 
         return trades
 
@@ -521,7 +536,8 @@ class StateStore:
             WHERE strategy_name = %s
         """, (strategy_name,))
         result = self.cursor.fetchone()
-        return json.loads(result['state']) if result else None
+        # state column is JSONB, already parsed by psycopg2
+        return result['state'] if result else None
 
     def reset_strategy_state(self, strategy_name: str):
         """Reset strategy state (for daily reset)."""
@@ -610,10 +626,8 @@ class StateStore:
         self.cursor.execute(query, params)
         events = self.cursor.fetchall()
 
-        # Parse JSON fields
-        for event in events:
-            if event.get('details'):
-                event['details'] = json.loads(event['details'])
+        # details column is JSONB, already parsed by psycopg2
+        # No need to parse as it's already a Python object
 
         return events
 
@@ -621,9 +635,12 @@ class StateStore:
     # Account Balance (NEW - for trading mode schemas)
     # ========================================================================
 
-    def get_account_balance(self) -> Optional[Dict]:
+    def get_account_balance(self, account_hash: Optional[str] = None) -> Optional[Dict]:
         """
         Get current account balance for this trading mode.
+
+        Args:
+            account_hash: Optional account hash to get balance for. If None, gets the default account.
 
         Returns:
             Dict with balance info, or None if not found (legacy mode)
@@ -632,112 +649,188 @@ class StateStore:
             # Legacy mode doesn't have account_balance table
             return None
 
-        self.cursor.execute(f"""
-            SELECT * FROM {self.table_prefix}account_balance
-            WHERE id = 1
-        """)
-        return self.cursor.fetchone()
+        if account_hash:
+            # Get balance for specific account
+            self.cursor.execute(f"""
+                SELECT * FROM {self.table_prefix}account_balance
+                WHERE account_hash = %s
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """, (account_hash,))
+        else:
+            # Get balance for the default account
+            self.cursor.execute(f"""
+                SELECT ab.* FROM {self.table_prefix}account_balance ab
+                JOIN {self.table_prefix}broker_accounts ba ON ab.account_hash = ba.account_hash
+                WHERE ba.is_default = TRUE
+                ORDER BY ab.timestamp DESC
+                LIMIT 1
+            """)
+
+        result = self.cursor.fetchone()
+
+        # If no balance exists for any account, return None (will be initialized later)
+        if not result:
+            # Try to get any balance (for backwards compatibility)
+            self.cursor.execute(f"""
+                SELECT * FROM {self.table_prefix}account_balance
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """)
+            result = self.cursor.fetchone()
+
+        return result
 
     def update_account_balance(
         self,
         cash: float,
         portfolio_value: float,
+        account_hash: Optional[str] = None,
         daily_pnl: Optional[float] = None,
         total_trades: Optional[int] = None,
         winning_trades: Optional[int] = None,
-        losing_trades: Optional[int] = None
+        losing_trades: Optional[int] = None,
+        buying_power: Optional[float] = None,
+        long_option_value: Optional[float] = None,
+        short_option_value: Optional[float] = None
     ):
         """
-        Update account balance for this trading mode.
+        Insert a new account balance snapshot for this trading mode.
+        Since this is a time-series table, we always INSERT, not UPDATE.
 
         Args:
             cash: Current cash balance
             portfolio_value: Total portfolio value (cash + positions)
+            account_hash: Account hash (if None, uses default account)
             daily_pnl: Today's P&L
             total_trades: Total trades count
             winning_trades: Winning trades count
             losing_trades: Losing trades count
+            buying_power: Available buying power
+            long_option_value: Value of long option positions
+            short_option_value: Value of short option positions
         """
         if not self.trading_mode:
             # Legacy mode doesn't have account_balance table
             return
 
         try:
-            # Build update fields dynamically
-            updates = ["cash = %s", "portfolio_value = %s", "updated_at = NOW()"]
-            params = [cash, portfolio_value]
+            # Get account_hash if not provided
+            if not account_hash:
+                # Get the default account
+                self.cursor.execute(f"""
+                    SELECT account_hash FROM {self.table_prefix}broker_accounts
+                    WHERE is_default = TRUE
+                    LIMIT 1
+                """)
+                result = self.cursor.fetchone()
+                if result:
+                    account_hash = result['account_hash']
+                else:
+                    # No default account, get any account
+                    self.cursor.execute(f"""
+                        SELECT account_hash FROM {self.table_prefix}broker_accounts
+                        LIMIT 1
+                    """)
+                    result = self.cursor.fetchone()
+                    if result:
+                        account_hash = result['account_hash']
+                    else:
+                        # No accounts exist yet, skip update
+                        self.logger.warning("No broker accounts found, skipping balance update")
+                        return
 
-            if daily_pnl is not None:
-                updates.append("daily_pnl = %s")
-                params.append(daily_pnl)
+            # Calculate win rate if we have trade counts
+            win_rate = None
+            if total_trades and total_trades > 0 and winning_trades is not None:
+                win_rate = winning_trades / total_trades
 
-            if total_trades is not None:
-                updates.append("total_trades = %s")
-                params.append(total_trades)
-
-            if winning_trades is not None:
-                updates.append("winning_trades = %s")
-                params.append(winning_trades)
-
-            if losing_trades is not None:
-                updates.append("losing_trades = %s")
-                params.append(losing_trades)
-
-            # Calculate win_rate and total_pnl if we have trade counts
-            if total_trades is not None and total_trades > 0:
-                updates.append("win_rate = winning_trades::NUMERIC / total_trades")
-
-            # Calculate total P&L relative to initial capital
-            updates.append(f"""
-                total_pnl = %s - (
-                    SELECT cash FROM {self.table_prefix}account_balance WHERE id = 1 LIMIT 1
+            # Insert new balance record (time-series data)
+            self.cursor.execute(f"""
+                INSERT INTO {self.table_prefix}account_balance (
+                    account_hash, timestamp,
+                    cash_balance, available_funds, buying_power,
+                    liquidation_value, portfolio_value,
+                    long_option_market_value, short_option_market_value,
+                    total_pnl, daily_pnl, win_rate,
+                    is_snapshot
+                ) VALUES (
+                    %s, NOW(),
+                    %s, %s, %s,
+                    %s, %s,
+                    %s, %s,
+                    %s, %s, %s,
+                    TRUE
                 )
-            """)
-            params.append(portfolio_value)
-
-            query = f"""
-                UPDATE {self.table_prefix}account_balance
-                SET {', '.join(updates)}
-                WHERE id = 1
-            """
-
-            self.cursor.execute(query, params)
+            """, (
+                account_hash,
+                cash, cash, buying_power or cash * 4,  # Default 4x margin for buying power
+                portfolio_value, portfolio_value,
+                long_option_value or 0, short_option_value or 0,
+                portfolio_value - 100000 if portfolio_value else 0,  # Total P&L from initial 100k
+                daily_pnl or 0, win_rate,
+            ))
             self.conn.commit()
-        except Exception:
+        except Exception as e:
             self.conn.rollback()
+            self.logger.error(f"Failed to update account balance: {e}")
             raise
 
-    def reset_account_balance(self, initial_capital: float = 100000.0):
+    def reset_account_balance(self, initial_capital: float = 100000.0, account_hash: Optional[str] = None):
         """
-        Reset account balance to initial state.
+        Reset account balance to initial state by inserting a new reset record.
 
         Args:
             initial_capital: Starting capital amount
+            account_hash: Account hash (if None, resets default account)
         """
         if not self.trading_mode:
             return
 
         try:
+            # Get account_hash if not provided
+            if not account_hash:
+                # Get the default account
+                self.cursor.execute(f"""
+                    SELECT account_hash FROM {self.table_prefix}broker_accounts
+                    WHERE is_default = TRUE
+                    LIMIT 1
+                """)
+                result = self.cursor.fetchone()
+                if result:
+                    account_hash = result['account_hash']
+                else:
+                    # No accounts exist, cannot reset
+                    self.logger.warning("No broker accounts found, cannot reset balance")
+                    return
+
+            # Insert reset record (new snapshot with initial values)
             self.cursor.execute(f"""
-                UPDATE {self.table_prefix}account_balance
-                SET
-                    cash = %s,
-                    portfolio_value = %s,
-                    total_pnl = 0,
-                    daily_pnl = 0,
-                    daily_return_pct = 0,
-                    total_trades = 0,
-                    winning_trades = 0,
-                    losing_trades = 0,
-                    win_rate = 0,
-                    max_drawdown = 0,
-                    sharpe_ratio = 0,
-                    updated_at = NOW()
-                WHERE id = 1
-            """, (initial_capital, initial_capital))
+                INSERT INTO {self.table_prefix}account_balance (
+                    account_hash, timestamp,
+                    cash_balance, available_funds, buying_power,
+                    liquidation_value, portfolio_value,
+                    long_option_market_value, short_option_market_value,
+                    total_pnl, daily_pnl, win_rate,
+                    is_snapshot
+                ) VALUES (
+                    %s, NOW(),
+                    %s, %s, %s,
+                    %s, %s,
+                    0, 0,
+                    0, 0, NULL,
+                    TRUE
+                )
+            """, (
+                account_hash,
+                initial_capital, initial_capital, initial_capital * 4,  # 4x margin
+                initial_capital, initial_capital
+            ))
             self.conn.commit()
-        except Exception:
+            self.logger.info(f"Reset account balance to ${initial_capital:,.2f}")
+        except Exception as e:
             self.conn.rollback()
+            self.logger.error(f"Failed to reset account balance: {e}")
             raise
 
     def get_all_strategy_states(self) -> List[Dict]:
@@ -753,10 +846,8 @@ class StateStore:
         """)
         states = self.cursor.fetchall()
 
-        # Parse JSON state field
-        for state in states:
-            if state.get('state'):
-                state['state'] = json.loads(state['state']) if isinstance(state['state'], str) else state['state']
+        # state column is JSONB, already parsed by psycopg2
+        # No need to parse as it's already a Python object
 
         return states
 

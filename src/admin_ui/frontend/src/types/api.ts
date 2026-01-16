@@ -1,5 +1,51 @@
 // API response types for QuantVibe Admin UI
 
+// Account Management Types
+export interface BrokerAccount {
+  account_hash: string;
+  account_number: string;  // Masked format: XXX-1234
+  nickname: string;
+  account_type: 'MARGIN' | 'CASH';
+  is_day_trader: boolean;
+  is_default: boolean;
+  is_closing_only_restricted?: boolean;
+  round_trips: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AccountBalance {
+  account_hash: string;
+  timestamp: string;
+  cash_balance: number;
+  available_funds: number;
+  buying_power: number;
+  day_trading_buying_power: number;
+  liquidation_value: number;
+  long_option_market_value: number;
+  short_option_market_value: number;
+  maintenance_requirement: number;
+  margin_balance: number;
+  portfolio_value: number;
+  total_pnl: number;
+  daily_pnl: number;
+  win_rate?: number;
+  sharpe_ratio?: number;
+}
+
+export interface AccountsResponse {
+  accounts: BrokerAccount[];
+  count: number;
+  trading_mode: 'real' | 'paper';
+}
+
+export interface AccountBalanceResponse {
+  balance: AccountBalance;
+  source: 'schwab_api' | 'database';
+  timestamp?: string;
+  trading_mode: 'real' | 'paper';
+}
+
 export interface Service {
   name: string;
   status: 'running' | 'stopped' | 'error';

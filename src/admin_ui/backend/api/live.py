@@ -5,11 +5,12 @@ Provides endpoints to view live trading status, positions, orders, and events.
 """
 
 from datetime import datetime, date
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import sys
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Body
+from pydantic import BaseModel
 
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.db import timescale
@@ -22,6 +23,38 @@ from live_trading_service.state_store import StateStore
 from quant_vibe.utils import now_utc
 
 router = APIRouter()
+
+
+# Pydantic models for account endpoints
+class AccountInfo(BaseModel):
+    account_hash: str
+    account_number: str  # Masked format
+    nickname: str
+    account_type: str
+    is_day_trader: bool
+    is_default: bool
+    round_trips: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class AccountBalance(BaseModel):
+    account_hash: str
+    timestamp: datetime
+    cash_balance: float
+    available_funds: float
+    buying_power: float
+    day_trading_buying_power: float
+    liquidation_value: float
+    long_option_market_value: float
+    short_option_market_value: float
+    maintenance_requirement: float
+    margin_balance: float
+    portfolio_value: float
+    total_pnl: float
+    daily_pnl: float
+    win_rate: Optional[float]
+    sharpe_ratio: Optional[float]
 
 
 @router.get("/status")
@@ -62,67 +95,463 @@ async def get_live_status(
     }
 
 
+@router.get("/accounts")
+async def get_accounts(
+    trading_mode: str = Query('paper', pattern='^(real|paper)$'),
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Get all configured broker accounts.
+
+    Args:
+        trading_mode: Trading mode ('real' or 'paper')
+        current_user: Authenticated user
+
+    Returns:
+        List of broker accounts with metadata
+    """
+    accounts = await timescale.fetch_broker_accounts(trading_mode=trading_mode)
+
+    # For paper trading, create a default account if none exist
+    if trading_mode == 'paper' and len(accounts) == 0:
+        import hashlib
+        from datetime import datetime
+
+        # Create a default paper trading account
+        default_account = {
+            'account_hash': hashlib.sha256(b'PAPER_DEFAULT').hexdigest()[:32],
+            'account_number': 'PAPER001',
+            'nickname': 'Paper Trading Account',
+            'account_type': 'MARGIN',
+            'is_day_trader': True,  # Paper trading has no PDT restrictions
+            'is_closing_only_restricted': False,
+            'is_default': True,
+            'round_trips': 0
+        }
+
+        await timescale.upsert_broker_account(default_account, trading_mode='paper')
+
+        # Also create initial balance for the paper account
+        initial_balance = {
+            'account_hash': default_account['account_hash'],
+            'cash_balance': 100000.0,  # Start with $100k
+            'available_funds': 100000.0,
+            'buying_power': 400000.0,  # 4x margin for day trading
+            'day_trading_buying_power': 400000.0,
+            'liquidation_value': 100000.0,
+            'portfolio_value': 100000.0,
+            'long_option_market_value': 0.0,
+            'short_option_market_value': 0.0,
+            'maintenance_requirement': 0.0,
+            'margin_balance': 0.0,
+            'daily_pnl': 0.0,
+            'total_pnl': 0.0,
+            'win_rate': None,
+            'sharpe_ratio': None
+        }
+
+        await timescale.store_account_balance(initial_balance, trading_mode='paper')
+
+        # Re-fetch accounts
+        accounts = await timescale.fetch_broker_accounts(trading_mode=trading_mode)
+
+    return {
+        "accounts": accounts,
+        "count": len(accounts),
+        "trading_mode": trading_mode
+    }
+
+
+@router.get("/accounts/{account_hash}/balance")
+async def get_account_balance(
+    account_hash: str,
+    trading_mode: str = Query('paper', pattern='^(real|paper)$'),
+    realtime: bool = Query(False, description="Fetch real-time balance from Schwab API"),
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Get account balance and portfolio value.
+
+    Args:
+        account_hash: Account hash identifier
+        trading_mode: Trading mode ('real' or 'paper')
+        realtime: If True, fetch real-time data from Schwab API
+        current_user: Authenticated user
+
+    Returns:
+        Account balance information
+    """
+    if realtime and trading_mode == 'real':
+        # Fetch real-time balance from Schwab API
+        try:
+            from quant_vibe.data.schwab_dev_client import SchwabDevClient
+
+            # Initialize Schwab client using the wrapper
+            try:
+                schwab_dev = SchwabDevClient()
+                schwab_client = schwab_dev.client
+            except Exception as e:
+                print(f"Failed to initialize Schwab client: {e}")
+                schwab_client = None
+
+            if schwab_client:
+                # Get account details from Schwab
+                response = schwab_client.account_details(
+                    account_hash,
+                    fields=None  # Get all fields including balances
+                )
+                response.raise_for_status()
+                account_details = response.json()
+
+                if account_details and 'securitiesAccount' in account_details:
+                    balances = account_details['securitiesAccount'].get('currentBalances', {})
+
+                    # Store the real-time balance in database
+                    balance_data = {
+                        'account_hash': account_hash,
+                        'cash_balance': balances.get('cashBalance', 0),
+                        'available_funds': balances.get('availableFunds', 0),
+                        'buying_power': balances.get('buyingPower', 0),
+                        'day_trading_buying_power': balances.get('dayTradingBuyingPower', 0),
+                        'liquidation_value': balances.get('liquidationValue', 0),
+                        'long_option_market_value': balances.get('longOptionMarketValue', 0),
+                        'short_option_market_value': balances.get('shortOptionMarketValue', 0),
+                        'maintenance_requirement': balances.get('maintenanceRequirement', 0),
+                        'margin_balance': balances.get('marginBalance', 0),
+                        'portfolio_value': balances.get('liquidationValue', 0),  # Same as liquidation value
+                    }
+
+                    # Store in database
+                    await timescale.store_account_balance(balance_data, trading_mode=trading_mode)
+
+                    return {
+                        "balance": balance_data,
+                        "source": "schwab_api",
+                        "timestamp": now_utc().isoformat(),
+                        "trading_mode": trading_mode
+                    }
+
+        except Exception as e:
+            # Fall back to database if API fails
+            print(f"Failed to fetch real-time balance: {e}")
+
+    # Get latest balance from database
+    balance = await timescale.fetch_account_balance(
+        account_hash=account_hash,
+        trading_mode=trading_mode
+    )
+
+    if not balance:
+        raise HTTPException(status_code=404, detail=f"No balance found for account {account_hash}")
+
+    return {
+        "balance": balance,
+        "source": "database",
+        "trading_mode": trading_mode
+    }
+
+
+@router.post("/accounts/{account_hash}/set-default")
+async def set_default_account(
+    account_hash: str,
+    trading_mode: str = Query('paper', pattern='^(real|paper)$'),
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Set an account as the default for the trading mode.
+
+    Args:
+        account_hash: Account hash to set as default
+        trading_mode: Trading mode ('real' or 'paper')
+        current_user: Authenticated user
+
+    Returns:
+        Success message
+    """
+    success = await timescale.set_default_account(
+        account_hash=account_hash,
+        trading_mode=trading_mode
+    )
+
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Account {account_hash} not found")
+
+    return {
+        "success": True,
+        "message": f"Account {account_hash} set as default for {trading_mode} trading",
+        "trading_mode": trading_mode
+    }
+
+
+@router.post("/accounts/{account_hash}/sync-orders")
+async def sync_account_orders(
+    account_hash: str,
+    days_back: int = Query(30, ge=1, le=90, description="Number of days to sync"),
+    trading_mode: str = Query('paper', pattern='^(real|paper)$'),
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Synchronize orders from Schwab API for the specified account.
+
+    Args:
+        account_hash: Account hash to sync orders for
+        days_back: Number of days to look back for orders
+        trading_mode: Trading mode ('real' or 'paper')
+        current_user: Authenticated user
+
+    Returns:
+        Synchronization results
+    """
+    if trading_mode != 'real':
+        raise HTTPException(status_code=400, detail="Order sync only available for real trading mode")
+
+    try:
+        from quant_vibe.data.schwab_dev_client import SchwabDevClient
+        from datetime import timedelta
+
+        # Initialize Schwab client using the wrapper
+        try:
+            schwab_dev = SchwabDevClient()
+            schwab_client = schwab_dev.client
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to initialize Schwab client: {str(e)}")
+
+        # Calculate date range
+        end_time = now_utc()
+        start_time = end_time - timedelta(days=days_back)
+
+        # Fetch orders from Schwab API
+        response = schwab_client.account_orders_all(
+            fromEnteredTime=start_time,
+            toEnteredTime=end_time
+        )
+        response.raise_for_status()
+        orders = response.json()
+
+        # Process and store orders
+        processed_count = 0
+        for order in orders:
+            # Store order in database with account_hash
+            order_data = {
+                'account_hash': account_hash,
+                'order_id': order.get('orderId'),
+                'status': order.get('status'),
+                'order_type': order.get('orderType'),
+                'entered_time': order.get('enteredTime'),
+                'filled_quantity': order.get('filledQuantity', 0),
+                'price': order.get('price', 0),
+                # Add more fields as needed
+            }
+
+            await timescale.store_order(order_data, trading_mode=trading_mode)
+            processed_count += 1
+
+        return {
+            "success": True,
+            "orders_synced": processed_count,
+            "date_range": {
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat()
+            },
+            "trading_mode": trading_mode
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to sync orders: {str(e)}")
+
+
+@router.post("/accounts/refresh")
+async def refresh_accounts(
+    trading_mode: str = Query('paper', pattern='^(real|paper)$'),
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Refresh account information from Schwab API.
+
+    Args:
+        trading_mode: Trading mode ('real' or 'paper')
+        current_user: Authenticated user
+
+    Returns:
+        List of refreshed accounts
+    """
+    if trading_mode != 'real':
+        # For paper trading, just return existing accounts
+        accounts = await timescale.fetch_broker_accounts(trading_mode='paper')
+        return {
+            "accounts": accounts,
+            "count": len(accounts),
+            "source": "database",
+            "trading_mode": trading_mode
+        }
+
+    try:
+        from live_trading_service.order_manager import OrderManager
+        from quant_vibe.data.schwab_dev_client import SchwabDevClient
+
+        # Initialize Schwab client using the wrapper
+        try:
+            schwab_dev = SchwabDevClient()
+            schwab_client = schwab_dev.client
+        except Exception as e:
+            return {
+                "accounts": [],
+                "count": 0,
+                "source": "error",
+                "message": f"Failed to initialize Schwab client: {str(e)}",
+                "trading_mode": trading_mode
+            }
+
+        # Initialize OrderManager with Schwab client
+        order_manager = OrderManager(
+            paper_trading=False,
+            schwab_client=schwab_client
+        )
+
+        # Get linked accounts using the Schwab client directly
+        response = schwab_client.linked_accounts()
+        response.raise_for_status()
+        linked_accounts = response.json()
+
+        accounts_processed = []
+        for acc in linked_accounts:
+            account_data = {
+                'account_hash': acc['hashValue'],
+                'account_number': acc['accountNumber'][-4:] if 'accountNumber' in acc else 'XXXX',
+                'nickname': acc.get('nickname', f"Account {acc['accountNumber'][-4:]}"),
+                'account_type': acc.get('accountType', 'UNKNOWN'),
+                'is_day_trader': False,  # Will be updated from account details
+                'is_closing_only_restricted': False,
+                'round_trips': 0
+            }
+
+            # Get detailed account info
+            try:
+                details_response = schwab_client.account_details(acc['hashValue'])
+                details_response.raise_for_status()
+                details = details_response.json()
+
+                if details and 'securitiesAccount' in details:
+                    sec_acc = details['securitiesAccount']
+                    account_data.update({
+                        'account_type': sec_acc.get('type', 'UNKNOWN'),
+                        'is_day_trader': sec_acc.get('isDayTrader', False),
+                        'is_closing_only_restricted': sec_acc.get('isClosingOnlyRestricted', False),
+                        'round_trips': sec_acc.get('roundTrips', 0)
+                    })
+            except Exception as e:
+                print(f"Failed to get details for account {acc['hashValue']}: {e}")
+
+            # Store/update in database
+            await timescale.upsert_broker_account(account_data, trading_mode='real')
+            accounts_processed.append(account_data)
+
+        return {
+            "accounts": accounts_processed,
+            "count": len(accounts_processed),
+            "source": "schwab_api",
+            "trading_mode": trading_mode
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to refresh accounts: {str(e)}")
+
+
 @router.get("/positions")
 async def get_positions(
+    trading_mode: str = Query('paper', pattern='^(real|paper|replay)$'),
     status: str = Query("open", pattern="^(open|closed|all)$"),
     limit: int = Query(100, ge=1, le=1000),
+    account_hash: Optional[str] = Query(None, description="Filter by account hash"),
     current_user: User = Depends(get_current_user),
 ):
     """
     Get positions.
 
     Args:
+        trading_mode: Trading mode to query ('real', 'paper', or 'replay')
         status: Filter by status (open, closed, all)
         limit: Maximum number of positions to return
+        account_hash: Optional account hash to filter by
         current_user: Authenticated user
 
     Returns:
         List of positions
     """
     if status == "open":
-        positions = await timescale.fetch_active_positions(limit=limit)
+        positions = await timescale.fetch_active_positions(
+            limit=limit,
+            trading_mode=trading_mode,
+            account_hash=account_hash
+        )
     elif status == "closed":
-        positions = await timescale.fetch_closed_positions(limit=limit)
+        positions = await timescale.fetch_closed_positions(
+            limit=limit,
+            trading_mode=trading_mode,
+            account_hash=account_hash
+        )
     else:  # all
-        active = await timescale.fetch_active_positions(limit=limit // 2)
-        closed = await timescale.fetch_closed_positions(limit=limit // 2)
+        active = await timescale.fetch_active_positions(
+            limit=limit // 2,
+            trading_mode=trading_mode,
+            account_hash=account_hash
+        )
+        closed = await timescale.fetch_closed_positions(
+            limit=limit // 2,
+            trading_mode=trading_mode,
+            account_hash=account_hash
+        )
         positions = active + closed
 
     return {
         "positions": positions,
         "count": len(positions),
         "filter": status,
+        "trading_mode": trading_mode,
+        "account_hash": account_hash,
     }
 
 
 @router.get("/orders")
 async def get_orders(
+    trading_mode: str = Query('paper', pattern='^(real|paper|replay)$'),
     limit: int = Query(100, ge=1, le=1000),
     status: str = Query("all", pattern="^(open|filled|rejected|cancelled|all)$"),
+    account_hash: Optional[str] = Query(None, description="Filter by account hash"),
     current_user: User = Depends(get_current_user),
 ):
     """
     Get orders with optional status filter.
 
     Args:
+        trading_mode: Trading mode to query ('real', 'paper', or 'replay')
         limit: Maximum number of orders to return
         status: Filter by status (open, filled, rejected, cancelled, all)
+        account_hash: Optional account hash to filter by
         current_user: Authenticated user
 
     Returns:
         List of orders
     """
-    orders = await timescale.fetch_open_orders(limit=limit, status_filter=status)
+    orders = await timescale.fetch_open_orders(
+        limit=limit,
+        status_filter=status,
+        trading_mode=trading_mode,
+        account_hash=account_hash
+    )
 
     return {
         "orders": orders,
         "count": len(orders),
         "filter": status,
+        "trading_mode": trading_mode,
+        "account_hash": account_hash,
     }
 
 
 @router.get("/events")
 async def get_events(
+    trading_mode: str = Query('paper', pattern='^(real|paper|replay)$'),
     limit: int = Query(100, ge=1, le=1000),
     event_type: Optional[str] = Query(None),
     severity: Optional[str] = Query(None, pattern="^(info|warning|error)$"),
@@ -132,6 +561,7 @@ async def get_events(
     Get recent events.
 
     Args:
+        trading_mode: Trading mode to query ('real', 'paper', or 'replay')
         limit: Maximum number of events to return
         event_type: Filter by event type (signal, order, error, etc.)
         severity: Filter by severity (info, warning, error)
@@ -144,11 +574,13 @@ async def get_events(
         limit=limit,
         event_type=event_type,
         severity=severity,
+        trading_mode=trading_mode,
     )
 
     return {
         "events": events,
         "count": len(events),
+        "trading_mode": trading_mode,
         "filters": {
             "event_type": event_type,
             "severity": severity,
@@ -539,6 +971,7 @@ async def toggle_data_feed_mode(
 @router.post("/reconcile")
 async def trigger_reconciliation(
     trading_mode: str = Query('real', pattern='^(real|paper)$'),
+    account_hash: Optional[str] = Query(None, description="Specific account hash to reconcile"),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -549,6 +982,7 @@ async def trigger_reconciliation(
 
     Args:
         trading_mode: Trading mode to reconcile ('real' or 'paper')
+        account_hash: Optional specific account hash to reconcile (uses engine config if not provided)
         current_user: Authenticated user
 
     Returns:
@@ -572,6 +1006,7 @@ async def trigger_reconciliation(
         message = {
             "command": "reconcile",
             "trading_mode": trading_mode,
+            "account_hash": account_hash,  # Pass specific account if provided
             "requested_by": "admin_ui",
             "timestamp": datetime.utcnow().isoformat()
         }

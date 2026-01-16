@@ -432,8 +432,14 @@ class PositionManager:
             'missing_broker': []
         }
 
-    def _persist_position(self, position: OptionsPosition, strategy_name: str):
-        """Save position to state store."""
+    def _persist_position(self, position: OptionsPosition, strategy_name: str, account_hash: Optional[str] = None):
+        """Save position to state store.
+
+        Args:
+            position: The position to persist
+            strategy_name: Name of the strategy
+            account_hash: Optional account hash to associate with position
+        """
         if not self.state_store:
             return
 
@@ -446,6 +452,7 @@ class PositionManager:
             'underlying_price_at_entry': _to_native_type(position.underlying_price_at_entry),
             'status': 'open',
             'current_value': _to_native_type(position.current_value),
+            'account_hash': account_hash,  # Include account_hash
             'exit_time': None,
             'exit_value': None,
             'exit_reason': None,

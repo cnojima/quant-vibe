@@ -375,38 +375,38 @@ services:
       - quant-vibe-network
     command: ["python", "scripts/run_dyndns.py"]
 
-  scheduler:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.scheduler
-    container_name: quant-vibe-scheduler
-    restart: unless-stopped
-    depends_on:
-      timescaledb:
-        condition: service_healthy
-    environment:
-      # TimescaleDB connection (use service name as host)
-      TIMESCALE_HOST: timescaledb
-      TIMESCALE_PORT: 5432
-      TIMESCALE_DB: options_data
-      TIMESCALE_USER: ${TIMESCALE_USER:-quantvibe}
-      TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD}
-      # Schwab API credentials (for backfill scripts)
-      SCHWAB_API_KEY: ${SCHWAB_API_KEY}
-      SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}
-      SCHWAB_CALLBACK_URL: ${SCHWAB_CALLBACK_URL}
-      # Logging
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      # Set timezone for PST scheduling
-      TZ: America/Los_Angeles
-    volumes:
-      # Mount entire repo for live code updates
-      - .:/app
-      # Bind mount tokens for Schwab API access
-      - ./tokens:/app/tokens
-    networks:
-      - quant-vibe-network
-    command: ["python", "scripts/run_scheduler.py"]
+  # scheduler:
+  #   build:
+  #     context: .
+  #     dockerfile: docker/Dockerfile.scheduler
+  #   container_name: quant-vibe-scheduler
+  #   restart: unless-stopped
+  #   depends_on:
+  #     timescaledb:
+  #       condition: service_healthy
+  #   environment:
+  #     # TimescaleDB connection (use service name as host)
+  #     TIMESCALE_HOST: timescaledb
+  #     TIMESCALE_PORT: 5432
+  #     TIMESCALE_DB: options_data
+  #     TIMESCALE_USER: ${TIMESCALE_USER:-quantvibe}
+  #     TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD}
+  #     # Schwab API credentials (for backfill scripts)
+  #     SCHWAB_API_KEY: ${SCHWAB_API_KEY}
+  #     SCHWAB_API_SECRET: ${SCHWAB_API_SECRET}
+  #     SCHWAB_CALLBACK_URL: ${SCHWAB_CALLBACK_URL}
+  #     # Logging
+  #     LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  #     # Set timezone for PST scheduling
+  #     TZ: America/Los_Angeles
+  #   volumes:
+  #     # Mount entire repo for live code updates
+  #     - .:/app
+  #     # Bind mount tokens for Schwab API access
+  #     - ./tokens:/app/tokens
+  #   networks:
+  #     - quant-vibe-network
+  #   command: ["python", "scripts/run_scheduler.py"]
 
   optimization_worker:
     build:
