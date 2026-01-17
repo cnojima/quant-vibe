@@ -608,22 +608,26 @@ export function useLiveSchema() {
   });
 }
 // Live trading strategy management queries
-export function useLiveStrategies() {
+export function useLiveStrategies(tradingMode: string = 'paper') {
   return useQuery({
-    queryKey: ['live-strategies'],
+    queryKey: ['live-strategies', tradingMode],
     queryFn: async () => {
-      const response = await apiClient.get<StrategyListResponse>('/strategies/list');
+      const response = await apiClient.get<StrategyListResponse>('/strategies/list', {
+        params: { trading_mode: tradingMode }
+      });
       return response.data;
     },
     refetchInterval: 5000, // Refresh every 5 seconds
   });
 }
 
-export function useLiveStrategy(strategyName: string) {
+export function useLiveStrategy(strategyName: string, tradingMode: string = 'paper') {
   return useQuery({
-    queryKey: ['live-strategy', strategyName],
+    queryKey: ['live-strategy', strategyName, tradingMode],
     queryFn: async () => {
-      const response = await apiClient.get<StrategyInfo>(`/strategies/${strategyName}`);
+      const response = await apiClient.get<StrategyInfo>(`/strategies/${strategyName}`, {
+        params: { trading_mode: tradingMode }
+      });
       return response.data;
     },
     enabled: !!strategyName,
@@ -634,12 +638,15 @@ export function useToggleLiveStrategy() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ strategyName, enabled }: { strategyName: string; enabled: boolean }) => {
-      const response = await apiClient.post(`/strategies/${strategyName}/toggle`, { enabled });
+    mutationFn: async ({ strategyName, enabled, tradingMode = 'paper' }: { strategyName: string; enabled: boolean; tradingMode?: string }) => {
+      const response = await apiClient.post(`/strategies/${strategyName}/toggle`,
+        { enabled },
+        { params: { trading_mode: tradingMode } }
+      );
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['live-strategies'] });
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['live-strategies', variables.tradingMode || 'paper'] });
       queryClient.invalidateQueries({ queryKey: ['config-live'] });
     },
   });
@@ -649,13 +656,17 @@ export function useUpdateLiveStrategyParams() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ strategyName, params }: { strategyName: string; params: Record<string, any> }) => {
-      const response = await apiClient.put(`/strategies/${strategyName}/params`, { params });
+    mutationFn: async ({ strategyName, params, tradingMode = 'paper' }: { strategyName: string; params: Record<string, any>; tradingMode?: string }) => {
+      const response = await apiClient.put(`/strategies/${strategyName}/params`,
+        { params },
+        { params: { trading_mode: tradingMode } }
+      );
       return response.data;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['live-strategies'] });
-      queryClient.invalidateQueries({ queryKey: ['live-strategy', variables.strategyName] });
+      const tradingMode = variables.tradingMode || 'paper';
+      queryClient.invalidateQueries({ queryKey: ['live-strategies', tradingMode] });
+      queryClient.invalidateQueries({ queryKey: ['live-strategy', variables.strategyName, tradingMode] });
       queryClient.invalidateQueries({ queryKey: ['config-live'] });
     },
   });

@@ -57,18 +57,34 @@ def get_strategy_metadata() -> dict[str, dict[str, Any]]:
 
 
 @router.get("/list")
-async def list_strategies(current_user: User = Depends(get_current_user)):
+async def list_strategies(
+    trading_mode: str = "paper",
+    current_user: User = Depends(get_current_user)
+):
     """
     List all available strategies and their current status.
 
     Args:
+        trading_mode: Trading mode (real or paper)
         current_user: Authenticated user
 
     Returns:
         List of strategies with their enabled status and configuration
     """
-    # Load live trading config
-    config = load_yaml_config("live_trading")
+    # Validate trading mode
+    if trading_mode not in ["real", "paper"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid trading mode: {trading_mode}. Must be 'real' or 'paper'"
+        )
+
+    # Load config for the specified trading mode
+    config_name = f"live_trading_{trading_mode}"
+    try:
+        config = load_yaml_config(config_name)
+    except HTTPException:
+        # If config doesn't exist, return empty config
+        config = {"strategies": {"enabled": []}}
 
     # Get enabled strategies from config
     strategies_config = config.get("strategies", {})
@@ -170,6 +186,7 @@ async def get_strategy(
 async def toggle_strategy(
     strategy_name: str,
     toggle: StrategyToggle,
+    trading_mode: str = "paper",
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -178,6 +195,7 @@ async def toggle_strategy(
     Args:
         strategy_name: Name of the strategy
         toggle: Enable/disable request
+        trading_mode: Trading mode (real or paper)
         current_user: Authenticated user
 
     Returns:
@@ -190,8 +208,20 @@ async def toggle_strategy(
             detail=f"Strategy '{strategy_name}' not found",
         )
 
-    # Load config
-    config = load_yaml_config("live_trading")
+    # Validate trading mode
+    if trading_mode not in ["real", "paper"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid trading mode: {trading_mode}. Must be 'real' or 'paper'"
+        )
+
+    # Load config for the specified trading mode
+    config_name = f"live_trading_{trading_mode}"
+    try:
+        config = load_yaml_config(config_name)
+    except HTTPException:
+        # Create default config if it doesn't exist
+        config = {}
 
     # Ensure strategies section exists
     if "strategies" not in config:
@@ -230,28 +260,31 @@ async def toggle_strategy(
             enabled_strategies[existing_index]["enabled"] = False
         # If not in config, already disabled - no action needed
 
-    # Save config
-    save_yaml_config("live_trading", config)
+    # Save config to the appropriate file
+    save_yaml_config(config_name, config)
 
-    # Trigger hot-reload
+    # Trigger hot-reload for the appropriate trading engine
     try:
         from quant_vibe.messaging import RedisMessageBroker
 
         broker = RedisMessageBroker()
+        # Publish to the appropriate control topic based on trading mode
+        control_topic = f"control.live_trading_{trading_mode}"
         broker.publish(
-            topic="control.live_trading",
+            topic=control_topic,
             data={
                 "command": "reload_strategies",
                 "timestamp": now_utc().isoformat(),
                 "trigger": "strategy_toggle",
                 "strategy": strategy_name,
+                "trading_mode": trading_mode,
             }
         )
         broker.close()
 
         return {
             "success": True,
-            "message": f"Strategy '{strategy_name}' {'enabled' if toggle.enabled else 'disabled'}. Live engine will reload automatically.",
+            "message": f"Strategy '{strategy_name}' {'enabled' if toggle.enabled else 'disabled'} in {trading_mode} mode. Live engine will reload automatically.",
             "requires_restart": False,
             "auto_reload": True,
         }
@@ -270,6 +303,7 @@ async def toggle_strategy(
 async def update_strategy_params(
     strategy_name: str,
     update: StrategyUpdate,
+    trading_mode: str = "paper",
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -278,6 +312,7 @@ async def update_strategy_params(
     Args:
         strategy_name: Name of the strategy
         update: New parameters
+        trading_mode: Trading mode (real or paper)
         current_user: Authenticated user
 
     Returns:
@@ -290,8 +325,19 @@ async def update_strategy_params(
             detail=f"Strategy '{strategy_name}' not found",
         )
 
-    # Load config
-    config = load_yaml_config("live_trading")
+    # Validate trading mode
+    if trading_mode not in ["real", "paper"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid trading mode: {trading_mode}. Must be 'real' or 'paper'"
+        )
+
+    # Load config for the specified trading mode
+    config_name = f"live_trading_{trading_mode}"
+    try:
+        config = load_yaml_config(config_name)
+    except HTTPException:
+        config = {}
 
     # Ensure strategies section exists
     if "strategies" not in config:
@@ -321,16 +367,18 @@ async def update_strategy_params(
             }
         )
 
-    # Save config
-    save_yaml_config("live_trading", config)
+    # Save config to the appropriate file
+    save_yaml_config(config_name, config)
 
-    # Trigger hot-reload
+    # Trigger hot-reload for the appropriate trading engine
     try:
         from quant_vibe.messaging import RedisMessageBroker
 
         broker = RedisMessageBroker()
+        # Publish to the appropriate control topic based on trading mode
+        control_topic = f"control.live_trading_{trading_mode}"
         broker.publish(
-            topic="control.live_trading",
+            topic=control_topic,
             data={
                 "command": "reload_strategies",
                 "timestamp": now_utc().isoformat(),
