@@ -1,3 +1,0 @@
-# REFACTOR ALL STRATEGIES
-
-## 

@@ -1331,3 +1331,192 @@ class OrderManager:
             )
 
         return True, report, None
+
+    def fetch_all_orders(
+        self,
+        from_entered_time: datetime,
+        to_entered_time: datetime,
+        account_hash: Optional[str] = None
+    ) -> Tuple[bool, Optional[List[Dict]], Optional[str]]:
+        """
+        Fetch all orders from Schwab broker using account_orders_all.
+
+        Args:
+            from_entered_time: Start time for order search
+            to_entered_time: End time for order search
+            account_hash: Optional specific account hash to fetch orders for
+
+        Returns:
+            Tuple of (success, orders_list, error_message)
+        """
+        if self.paper_trading:
+            return True, [], None  # No broker orders in paper trading
+
+        if not self.schwab_client:
+            return False, None, "Schwab client not configured"
+
+        try:
+            self.logger.info(f"📊 Fetching orders from {from_entered_time} to {to_entered_time}")
+
+            # If specific account hash provided, use it
+            if account_hash:
+                # Get the account number for this hash
+                success, accounts, error = self.list_available_accounts()
+                if not success:
+                    return False, None, f"Failed to list accounts: {error}"
+
+                # Find the account with matching hash
+                target_account = None
+                for acc in accounts:
+                    if acc['hash_value'] == account_hash:
+                        target_account = acc
+                        break
+
+                if not target_account:
+                    return False, None, f"Account with hash {account_hash[:8]}... not found"
+
+                self.logger.info(f"Using account ending in ...{target_account['hash_value'][-4:]}")
+
+            # Call account_orders_all to fetch orders
+            response = self.schwab_client.account_orders_all(
+                fromEnteredTime=from_entered_time,
+                toEnteredTime=to_entered_time
+            )
+            response.raise_for_status()
+            all_orders = response.json()
+
+            # If specific account requested, filter orders
+            if account_hash and target_account:
+                # Filter orders for the specific account
+                filtered_orders = []
+                for order in all_orders:
+                    # Check if order belongs to target account
+                    # The order should have an account number that matches
+                    order_account = order.get('accountNumber', '')
+                    if order_account and order_account == target_account.get('accountNumber'):
+                        filtered_orders.append(order)
+                all_orders = filtered_orders
+
+            self.logger.info(f"✅ Fetched {len(all_orders)} orders")
+
+            # Process orders to extract relevant information
+            processed_orders = []
+            for order in all_orders:
+                processed_order = {
+                    'order_id': order.get('orderId'),
+                    'account_number': order.get('accountNumber'),
+                    'status': order.get('status'),
+                    'order_type': order.get('orderType'),
+                    'entered_time': order.get('enteredTime'),
+                    'close_time': order.get('closeTime'),
+                    'filled_quantity': order.get('filledQuantity', 0),
+                    'price': order.get('price', 0),
+                    'order_strategy_type': order.get('orderStrategyType'),
+                    'duration': order.get('duration'),
+                    'session': order.get('session'),
+                    'complex_order_strategy_type': order.get('complexOrderStrategyType'),
+                    'quantity': order.get('quantity'),
+                    'remaining_quantity': order.get('remainingQuantity', 0),
+                    'order_activity_collection': order.get('orderActivityCollection', []),
+                    'order_leg_collection': order.get('orderLegCollection', []),
+                }
+
+                # Add account hash if we have it
+                if account_hash:
+                    processed_order['account_hash'] = account_hash
+
+                processed_orders.append(processed_order)
+
+            return True, processed_orders, None
+
+        except Exception as e:
+            error_msg = f"Failed to fetch orders: {str(e)}"
+            self.logger.error(error_msg, exc_info=True)
+            return False, None, error_msg
+
+    def fetch_transactions(
+        self,
+        account_hash: str,
+        start_date: datetime,
+        end_date: datetime,
+        transaction_types: str = "TRADE"
+    ) -> Tuple[bool, Optional[List[Dict]], Optional[str]]:
+        """
+        Fetch transactions from Schwab broker for a specific account.
+
+        Args:
+            account_hash: Account hash to fetch transactions for
+            start_date: Start date for transaction search
+            end_date: End date for transaction search
+            transaction_types: Types of transactions to fetch (default: "TRADE")
+
+        Returns:
+            Tuple of (success, transactions_list, error_message)
+        """
+        if self.paper_trading:
+            return True, [], None  # No broker transactions in paper trading
+
+        if not self.schwab_client:
+            return False, None, "Schwab client not configured"
+
+        try:
+            self.logger.info(f"📊 Fetching transactions from {start_date} to {end_date} for types: {transaction_types}")
+
+            # Call transactions API
+            response = self.schwab_client.transactions(
+                accountHash=account_hash,
+                startDate=start_date,
+                endDate=end_date,
+                types=transaction_types
+            )
+            response.raise_for_status()
+            transactions = response.json()
+
+            self.logger.info(f"✅ Fetched {len(transactions)} transactions")
+
+            # Log sample transaction for debugging
+            if transactions and len(transactions) > 0:
+                self.logger.debug(f"Sample transaction structure: {transactions[0]}")
+
+            # Process transactions to extract trade information
+            processed_transactions = []
+            for txn in transactions:
+                processed_txn = {
+                    'activity_id': txn.get('activityId'),
+                    'transaction_id': txn.get('activityId'),  # Use activityId as transaction_id
+                    'account_hash': account_hash,
+                    'account_number': txn.get('accountNumber'),
+                    'type': txn.get('type'),
+                    'status': txn.get('status'),
+                    'sub_account': txn.get('subAccount'),
+                    'time': txn.get('time'),
+                    'trade_date': txn.get('tradeDate'),
+                    'position_id': txn.get('positionId'),
+                    'order_id': txn.get('orderId'),
+                    'net_amount': txn.get('netAmount', 0),
+                    'transfer_items': txn.get('transferItems', []),
+                }
+
+                # Extract transfer items which contain the actual trade details
+                if txn.get('transferItems'):
+                    for item in txn['transferItems']:
+                        instrument = item.get('instrument', {})
+                        if instrument.get('assetType') in ['EQUITY', 'OPTION']:
+                            processed_txn['symbol'] = instrument.get('symbol')
+                            processed_txn['asset_type'] = instrument.get('assetType')
+                            processed_txn['instrument_id'] = instrument.get('instrumentId')
+                            processed_txn['amount'] = item.get('amount', 0)
+                            processed_txn['cost'] = item.get('cost', 0)
+                            processed_txn['price'] = item.get('price', 0)
+                            processed_txn['position_effect'] = item.get('positionEffect')
+                            processed_txn['instrument'] = instrument
+                            break  # Take the first equity/option item
+
+                processed_transactions.append(processed_txn)
+
+            return True, processed_transactions, None
+
+        except Exception as e:
+            error_msg = f"Failed to fetch transactions: {str(e)}"
+            self.logger.error(error_msg, exc_info=True)
+            return False, None, error_msg

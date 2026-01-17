@@ -160,8 +160,56 @@ def sync_options_bars_with_until(since_time=None, until_time=None, batch_size=10
         # Insert into local (with conflict handling)
         print(f"\n4. Inserting into local database...")
         with local_conn.cursor() as cur:
-            # Use ON CONFLICT to handle duplicates
-            insert_query = """
+            # Use a temporary table approach for efficient bulk insert without duplicates
+            print("   Creating temporary table for bulk import...")
+
+            # Create temp table with same structure
+            cur.execute("""
+                CREATE TEMP TABLE temp_options_bars (
+                    timestamp TIMESTAMPTZ,
+                    option_ticker TEXT,
+                    underlying_ticker TEXT,
+                    open NUMERIC,
+                    high NUMERIC,
+                    low NUMERIC,
+                    close NUMERIC,
+                    volume BIGINT,
+                    vwap NUMERIC,
+                    transactions INTEGER,
+                    bid NUMERIC,
+                    ask NUMERIC,
+                    bid_size INTEGER,
+                    ask_size INTEGER,
+                    strike_price NUMERIC,
+                    contract_type TEXT,
+                    expiration_date DATE,
+                    implied_volatility NUMERIC,
+                    delta NUMERIC,
+                    gamma NUMERIC,
+                    theta NUMERIC,
+                    vega NUMERIC,
+                    rho NUMERIC,
+                    data_source TEXT
+                )
+            """)
+
+            # Bulk insert all data into temp table (very fast)
+            print(f"   Bulk loading {total_rows:,} rows into temp table...")
+            insert_temp_query = """
+                INSERT INTO temp_options_bars VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                )
+            """
+
+            for i in range(0, total_rows, batch_size):
+                batch = rows[i:i+batch_size]
+                execute_batch(cur, insert_temp_query, batch, page_size=batch_size)
+                print(f"   Loading: {min(i+batch_size, total_rows):,}/{total_rows:,} ({min(i+batch_size, total_rows)/total_rows*100:.1f}%)")
+
+            # Now insert only non-duplicate rows from temp to main table
+            print("   Merging non-duplicate rows into main table...")
+            cur.execute("""
                 INSERT INTO options_bars (
                     timestamp, option_ticker, underlying_ticker,
                     open, high, low, close, volume, vwap, transactions,
@@ -169,42 +217,24 @@ def sync_options_bars_with_until(since_time=None, until_time=None, batch_size=10
                     strike_price, contract_type, expiration_date,
                     implied_volatility, delta, gamma, theta, vega, rho,
                     data_source
-                ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
-                ON CONFLICT (timestamp, option_ticker) 
-                DO UPDATE SET
-                    open = EXCLUDED.open,
-                    high = EXCLUDED.high,
-                    low = EXCLUDED.low,
-                    close = EXCLUDED.close,
-                    volume = EXCLUDED.volume,
-                    vwap = EXCLUDED.vwap,
-                    transactions = EXCLUDED.transactions,
-                    bid = EXCLUDED.bid,
-                    ask = EXCLUDED.ask,
-                    bid_size = EXCLUDED.bid_size,
-                    ask_size = EXCLUDED.ask_size,
-                    implied_volatility = EXCLUDED.implied_volatility,
-                    delta = EXCLUDED.delta,
-                    gamma = EXCLUDED.gamma,
-                    theta = EXCLUDED.theta,
-                    vega = EXCLUDED.vega,
-                    rho = EXCLUDED.rho
-            """
+                SELECT DISTINCT t.*
+                FROM temp_options_bars t
+                LEFT JOIN options_bars o
+                    ON t.timestamp = o.timestamp
+                    AND t.option_ticker = o.option_ticker
+                WHERE o.timestamp IS NULL
+            """)
 
-            # Batch insert for performance
-            inserted = 0
-            for i in range(0, total_rows, batch_size):
-                batch = rows[i:i+batch_size]
-                execute_batch(cur, insert_query, batch, page_size=batch_size)
-                inserted += len(batch)
-                print(f"   Progress: {inserted:,}/{total_rows:,} ({inserted/total_rows*100:.1f}%)")
+            inserted = cur.rowcount
+            skipped = total_rows - inserted
+
+            # Drop temp table (happens automatically at end of transaction anyway)
+            cur.execute("DROP TABLE temp_options_bars")
 
             local_conn.commit()
 
-        print(f"\n   ✅ Successfully synced {total_rows:,} rows")
+        print(f"\n   ✅ Successfully synced: {inserted:,} rows inserted, {skipped:,} rows skipped (duplicates)")
 
         # Show date range synced
         first_ts = rows[0][0]

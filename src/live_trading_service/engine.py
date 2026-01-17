@@ -497,7 +497,7 @@ class LiveTradingEngine:
                     'quantities': quantities
                 })
 
-            # 4. Reconcile
+            # 4. Reconcile positions
             self.logger.info("\nStep 4: Reconciling positions...")
             # Pass the broker positions we already fetched to avoid duplicate API call
             success, report, error = self.order_manager.reconcile_positions(internal_positions, broker_positions)
@@ -506,7 +506,119 @@ class LiveTradingEngine:
                 self.logger.error(f"❌ Reconciliation failed: {error}")
                 return
 
-            # 5. Report results
+            # 5. Sync orders from broker (last 30 days)
+            self.logger.info("\nStep 5: Syncing orders from Schwab (last 30 days)...")
+            try:
+                from datetime import timedelta
+
+                # Calculate date range for last 30 days
+                end_time = now_utc()
+                start_time = end_time - timedelta(days=30)
+
+                # Fetch orders using account_orders_all
+                orders_success, orders_data, orders_error = self.order_manager.fetch_all_orders(
+                    from_entered_time=start_time,
+                    to_entered_time=end_time,
+                    account_hash=account_hash
+                )
+
+                if orders_success and orders_data:
+                    self.logger.info(f"📊 Found {len(orders_data)} orders from the last 30 days")
+
+                    # Process and store filled orders to calculate realized PnL
+                    filled_count = 0
+                    for order in orders_data:
+                        if order.get('status') == 'FILLED':
+                            filled_count += 1
+                            # Store the order with account hash
+                            if account_hash:
+                                order['account_hash'] = account_hash
+                            self.state_store.save_order(order)
+
+                    self.logger.info(f"✅ Synced {filled_count} filled orders for PnL calculation")
+                else:
+                    if orders_error:
+                        self.logger.warning(f"⚠️ Could not sync orders: {orders_error}")
+                    else:
+                        self.logger.info("ℹ️ No orders found in the last 30 days")
+
+            except Exception as e:
+                self.logger.error(f"❌ Failed to sync orders: {str(e)}", exc_info=True)
+
+            # 6. Sync transactions from broker (last 30 days) for each account
+            self.logger.info("\nStep 6: Syncing transactions from Schwab (last 30 days)...")
+            try:
+                # Determine which account to sync transactions for
+                target_account_hash = account_hash  # Use the provided account if specified
+
+                if not target_account_hash:
+                    # If no specific account provided, use the current/default account
+                    for acc in accounts:
+                        if acc.get('is_current'):
+                            target_account_hash = acc['hash_value']
+                            break
+
+                if target_account_hash:
+                    # Fetch transactions for the account
+                    txn_success, transactions, txn_error = self.order_manager.fetch_transactions(
+                        account_hash=target_account_hash,
+                        start_date=start_time,
+                        end_date=end_time
+                    )
+
+                    if txn_success and transactions:
+                        self.logger.info(f"📊 Found {len(transactions)} transactions for account ...{target_account_hash[-4:]}")
+
+                        # Process transactions to identify closed trades and calculate PnL
+                        closed_trades_count = 0
+                        opening_trades_count = 0
+                        for txn in transactions:
+                            # Check position effect to identify opening vs closing transactions
+                            position_effect = txn.get('position_effect', '')
+                            txn_type = txn.get('type', '')
+
+                            if position_effect == 'CLOSING':
+                                closed_trades_count += 1
+                                self.logger.debug(f"Found CLOSING transaction: {txn.get('symbol')} - {txn.get('time')}")
+                            elif position_effect == 'OPENING':
+                                opening_trades_count += 1
+                                self.logger.debug(f"Found OPENING transaction: {txn.get('symbol')} - {txn.get('time')}")
+
+                            # Store transaction data for PnL calculation
+                            if txn_type == 'TRADE' and position_effect:
+                                txn_data = {
+                                    'transaction_id': txn.get('transaction_id'),
+                                    'account_hash': target_account_hash,
+                                    'position_effect': position_effect,
+                                    'type': txn_type,
+                                    'time': txn.get('time'),
+                                    'trade_date': txn.get('trade_date'),
+                                    'symbol': txn.get('symbol'),
+                                    'asset_type': txn.get('asset_type'),
+                                    'amount': txn.get('amount', 0),
+                                    'price': txn.get('price', 0),
+                                    'cost': txn.get('cost', 0),
+                                    'net_amount': txn.get('net_amount', 0),
+                                    'position_id': txn.get('position_id'),
+                                    'order_id': txn.get('order_id'),
+                                }
+
+                                # Store transaction (you may need to create a save_transaction method)
+                                # self.state_store.save_transaction(txn_data)
+
+                        self.logger.info(f"✅ Found {opening_trades_count} opening and {closed_trades_count} closing transactions")
+                    else:
+                        if txn_error:
+                            self.logger.warning(f"⚠️ Could not sync transactions: {txn_error}")
+                        else:
+                            self.logger.info("ℹ️ No transactions found in the last 30 days")
+                else:
+                    self.logger.warning("⚠️ No account available for transaction sync")
+
+            except Exception as e:
+                self.logger.error(f"❌ Failed to sync transactions: {str(e)}", exc_info=True)
+
+            # 7. Report results
             self.logger.info("\n" + "─"*70)
             self.logger.info("RECONCILIATION RESULTS")
             self.logger.info("─"*70)

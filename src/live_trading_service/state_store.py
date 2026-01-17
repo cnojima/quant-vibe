@@ -396,33 +396,56 @@ class StateStore:
         """Get all open positions (alias for get_open_positions)."""
         return self.get_open_positions()
 
-    def get_trades_for_date(self, trade_date) -> List[Dict]:
+    def get_trades_for_date(self, trade_date, account_hash: Optional[str] = None) -> List[Dict]:
         """
         Get all closed trades for a specific date.
 
         Args:
             trade_date: Date object for the trading day
+            account_hash: Optional account hash to filter trades for a specific account
 
         Returns:
             List of trade dicts with P&L calculated
         """
-        self.cursor.execute(f"""
-            SELECT
-                position_id,
-                strategy_name as strategy,
-                entry_time,
-                exit_time,
-                entry_cost,
-                exit_value,
-                (exit_value - entry_cost) as pnl,
-                exit_reason,
-                legs,
-                metadata
-            FROM {self.table_prefix}positions
-            WHERE status = 'closed'
-              AND DATE(exit_time) = %s
-            ORDER BY exit_time ASC
-        """, (trade_date,))
+        if account_hash:
+            self.cursor.execute(f"""
+                SELECT
+                    position_id,
+                    strategy_name as strategy,
+                    entry_time,
+                    exit_time,
+                    entry_cost,
+                    exit_value,
+                    (exit_value - entry_cost) as pnl,
+                    exit_reason,
+                    legs,
+                    metadata,
+                    account_hash
+                FROM {self.table_prefix}positions
+                WHERE status = 'closed'
+                  AND DATE(exit_time) = %s
+                  AND account_hash = %s
+                ORDER BY exit_time ASC
+            """, (trade_date, account_hash))
+        else:
+            self.cursor.execute(f"""
+                SELECT
+                    position_id,
+                    strategy_name as strategy,
+                    entry_time,
+                    exit_time,
+                    entry_cost,
+                    exit_value,
+                    (exit_value - entry_cost) as pnl,
+                    exit_reason,
+                    legs,
+                    metadata,
+                    account_hash
+                FROM {self.table_prefix}positions
+                WHERE status = 'closed'
+                  AND DATE(exit_time) = %s
+                ORDER BY exit_time ASC
+            """, (trade_date,))
 
         trades = self.cursor.fetchall()
 

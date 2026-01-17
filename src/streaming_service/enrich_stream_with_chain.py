@@ -41,7 +41,8 @@ class OptionContractEnricher:
     def refresh_contract_details(
         self,
         underlying: str = "$SPX",
-        strike_count: int = 50
+        strike_count: int = 50,
+        auto_retry: bool = True
     ) -> int:
         """
         Fetch option chain and update contract cache.
@@ -49,6 +50,7 @@ class OptionContractEnricher:
         Args:
             underlying: Underlying symbol (e.g., "$SPX")
             strike_count: Number of strikes to fetch
+            auto_retry: If True, automatically retry with fewer strikes on buffer overflow
 
         Returns:
             Number of contracts cached
@@ -63,7 +65,22 @@ class OptionContractEnricher:
             # Debug response before attempting JSON parse
             if response.status_code != 200:
                 print(f"   ❌ API returned status {response.status_code}")
-                print(f"   Response text: {response.text[:500]}")
+
+                # Check for specific buffer overflow error
+                if response.status_code == 502 and "Body buffer overflow" in response.text:
+                    print(f"   ⚠️  API gateway buffer overflow - too many strikes requested")
+                    print(f"   Response: {response.text[:200]}")
+
+                    # Auto-retry with fewer strikes
+                    if auto_retry and strike_count > 5:
+                        reduced_strikes = min(20, strike_count // 2)  # Half it, but cap at 20
+                        print(f"   🔄 Auto-retrying with {reduced_strikes} strikes...")
+                        return self.refresh_contract_details(underlying, reduced_strikes, auto_retry=False)
+                    else:
+                        print(f"   💡 Reduce strike_count parameter (current: {strike_count})")
+                else:
+                    print(f"   Response text: {response.text[:500]}")
+
                 return 0
 
             if not response.text or response.text.strip() == "":
