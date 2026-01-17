@@ -33,6 +33,9 @@ class Topic(str, Enum):
     TRADING_ORDER = "trading.order"
     TRADING_FILL = "trading.fill"
 
+    # Account activity (streaming_service -> live_trading)
+    ACCOUNT_ACTIVITY = "streaming.account_activity"
+
     # Control messages (admin_ui -> live_trading)
     CONTROL_LIVE_TRADING = "control.live_trading"
 

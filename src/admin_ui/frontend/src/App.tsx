@@ -12,6 +12,8 @@ import { StrategiesManager } from './pages/StrategiesManager';
 import { StrategyOptimizer } from './pages/StrategyOptimizer';
 import { NotificationSettings } from './pages/NotificationSettings';
 import { NotificationHistory } from './pages/NotificationHistory';
+import { ToastProvider } from './contexts/ToastContext';
+import { ToastContainer } from './components/ToastContainer';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -37,91 +39,94 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/services"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/tokens"
-            element={
-              <ProtectedRoute>
-                <TokenManager />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/live"
-            element={
-              <ProtectedRoute>
-                <LiveTradingMonitor />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/backtest"
-            element={
-              <ProtectedRoute>
-                <BacktestRunner />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/config"
-            element={
-              <ProtectedRoute>
-                <ConfigEditor />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/strategies"
-            element={
-              <ProtectedRoute>
-                <StrategiesManager />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/optimize"
-            element={
-              <ProtectedRoute>
-                <StrategyOptimizer />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/notifications"
-            element={
-              <ProtectedRoute>
-                <NotificationSettings />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/notification-history"
-            element={
-              <ProtectedRoute>
-                <NotificationHistory />
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
-      </BrowserRouter>
+      <ToastProvider>
+        <BrowserRouter>
+          <ToastContainer />
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/services"
+              element={
+                <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/tokens"
+              element={
+                <ProtectedRoute>
+                  <TokenManager />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/live"
+              element={
+                <ProtectedRoute>
+                  <LiveTradingMonitor />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/backtest"
+              element={
+                <ProtectedRoute>
+                  <BacktestRunner />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/config"
+              element={
+                <ProtectedRoute>
+                  <ConfigEditor />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/strategies"
+              element={
+                <ProtectedRoute>
+                  <StrategiesManager />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/optimize"
+              element={
+                <ProtectedRoute>
+                  <StrategyOptimizer />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/notifications"
+              element={
+                <ProtectedRoute>
+                  <NotificationSettings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/notification-history"
+              element={
+                <ProtectedRoute>
+                  <NotificationHistory />
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </BrowserRouter>
+      </ToastProvider>
     </QueryClientProvider>
   );
 }

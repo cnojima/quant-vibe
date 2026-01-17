@@ -425,13 +425,17 @@ class LiveTradingEngine:
     def _reconcile_with_broker(self, account_hash: Optional[str] = None):
         """
         Reconcile internal positions with Schwab broker.
-        Called on startup for real trading mode.
+        Treats broker API as source of truth - replaces local data with broker data.
 
         Args:
             account_hash: Optional specific account hash to reconcile.
                          If not provided, uses the configured account.
         """
         try:
+            self.logger.info("="*70)
+            self.logger.info("BROKER RECONCILIATION - SOURCE OF TRUTH MODE")
+            self.logger.info("Local data will be replaced with broker data")
+            self.logger.info("="*70)
             # 1. List available accounts
             self.logger.info("Step 1: Listing Schwab accounts...")
             success, accounts, error = self.order_manager.list_available_accounts()
@@ -476,44 +480,91 @@ class LiveTradingEngine:
                         f"@ ${pos['average_price']:.2f} (MktVal: ${pos['market_value']:.2f})"
                     )
 
-            # 3. Get internal positions
-            self.logger.info("\nStep 3: Fetching internal positions...")
+            # 3. Clear all internal positions (broker is source of truth)
+            self.logger.info("\nStep 3: Clearing internal positions...")
             internal_positions_raw = self.position_manager.get_active_positions()
-            self.logger.info(f"📊 Internal tracker has {len(internal_positions_raw)} open position(s)")
+            self.logger.info(f"📊 Found {len(internal_positions_raw)} internal position(s) to clear")
 
-            # Transform internal positions to format expected by reconcile_positions
-            internal_positions = []
+            # Initialize counters for summary
+            closed_count = 0
+            created_count = 0
+            filled_count = 0
+            opening_trades_count = 0
+            closed_trades_count = 0
+
+            # Close all internal positions (mark as closed in database)
             for pos in internal_positions_raw:
-                quantities = {}
-                if hasattr(pos, 'legs') and pos.legs:
-                    for leg in pos.legs:
-                        symbol = leg.contract_symbol
-                        qty = leg.quantity
-                        quantities[symbol] = quantities.get(symbol, 0) + qty
+                try:
+                    # Mark position as closed - broker data is source of truth
+                    self.position_manager.update_position_status(pos.position_id, 'closed')
+                    closed_count += 1
+                    self.logger.debug(f"  Closed internal position: {pos.position_id}")
+                except Exception as e:
+                    self.logger.warning(f"  Failed to close position {pos.position_id}: {e}")
 
-                internal_positions.append({
-                    'position_id': pos.position_id,
-                    'contract_symbols': list(quantities.keys()),
-                    'quantities': quantities
-                })
+            self.logger.info(f"✅ Cleared {closed_count} internal positions")
 
-            # 4. Reconcile positions
-            self.logger.info("\nStep 4: Reconciling positions...")
-            # Pass the broker positions we already fetched to avoid duplicate API call
-            success, report, error = self.order_manager.reconcile_positions(internal_positions, broker_positions)
+            # 4. Recreate positions from broker data (source of truth)
+            self.logger.info("\nStep 4: Creating positions from broker data...")
+            if broker_positions:
+                for broker_pos in broker_positions:
+                    try:
+                        # Generate position ID based on broker data
+                        position_id = f"broker_{broker_pos['symbol']}_{now_utc().timestamp()}"
 
-            if not success:
-                self.logger.error(f"❌ Reconciliation failed: {error}")
-                return
+                        # Create position legs from broker position
+                        legs = [{
+                            'contract_symbol': broker_pos['symbol'],
+                            'quantity': broker_pos['quantity'],
+                            'side': 'long' if broker_pos['quantity'] > 0 else 'short',
+                            'entry_price': broker_pos['average_price'],
+                            'contract_type': broker_pos.get('asset_type', 'OPTION')
+                        }]
 
-            # 5. Sync orders from broker (last 30 days)
-            self.logger.info("\nStep 5: Syncing orders from Schwab (last 30 days)...")
+                        # Create a new position based on broker data
+                        position_data = {
+                            'position_id': position_id,
+                            'strategy_name': 'broker_reconciliation',
+                            'spread_type': 'single',  # Most broker positions are single legs
+                            'entry_time': now_utc(),  # Use current time for reconciliation
+                            'entry_cost': abs(broker_pos['quantity'] * broker_pos['average_price'] * 100),  # Options are x100
+                            'underlying_price_at_entry': 0,  # Will be updated on next market data
+                            'status': 'open',
+                            'current_value': broker_pos['market_value'],
+                            'legs': legs,
+                            'metadata': {
+                                'source': 'broker_reconciliation',
+                                'broker_symbol': broker_pos['symbol'],
+                                'asset_type': broker_pos.get('asset_type', 'OPTION'),
+                                'underlying': broker_pos.get('underlying_symbol', 'SPX')
+                            },
+                            'account_hash': account_hash
+                        }
+
+                        # Store the position
+                        self.state_store.save_position(position_data)
+                        created_count += 1
+                        self.logger.info(f"  ✓ Created position: {broker_pos['symbol']} x{broker_pos['quantity']}")
+
+                    except Exception as e:
+                        self.logger.error(f"  ✗ Failed to create position for {broker_pos['symbol']}: {e}")
+
+                self.logger.info(f"✅ Created {created_count} positions from broker data")
+            else:
+                self.logger.info("ℹ️  No broker positions to create")
+
+            # 5. Clear and sync orders from broker (last 7 days for recent activity)
+            self.logger.info("\nStep 5: Syncing recent orders from Schwab...")
             try:
                 from datetime import timedelta
 
-                # Calculate date range for last 30 days
+                # Clear existing broker-synced orders first (keep strategy-generated orders)
+                self.logger.info("  Clearing old broker-synced orders...")
+                self.state_store.clear_broker_sync_orders()
+
+                # Calculate date range for last 7 days (more recent focus)
                 end_time = now_utc()
-                start_time = end_time - timedelta(days=30)
+                start_time = end_time - timedelta(days=7)
 
                 # Fetch orders using account_orders_all
                 orders_success, orders_data, orders_error = self.order_manager.fetch_all_orders(
@@ -523,17 +574,43 @@ class LiveTradingEngine:
                 )
 
                 if orders_success and orders_data:
-                    self.logger.info(f"📊 Found {len(orders_data)} orders from the last 30 days")
+                    self.logger.info(f"📊 Found {len(orders_data)} orders from the last 7 days")
 
                     # Process and store filled orders to calculate realized PnL
-                    filled_count = 0
                     for order in orders_data:
                         if order.get('status') == 'FILLED':
                             filled_count += 1
                             # Store the order with account hash
                             if account_hash:
                                 order['account_hash'] = account_hash
-                            self.state_store.save_order(order)
+
+                            # Add required fields for orders from broker sync
+                            if 'strategy_name' not in order:
+                                order['strategy_name'] = 'broker_sync'  # Default for orders from broker
+                            if 'order_id' not in order:
+                                order['order_id'] = order.get('orderId', f"broker_{order.get('orderActivityId', 'unknown')}")
+                            if 'order_type' not in order:
+                                order['order_type'] = order.get('orderType', 'LIMIT')
+                            if 'side' not in order:
+                                # Determine side from order legs or instruction
+                                order['side'] = order.get('instruction', 'BUY')
+                            if 'quantity' not in order:
+                                order['quantity'] = order.get('quantity', 1)
+                            if 'symbol' not in order:
+                                # Try to extract symbol from order legs
+                                if 'orderLegCollection' in order and order['orderLegCollection']:
+                                    order['symbol'] = order['orderLegCollection'][0].get('instrument', {}).get('symbol', 'UNKNOWN')
+                                else:
+                                    order['symbol'] = 'UNKNOWN'
+
+                            try:
+                                self.state_store.save_order(order)
+                            except KeyError as e:
+                                self.logger.warning(f"Missing required field for order save: {e}")
+                                self.logger.debug(f"Order data: {order}")
+                            except Exception as e:
+                                self.logger.error(f"Failed to save order: {e}")
+                                self.logger.debug(f"Order data: {order}")
 
                     self.logger.info(f"✅ Synced {filled_count} filled orders for PnL calculation")
                 else:
@@ -570,8 +647,6 @@ class LiveTradingEngine:
                         self.logger.info(f"📊 Found {len(transactions)} transactions for account ...{target_account_hash[-4:]}")
 
                         # Process transactions to identify closed trades and calculate PnL
-                        closed_trades_count = 0
-                        opening_trades_count = 0
                         for txn in transactions:
                             # Check position effect to identify opening vs closing transactions
                             position_effect = txn.get('position_effect', '')
@@ -618,60 +693,42 @@ class LiveTradingEngine:
             except Exception as e:
                 self.logger.error(f"❌ Failed to sync transactions: {str(e)}", exc_info=True)
 
-            # 7. Report results
-            self.logger.info("\n" + "─"*70)
-            self.logger.info("RECONCILIATION RESULTS")
-            self.logger.info("─"*70)
-            self.logger.info(f"Timestamp: {report['timestamp']}")
-            self.logger.info(f"Broker Positions: {report['broker_positions_count']}")
-            self.logger.info(f"Internal Positions: {report['internal_positions_count']}")
-            self.logger.info(f"Broker Contract Legs: {report['total_broker_legs']}")
-            self.logger.info(f"Internal Contract Legs: {report['total_internal_legs']}")
-            self.logger.info(f"Status: {report['status'].upper()}")
+            # 7. Final reconciliation summary
+            self.logger.info("\n" + "="*70)
+            self.logger.info("RECONCILIATION COMPLETE - SOURCE OF TRUTH APPLIED")
+            self.logger.info("="*70)
+            self.logger.info("Summary:")
+            self.logger.info(f"  • Positions: Cleared {closed_count} local, Created {created_count if broker_positions else 0} from broker")
+            self.logger.info(f"  • Orders: Synced {filled_count if orders_success and orders_data else 0} filled orders")
+            self.logger.info(f"  • Transactions: Processed {opening_trades_count + closed_trades_count if 'opening_trades_count' in locals() else 0} transactions")
+            self.logger.info(f"  • Mode: Broker API data is now the source of truth")
+            self.logger.info("="*70)
 
-            if report['discrepancies']:
-                self.logger.warning(f"\n⚠️  Found {report['discrepancies_count']} discrepancy(ies):")
-                for disc in report['discrepancies']:
-                    self.logger.warning(
-                        f"  [{disc['type']}] {disc['symbol']}: "
-                        f"Broker={disc['broker_quantity']}, "
-                        f"Internal={disc['internal_quantity']}, "
-                        f"Diff={disc['difference']:+.1f}"
-                    )
+            # Log reconciliation event
+            self.state_store.log_event(
+                EventType.RECONCILIATION,
+                "Broker reconciliation completed - source of truth mode",
+                severity='info',
+                details={
+                    'positions_cleared': closed_count,
+                    'positions_created': created_count if broker_positions else 0,
+                    'orders_synced': filled_count if orders_success and orders_data else 0,
+                    'account_hash': account_hash
+                }
+            )
 
-                # Handle mismatch based on config
-                broker_config = self.config.get('broker', {})
-                on_mismatch = broker_config.get('on_mismatch', 'warn')
-
-                if on_mismatch == 'halt':
-                    self.logger.error("❌ HALTING ENGINE due to position mismatch")
-                    self.state_store.log_event(
-                        EventType.ENGINE_ERROR,
-                        f"Engine halted due to {report['discrepancies_count']} position discrepancies",
-                        severity='error',
-                        details=report
-                    )
-                    self._shutdown_requested = True
-                elif on_mismatch == 'sync':
-                    self.logger.warning("🔄 Syncing internal state to match broker...")
-                    self._sync_broker_positions(broker_positions, report, account_hash)
-                else:  # warn (default)
-                    self.logger.warning("⚠️  Continuing with warning - manual review recommended")
-
-                # Log event
-                self.state_store.log_event(
-                    EventType.RECONCILIATION,
-                    f"Position reconciliation found {report['discrepancies_count']} discrepancies",
-                    severity='warning',
-                    details=report
-                )
-            else:
-                self.logger.info("\n✅ All positions matched! Internal state matches broker.")
-                self.state_store.log_event(
-                    EventType.RECONCILIATION,
-                    "Position reconciliation successful - all positions matched",
-                    severity='info',
-                    details=report
+            # Publish reconciliation event for UI
+            if self.message_broker:
+                self.message_broker.publish(
+                    "reconciliation.completed",
+                    {
+                        'timestamp': now_utc().isoformat(),
+                        'account_hash': account_hash,
+                        'positions_cleared': closed_count,
+                        'positions_created': created_count if broker_positions else 0,
+                        'orders_synced': filled_count if orders_success and orders_data else 0,
+                        'success': True
+                    }
                 )
 
         except Exception as e:
@@ -681,6 +738,18 @@ class LiveTradingEngine:
                 f"Reconciliation failed with error: {str(e)}",
                 severity='error'
             )
+
+            # Publish reconciliation failure event for UI
+            if self.message_broker:
+                self.message_broker.publish(
+                    "reconciliation.failed",
+                    {
+                        'timestamp': now_utc().isoformat(),
+                        'account_hash': account_hash,
+                        'error': str(e),
+                        'success': False
+                    }
+                )
 
     def _cleanup_synthetic_positions(self):
         """
@@ -942,6 +1011,16 @@ class LiveTradingEngine:
             self.control_thread.start()
             self.logger.info("✅ Control message listener started")
 
+            # Start account activity listener (non-blocking)
+            self.logger.info("Starting account activity listener...")
+            self.account_activity_thread = threading.Thread(
+                target=self._listen_for_account_activity,
+                daemon=True,
+                name="AccountActivityListener"
+            )
+            self.account_activity_thread.start()
+            self.logger.info("✅ Account activity listener started")
+
         # Use Redis feed - no need to subscribe to contracts
         self.logger.info("Starting Redis data feed...")
         self.redis_feed.start()
@@ -1084,6 +1163,127 @@ class LiveTradingEngine:
             #         f"Batch processed: {len(bars_by_timestamp)} unique timestamps, "
             #         f"{len(new_bars)} total bars"
             #     )
+
+    def _listen_for_account_activity(self):
+        """Listen for account activity messages from streaming service."""
+        try:
+            # Create a separate broker instance for subscription (thread-safe)
+            from quant_vibe.messaging import RedisMessageBroker, Topic
+            redis_config = self.config.get('redis', {})
+            listener_broker = RedisMessageBroker(
+                host=redis_config.get('host'),
+                port=redis_config.get('port'),
+                db=redis_config.get('db'),
+            )
+
+            def handle_account_activity(topic: str, data: dict):
+                """Handle incoming account activity messages."""
+                try:
+                    from quant_vibe.utils import now_utc
+
+                    account = data.get('account', '')
+                    message_type = data.get('message_type', '')
+                    message_data = data.get('message_data', '')
+                    timestamp = data.get('timestamp')
+
+                    self.logger.info(f"📊 Account activity: {message_type} for account {account[:8] if account else 'unknown'}...")
+
+                    # Parse message_data if it's a JSON string
+                    activity_data = {}
+                    if message_data and isinstance(message_data, str):
+                        try:
+                            import json
+                            activity_data = json.loads(message_data)
+                        except json.JSONDecodeError:
+                            activity_data = {'raw_data': message_data}
+
+                    # Handle different message types
+                    if message_type in ['UROUT', 'OrderRouting']:
+                        # Order routing/execution updates
+                        self.logger.info(f"  Order update: {activity_data}")
+                        # Could trigger position refresh here if needed
+
+                    elif message_type in ['OrderFill', 'FILL']:
+                        # Order fill notification
+                        self.logger.info(f"  Order filled: {activity_data}")
+                        # Refresh positions to reflect the fill
+                        if not self.paper_trading:
+                            self._refresh_broker_positions(account_hash=account)
+
+                    elif message_type in ['PositionUpdate', 'POSITION']:
+                        # Position update
+                        self.logger.info(f"  Position update: {activity_data}")
+                        # Update local position tracking
+
+                    elif message_type in ['BalanceUpdate', 'BALANCE']:
+                        # Balance update - update database
+                        self.logger.info(f"  Balance update: {activity_data}")
+                        if not self.paper_trading:
+                            self._update_account_balance_from_activity(account, activity_data)
+
+                    else:
+                        self.logger.debug(f"  Unhandled message type: {message_type}")
+
+                    # Publish account activity event to UI
+                    if self.message_broker:
+                        event_data = {
+                            'event_type': 'account_activity',
+                            'account_hash': account,
+                            'message_type': message_type,
+                            'data': activity_data,
+                            'timestamp': timestamp or now_utc().isoformat()
+                        }
+
+                        # Publish to the appropriate topic for UI consumption
+                        self.message_broker.publish(
+                            f"account.activity.{message_type.lower()}",
+                            event_data
+                        )
+
+                        # Also publish a general account update event
+                        self.message_broker.publish(
+                            "account.balance.updated",
+                            {
+                                'account_hash': account,
+                                'event_type': 'balance_change',
+                                'timestamp': timestamp or now_utc().isoformat()
+                            }
+                        )
+
+                except Exception as e:
+                    self.logger.error(f"Error handling account activity: {e}", exc_info=True)
+
+            # Subscribe to account activity topic
+            listener_broker.subscribe([Topic.ACCOUNT_ACTIVITY], callback=handle_account_activity)
+
+            # Listen for messages (blocking in this thread)
+            listener_broker.listen()
+
+        except Exception as e:
+            self.logger.error(f"Account activity listener error: {e}", exc_info=True)
+
+    def _update_account_balance_from_activity(self, account_hash: str, balance_data: dict):
+        """Update account balance in database from activity message."""
+        try:
+            # Extract balance fields from activity data
+            cash_balance = balance_data.get('cash_balance')
+            buying_power = balance_data.get('buying_power')
+            liquidation_value = balance_data.get('liquidation_value')
+
+            if cash_balance is not None:
+                self.logger.info(f"  Updating balance for {account_hash[:8]}... - Cash: ${cash_balance:,.2f}")
+
+                # Update database using state store
+                # Note: This is a simplified update - you may need to extract more fields
+                self.state_store.update_account_balance(
+                    cash=cash_balance,
+                    portfolio_value=liquidation_value or cash_balance,
+                    account_hash=account_hash,
+                    buying_power=buying_power
+                )
+
+        except Exception as e:
+            self.logger.error(f"Failed to update account balance: {e}", exc_info=True)
 
     def _listen_for_control_messages(self):
         """
