@@ -642,6 +642,8 @@ async def get_trading_stats(
 @router.get("/daily-report")
 async def get_daily_report(
     report_date: Optional[date] = Query(None, description="Report date (YYYY-MM-DD), defaults to today"),
+    account_hash: Optional[str] = Query(None, description="Account hash to filter trades for a specific account"),
+    trading_mode: str = Query('paper', pattern='^(real|paper)$'),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -649,6 +651,8 @@ async def get_daily_report(
 
     Args:
         report_date: Date for the report (defaults to today)
+        account_hash: Optional account hash to filter trades for a specific account
+        trading_mode: Trading mode to query ('real' or 'paper')
         current_user: Authenticated user
 
     Returns:
@@ -665,10 +669,10 @@ async def get_daily_report(
             max_daily_drawdown_pct=0.02
         )
 
-        # Load trades from StateStore
-        state_store = StateStore()
+        # Load trades from StateStore with proper trading mode
+        state_store = StateStore(trading_mode=trading_mode)
         try:
-            trades = state_store.get_trades_for_date(report_date)
+            trades = state_store.get_trades_for_date(report_date, account_hash=account_hash)
 
             import pandas as pd
             from decimal import Decimal
@@ -703,6 +707,8 @@ async def get_daily_report(
 @router.get("/daily-reports/recent")
 async def get_recent_daily_reports(
     days: int = Query(7, ge=1, le=30, description="Number of days to retrieve"),
+    account_hash: Optional[str] = Query(None, description="Account hash to filter trades for a specific account"),
+    trading_mode: str = Query('paper', pattern='^(real|paper)$'),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -710,6 +716,8 @@ async def get_recent_daily_reports(
 
     Args:
         days: Number of recent days to retrieve (1-30)
+        account_hash: Optional account hash to filter trades for a specific account
+        trading_mode: Trading mode to query ('real' or 'paper')
         current_user: Authenticated user
 
     Returns:
@@ -726,7 +734,7 @@ async def get_recent_daily_reports(
             max_daily_drawdown_pct=0.02
         )
 
-        state_store = StateStore()
+        state_store = StateStore(trading_mode=trading_mode)
         try:
             from decimal import Decimal
 
@@ -735,7 +743,7 @@ async def get_recent_daily_reports(
                 target_date = date.today() - timedelta(days=i)
 
                 # Load trades for the date
-                trades = state_store.get_trades_for_date(target_date)
+                trades = state_store.get_trades_for_date(target_date, account_hash=account_hash)
 
                 if trades:
                     # Convert Decimal to float for numeric fields

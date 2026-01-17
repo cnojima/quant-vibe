@@ -30,8 +30,8 @@ def main():
     parser.add_argument(
         '--target',
         type=float,
-        default=1780.0,
-        help='Daily income target (default: $1,780)'
+        default=2000.0,
+        help='Daily income target (default: $2,000)'
     )
     parser.add_argument(
         '--output-dir',

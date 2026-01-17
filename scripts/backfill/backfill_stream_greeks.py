@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Backfill missing Greeks and contract details for streaming data.
+"""Analyze missing Greeks and contract details for streaming data.
+
+*** IMPORTANT: DATABASE UPDATES ARE DISABLED ***
+This script is in READ-ONLY mode for analysis purposes only.
+No database modifications will be performed.
 
 This script:
 1. Finds options_bars records from schwabdev_stream with NULL Greeks
-2. Fetches contract details from Schwab option chain API
-3. Updates records with Greeks, strike price, and implied volatility
+2. Analyzes contract details that would be fetched from API
+3. Reports on what updates would be needed (but does NOT apply them)
 
-OPTIMIZATION MODES:
-- --active-only: Only process non-expired contracts (can get Greeks from API)
-- --strikes-only: Fast bulk update of just strike prices (parsed from symbol, no API)
-- --mark-expired: Mark expired contracts with sentinel values to exclude from future queries
+ANALYSIS MODES:
+- --active-only: Analyze only non-expired contracts
+- --strikes-only: Analyze strike prices that could be parsed from symbols
+- --mark-expired: Analyze expired contracts that should be marked
 
-Safe to run during off-market hours. Idempotent (can run multiple times).
+Note: When professional data service is available in the future,
+transactional updates can be re-enabled.
 
 Usage:
     # Backfill all missing data
@@ -87,8 +92,13 @@ class StreamDataBackfiller:
         print("✓ Contract enricher initialized")
         print("✓ TimescaleDB connected")
 
+        print("\n" + "="*70)
+        print("⚠️  READ-ONLY MODE - DATABASE UPDATES ARE DISABLED")
+        print("This script will analyze data but NOT perform any updates")
+        print("="*70)
+
         if self.dry_run:
-            print("\n⚠️  DRY RUN MODE - No changes will be made to database")
+            print("\n⚠️  DRY RUN MODE - Analysis only (updates already disabled)")
 
     def find_records_needing_enrichment(
         self,
@@ -124,7 +134,7 @@ class StreamDataBackfiller:
                 OR vega IS NULL
                 OR rho IS NULL
                 OR implied_volatility IS NULL
-            )
+            ) AND expired IS NOT TRUE
         """
 
         params = []
@@ -302,22 +312,19 @@ class StreamDataBackfiller:
         limit: Optional[int] = None
     ) -> int:
         """
-        Bulk update strike prices only using SQL - NO API calls needed.
+        Analyze strike prices that could be bulk updated.
 
-        This is extremely fast because:
-        1. Strike price can be parsed directly from the option symbol
-        2. Uses a single SQL UPDATE with substring extraction
-        3. No network calls required
+        *** UPDATES DISABLED - READ-ONLY MODE ***
+        This method now only analyzes what could be updated.
 
         Returns:
-            Number of records updated
+            Number of records that would be updated
         """
         print("\n" + "="*70)
-        print("BULK UPDATING STRIKE PRICES (NO API)")
+        print("ANALYZING STRIKE PRICES (READ-ONLY)")
         print("="*70)
 
-        if self.dry_run:
-            print("\n⚠️  DRY RUN MODE - No changes will be made")
+        print("\n⚠️  READ-ONLY MODE - No database changes will be made")
 
         # Count records needing strike price
         count_query = """
@@ -362,46 +369,49 @@ class StreamDataBackfiller:
             """
             print(f"Limit: {limit}")
 
-        if self.dry_run:
-            print(f"\nWould update up to {limit or total_null:,} records")
-            return min(limit, total_null) if limit else total_null
+        # Always run in analysis mode (no actual updates)
+        print(f"\nWould update up to {limit or total_null:,} records (READ-ONLY MODE)")
 
-        print("\nExecuting bulk UPDATE...")
-        print("(Setting TimescaleDB decompression limit for large updates)")
-        start_time = datetime.now()
+        # Database updates are disabled - commented out for future re-enablement
+        # if self.dry_run:
+        #     print(f"\nWould update up to {limit or total_null:,} records")
+        #     return min(limit, total_null) if limit else total_null
+        #
+        # print("\nExecuting bulk UPDATE...")
+        # print("(Setting TimescaleDB decompression limit for large updates)")
+        # start_time = datetime.now()
+        #
+        # with self.ts_store.get_connection() as conn:
+        #     with conn.cursor() as cur:
+        #         # Increase decompression limit for this transaction
+        #         cur.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0;")
+        #         cur.execute(update_query)
+        #         updated = cur.rowcount
+        #         conn.commit()
+        #
+        # elapsed = (datetime.now() - start_time).total_seconds()
+        # print(f"✅ Updated {updated:,} records in {elapsed:.1f}s ({updated/elapsed:.0f} records/sec)")
 
-        with self.ts_store.get_connection() as conn:
-            with conn.cursor() as cur:
-                # Increase decompression limit for this transaction
-                cur.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0;")
-                cur.execute(update_query)
-                updated = cur.rowcount
-                conn.commit()
-
-        elapsed = (datetime.now() - start_time).total_seconds()
-        print(f"✅ Updated {updated:,} records in {elapsed:.1f}s ({updated/elapsed:.0f} records/sec)")
-
-        return updated
+        return min(limit, total_null) if limit else total_null
 
     def mark_expired_contracts(
         self,
         sentinel_value: float = -9.0  # Deprecated parameter, kept for backwards compatibility
     ) -> int:
         """
-        Mark expired contracts with expired=true flag to exclude from future queries.
+        Analyze expired contracts that could be marked.
 
-        This method now uses a boolean 'expired' column instead of the old -9.0 sentinel approach.
-        Expired contracts are flagged with expired=true and excluded from backtest queries.
+        *** UPDATES DISABLED - READ-ONLY MODE ***
+        This method now only analyzes what contracts would be marked.
 
         Returns:
-            Number of records marked
+            Number of records that would be marked
         """
         print("\n" + "="*70)
-        print("MARKING EXPIRED CONTRACTS")
+        print("ANALYZING EXPIRED CONTRACTS (READ-ONLY)")
         print("="*70)
 
-        if self.dry_run:
-            print("\n⚠️  DRY RUN MODE - No changes will be made")
+        print("\n⚠️  READ-ONLY MODE - No database changes will be made")
 
         today = date.today()
         print(f"Today: {today}")
@@ -432,65 +442,66 @@ class StreamDataBackfiller:
         print(f"Expired contracts: {len(expired_tickers):,}")
 
         if not expired_tickers:
-            print("✅ No expired contracts to mark!")
+            print("✅ No expired contracts to analyze!")
             return 0
 
-        if self.dry_run:
-            print(f"\nWould mark records for {len(expired_tickers):,} expired contracts")
-            # Count affected records
-            ticker_placeholders = ','.join(['%s'] * len(expired_tickers))
-            count_query = f"""
-                SELECT COUNT(*)
-                FROM options_bars
-                WHERE data_source = 'schwabdev_stream'
-                AND option_ticker IN ({ticker_placeholders})
-                AND delta IS NULL
-            """
-            with self.ts_store.get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(count_query, expired_tickers)
-                    count = cur.fetchone()[0]
-            print(f"Would mark {count:,} records with sentinel value")
-            return count
+        # Always analyze mode (no actual updates)
+        print(f"\nWould mark records for {len(expired_tickers):,} expired contracts (READ-ONLY MODE)")
 
-        # Update in batches to avoid memory issues
-        # Use smaller batches for TimescaleDB compressed hypertables
-        batch_size = 50  # Smaller batch to avoid decompression limits
-        total_updated = 0
-        start_time = datetime.now()
+        # Count affected records for analysis
+        ticker_placeholders = ','.join(['%s'] * len(expired_tickers))
+        count_query = f"""
+            SELECT COUNT(*)
+            FROM options_bars
+            WHERE data_source = 'schwabdev_stream'
+            AND option_ticker IN ({ticker_placeholders})
+            AND delta IS NULL
+        """
+        with self.ts_store.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(count_query, expired_tickers)
+                count = cur.fetchone()[0]
+        print(f"Would mark {count:,} records as expired")
 
-        print(f"\nMarking expired contracts in batches of {batch_size}...")
-        print("(Setting TimescaleDB decompression limit for large updates)")
+        # Database updates are disabled - commented out for future re-enablement
+        # # Update in batches to avoid memory issues
+        # # Use smaller batches for TimescaleDB compressed hypertables
+        # batch_size = 50  # Smaller batch to avoid decompression limits
+        # total_updated = 0
+        # start_time = datetime.now()
+        #
+        # print(f"\nMarking expired contracts in batches of {batch_size}...")
+        # print("(Setting TimescaleDB decompression limit for large updates)")
+        #
+        # for i in range(0, len(expired_tickers), batch_size):
+        #     batch = expired_tickers[i:i + batch_size]
+        #     ticker_placeholders = ','.join(['%s'] * len(batch))
+        #
+        #     update_query = f"""
+        #         UPDATE options_bars
+        #         SET expired = true
+        #         WHERE data_source = 'schwabdev_stream'
+        #         AND option_ticker IN ({ticker_placeholders})
+        #         AND COALESCE(expired, false) = false
+        #     """
+        #
+        #     params = batch
+        #
+        #     with self.ts_store.get_connection() as conn:
+        #         with conn.cursor() as cur:
+        #             # Increase decompression limit for this transaction
+        #             cur.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0;")
+        #             cur.execute(update_query, params)
+        #             total_updated += cur.rowcount
+        #             conn.commit()
+        #
+        #     progress = min(i + batch_size, len(expired_tickers))
+        #     print(f"  Progress: {progress:,}/{len(expired_tickers):,} contracts | {total_updated:,} records updated")
+        #
+        # elapsed = (datetime.now() - start_time).total_seconds()
+        # print(f"\n✅ Marked {total_updated:,} records in {elapsed:.1f}s")
 
-        for i in range(0, len(expired_tickers), batch_size):
-            batch = expired_tickers[i:i + batch_size]
-            ticker_placeholders = ','.join(['%s'] * len(batch))
-
-            update_query = f"""
-                UPDATE options_bars
-                SET expired = true
-                WHERE data_source = 'schwabdev_stream'
-                AND option_ticker IN ({ticker_placeholders})
-                AND COALESCE(expired, false) = false
-            """
-
-            params = batch
-
-            with self.ts_store.get_connection() as conn:
-                with conn.cursor() as cur:
-                    # Increase decompression limit for this transaction
-                    cur.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0;")
-                    cur.execute(update_query, params)
-                    total_updated += cur.rowcount
-                    conn.commit()
-
-            progress = min(i + batch_size, len(expired_tickers))
-            print(f"  Progress: {progress:,}/{len(expired_tickers):,} contracts | {total_updated:,} records updated")
-
-        elapsed = (datetime.now() - start_time).total_seconds()
-        print(f"\n✅ Marked {total_updated:,} records in {elapsed:.1f}s")
-
-        return total_updated
+        return count
 
     def parse_expiration_from_symbol(self, symbol: str) -> Optional[date]:
         """
@@ -551,7 +562,10 @@ class StreamDataBackfiller:
         enriched_data: Dict
     ) -> bool:
         """
-        Update a single record with enriched data.
+        Simulate updating a single record with enriched data.
+
+        *** UPDATES DISABLED - READ-ONLY MODE ***
+        This method now only simulates updates for analysis.
 
         Args:
             timestamp: Record timestamp
@@ -559,51 +573,57 @@ class StreamDataBackfiller:
             enriched_data: Dict with contract details
 
         Returns:
-            True if updated successfully
+            True (simulated success)
         """
-        update_query = """
-            UPDATE options_bars
-            SET
-                bid = COALESCE(bid, %s),
-                ask = COALESCE(ask, %s),
-                strike_price = COALESCE(strike_price, %s),
-                implied_volatility = COALESCE(implied_volatility, %s),
-                delta = COALESCE(delta, %s),
-                gamma = COALESCE(gamma, %s),
-                theta = COALESCE(theta, %s),
-                vega = COALESCE(vega, %s),
-                rho = COALESCE(rho, %s)
-            WHERE timestamp = %s
-            AND option_ticker = %s
-            AND data_source = 'schwabdev_stream'
-        """
+        # Database updates are disabled - only simulate
+        # Original update code commented out for future re-enablement
 
-        params = (
-            enriched_data.get('bid'),
-            enriched_data.get('ask'),
-            enriched_data.get('strike_price'),
-            enriched_data.get('implied_volatility'),
-            enriched_data.get('delta'),
-            enriched_data.get('gamma'),
-            enriched_data.get('theta'),
-            enriched_data.get('vega'),
-            enriched_data.get('rho'),
-            timestamp,
-            option_ticker
-        )
+        # update_query = """
+        #     UPDATE options_bars
+        #     SET
+        #         bid = COALESCE(bid, %s),
+        #         ask = COALESCE(ask, %s),
+        #         strike_price = COALESCE(strike_price, %s),
+        #         implied_volatility = COALESCE(implied_volatility, %s),
+        #         delta = COALESCE(delta, %s),
+        #         gamma = COALESCE(gamma, %s),
+        #         theta = COALESCE(theta, %s),
+        #         vega = COALESCE(vega, %s),
+        #         rho = COALESCE(rho, %s)
+        #     WHERE timestamp = %s
+        #     AND option_ticker = %s
+        #     AND data_source = 'schwabdev_stream'
+        # """
+        #
+        # params = (
+        #     enriched_data.get('bid'),
+        #     enriched_data.get('ask'),
+        #     enriched_data.get('strike_price'),
+        #     enriched_data.get('implied_volatility'),
+        #     enriched_data.get('delta'),
+        #     enriched_data.get('gamma'),
+        #     enriched_data.get('theta'),
+        #     enriched_data.get('vega'),
+        #     enriched_data.get('rho'),
+        #     timestamp,
+        #     option_ticker
+        # )
+        #
+        # if self.dry_run:
+        #     return True
+        #
+        # try:
+        #     with self.ts_store.get_connection() as conn:
+        #         with conn.cursor() as cur:
+        #             cur.execute(update_query, params)
+        #             conn.commit()
+        #     return True
+        # except Exception as e:
+        #     print(f"  ✗ Error updating {option_ticker}: {e}")
+        #     return False
 
-        if self.dry_run:
-            return True
-
-        try:
-            with self.ts_store.get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(update_query, params)
-                    conn.commit()
-            return True
-        except Exception as e:
-            print(f"  ✗ Error updating {option_ticker}: {e}")
-            return False
+        # Always return True in read-only mode (simulated success)
+        return True
 
     def backfill(
         self,
@@ -626,16 +646,19 @@ class StreamDataBackfiller:
         start_time = datetime.now()
 
         print("\n" + "="*70)
-        print("BACKFILLING STREAMING DATA WITH GREEKS")
+        print("ANALYZING STREAMING DATA FOR MISSING GREEKS (READ-ONLY)")
         print("="*70)
         print(f"Started: {start_time}")
+        print(f"Date range: {start_date} to {end_date}")
         if active_only:
             print("Mode: ACTIVE CONTRACTS ONLY (non-expired)")
         else:
             print("Mode: ALL CONTRACTS (may include expired)")
+        print("⚠️  DATABASE UPDATES DISABLED - Analysis only")
         print("="*70)
 
         # Find records needing enrichment
+        print("\nSearching for records needing enrichment...")
         if active_only:
             records = self.find_active_contracts_needing_enrichment(start_date, end_date, limit)
         else:
@@ -643,7 +666,10 @@ class StreamDataBackfiller:
 
         if not records:
             print("\n✅ No records need enrichment!")
+            print("Script will now exit.")
             return
+
+        print(f"\nWill process {len(records)} records")
 
         # Get unique symbols
         symbols = self.get_unique_symbols(records)
@@ -657,10 +683,26 @@ class StreamDataBackfiller:
         print("\nFetching option chain from Schwab API...")
         print("(This may take a moment for large date ranges)")
 
-        # Use a large strike count to get as many contracts as possible
-        contracts_cached = self.enricher.refresh_contract_details("$SPX", strike_count=100)
+        # Use a moderate strike count to avoid API buffer overflow
+        # Schwab API returns 502 with "Body buffer overflow" if too many strikes requested
+        MAX_STRIKES = 30  # Reduced from 100 to avoid API gateway buffer overflow
+
+        print(f"  Requesting up to {MAX_STRIKES} strikes to avoid API overflow...")
+        contracts_cached = self.enricher.refresh_contract_details("$SPX", strike_count=MAX_STRIKES)
 
         print(f"✓ Cached {contracts_cached:,} contracts from option chain")
+
+        # If we got 0 contracts, try with even fewer strikes
+        if contracts_cached == 0:
+            print("\n⚠️  No contracts cached. Retrying with fewer strikes...")
+            for strike_count in [20, 10, 5]:
+                print(f"  Retrying with {strike_count} strikes...")
+                contracts_cached = self.enricher.refresh_contract_details("$SPX", strike_count=strike_count)
+                if contracts_cached > 0:
+                    print(f"✓ Successfully cached {contracts_cached:,} contracts with {strike_count} strikes")
+                    break
+            else:
+                print("❌ Failed to cache any contracts from API. Will use fallback strike parsing only.")
 
         # Build fallback strike mapping from symbols
         print("\nBuilding fallback strike mapping from symbols...")
@@ -747,23 +789,17 @@ class StreamDataBackfiller:
         elapsed = (datetime.now() - start_time).total_seconds()
 
         print(f"\n" + "="*70)
-        print("BACKFILL COMPLETE")
+        print("ANALYSIS COMPLETE (READ-ONLY)")
         print("="*70)
 
-        if self.dry_run:
-            print("⚠️  DRY RUN - No changes were made")
-            print(f"\nWould have updated: {updated_count:,} records")
-        else:
-            print(f"✅ Updated: {updated_count:,} records")
-
+        print("⚠️  READ-ONLY MODE - No database changes were made")
+        print(f"\nWould have updated: {updated_count:,} records")
         print(f"⏭️  Skipped: {skipped_count:,} records (no data available)")
         print(f"❌ Errors: {error_count}")
         print(f"⏱️  Time: {elapsed:.1f}s ({updated_count/elapsed:.1f} records/sec)")
 
-        # Show sample of what was updated
-        if updated_count > 0 and not self.dry_run:
-            print(f"\nVerifying updates...")
-            self._show_sample_updates()
+        # Skip verification since no actual updates were made
+        print("\nNote: Verification skipped (no actual updates performed)")
 
     def _show_sample_updates(self, limit: int = 5):
         """Show sample of updated records to verify."""
@@ -940,8 +976,15 @@ class StreamDataBackfiller:
 
 def main():
     """Main entry point."""
+    print("\n" + "="*70)
+    print("STREAM GREEKS ANALYSIS SCRIPT (READ-ONLY)")
+    print("*** DATABASE UPDATES ARE DISABLED ***")
+    print(f"Time: {datetime.now()}")
+    print(f"PID: {os.getpid()}")
+    print("="*70)
+
     parser = argparse.ArgumentParser(
-        description="Backfill missing Greeks and contract details in streaming data",
+        description="Analyze missing Greeks and contract details in streaming data (READ-ONLY MODE - No database updates)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -980,13 +1023,13 @@ Recommended workflow for large datasets:
     parser.add_argument(
         '--start',
         type=str,
-        help='Start date (YYYY-MM-DD)'
+        help='Start date/time. Formats: YYYY-MM-DD, "YYYY-MM-DD HH:MM:SS", YYYY-MM-DDTHH:MM:SS+00'
     )
 
     parser.add_argument(
         '--end',
         type=str,
-        help='End date (YYYY-MM-DD)'
+        help='End date/time. Formats: YYYY-MM-DD, "YYYY-MM-DD HH:MM:SS", YYYY-MM-DDTHH:MM:SS+00'
     )
 
     parser.add_argument(
@@ -1043,17 +1086,81 @@ Recommended workflow for large datasets:
         if len(exclusive_modes) > 1:
             parser.error(f"Cannot use multiple modes together: {', '.join(exclusive_modes)}")
 
-    # Parse dates
+    # Parse dates - support both YYYY-MM-DD and full datetime strings
     start_date = None
     end_date = None
 
     if args.start:
-        parts = args.start.split('-')
-        start_date = datetime(int(parts[0]), int(parts[1]), int(parts[2]), tzinfo=timezone.utc)
+        try:
+            # Try parsing as full datetime first
+            if 'T' in args.start or ' ' in args.start or ':' in args.start:
+                # Replace T with space for parsing
+                datetime_str = args.start.replace('T', ' ')
+                # Handle timezone
+                if '+' in datetime_str or 'Z' in datetime_str:
+                    # Parse with timezone
+                    from dateutil import parser
+                    start_date = parser.parse(datetime_str)
+                    if start_date.tzinfo is None:
+                        start_date = start_date.replace(tzinfo=timezone.utc)
+                else:
+                    # Parse without timezone, assume UTC
+                    if ' ' in datetime_str:
+                        date_part, time_part = datetime_str.split(' ')
+                        date_parts = date_part.split('-')
+                        time_parts = time_part.split(':')
+                        start_date = datetime(
+                            int(date_parts[0]), int(date_parts[1]), int(date_parts[2]),
+                            int(time_parts[0]), int(time_parts[1]),
+                            int(float(time_parts[2])) if len(time_parts) > 2 else 0,
+                            tzinfo=timezone.utc
+                        )
+                    else:
+                        # Just date
+                        parts = datetime_str.split('-')
+                        start_date = datetime(int(parts[0]), int(parts[1]), int(parts[2]), tzinfo=timezone.utc)
+            else:
+                # Simple date format YYYY-MM-DD
+                parts = args.start.split('-')
+                start_date = datetime(int(parts[0]), int(parts[1]), int(parts[2]), tzinfo=timezone.utc)
+        except Exception as e:
+            parser.error(f"Invalid start date format: {args.start}. Use YYYY-MM-DD or 'YYYY-MM-DD HH:MM:SS'")
 
     if args.end:
-        parts = args.end.split('-')
-        end_date = datetime(int(parts[0]), int(parts[1]), int(parts[2]), 23, 59, 59, tzinfo=timezone.utc)
+        try:
+            # Try parsing as full datetime first
+            if 'T' in args.end or ' ' in args.end or ':' in args.end:
+                # Replace T with space for parsing
+                datetime_str = args.end.replace('T', ' ')
+                # Handle timezone
+                if '+' in datetime_str or 'Z' in datetime_str:
+                    # Parse with timezone
+                    from dateutil import parser
+                    end_date = parser.parse(datetime_str)
+                    if end_date.tzinfo is None:
+                        end_date = end_date.replace(tzinfo=timezone.utc)
+                else:
+                    # Parse without timezone, assume UTC
+                    if ' ' in datetime_str:
+                        date_part, time_part = datetime_str.split(' ')
+                        date_parts = date_part.split('-')
+                        time_parts = time_part.split(':')
+                        end_date = datetime(
+                            int(date_parts[0]), int(date_parts[1]), int(date_parts[2]),
+                            int(time_parts[0]), int(time_parts[1]),
+                            int(float(time_parts[2])) if len(time_parts) > 2 else 0,
+                            tzinfo=timezone.utc
+                        )
+                    else:
+                        # Just date
+                        parts = datetime_str.split('-')
+                        end_date = datetime(int(parts[0]), int(parts[1]), int(parts[2]), 23, 59, 59, tzinfo=timezone.utc)
+            else:
+                # Simple date format YYYY-MM-DD - use end of day
+                parts = args.end.split('-')
+                end_date = datetime(int(parts[0]), int(parts[1]), int(parts[2]), 23, 59, 59, tzinfo=timezone.utc)
+        except Exception as e:
+            parser.error(f"Invalid end date format: {args.end}. Use YYYY-MM-DD or 'YYYY-MM-DD HH:MM:SS'")
 
     # Initialize backfiller
     backfiller = StreamDataBackfiller(dry_run=args.dry_run)
@@ -1088,6 +1195,14 @@ Recommended workflow for large datasets:
 
     finally:
         backfiller.cleanup()
+        print("\n" + "="*70)
+        print("STREAM GREEKS ANALYSIS COMPLETED (READ-ONLY)")
+        print("*** NO DATABASE CHANGES WERE MADE ***")
+        print(f"Time: {datetime.now()}")
+        print(f"PID: {os.getpid()}")
+        print("="*70)
+        print("\nExiting normally...")
+        sys.exit(0)  # Explicit exit
 
 
 if __name__ == "__main__":
@@ -1095,7 +1210,12 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\n\n⚠️  Interrupted by user")
+        sys.exit(1)
+    except SystemExit as e:
+        # Normal exit, re-raise it
+        raise
     except Exception as e:
         print(f"\n\n❌ Error: {e}")
         import traceback
         traceback.print_exc()
+        sys.exit(1)

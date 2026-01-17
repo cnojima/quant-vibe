@@ -394,63 +394,6 @@ def parse_spxw_ticker(ticker: str) -> Dict[str, Any]:
         print(f"    ⚠️  Error parsing ticker {ticker}: {e}")
         return None
 
-
-def run_greeks_backfill(start_date: datetime, end_date: datetime, dry_run: bool = False):
-    """
-    Run the backfill_stream_greeks.py script to enrich data with Greeks.
-
-    Args:
-        start_date: Start date for backfill
-        end_date: End date for backfill
-        dry_run: If True, run in dry-run mode (no changes)
-    """
-    print("\n" + "="*70)
-    print("ENRICHING DATA WITH GREEKS")
-    print("="*70)
-    print()
-
-    script_path = Path(__file__).parent / "backfill_stream_greeks.py"
-
-    if not script_path.exists():
-        print(f"⚠️  Greeks backfill script not found: {script_path}")
-        print("   Skipping Greeks enrichment")
-        return
-
-    # Build command
-    cmd = [
-        sys.executable,
-        str(script_path),
-        "--start", start_date.strftime("%Y-%m-%d"),
-        "--end", end_date.strftime("%Y-%m-%d"),
-    ]
-
-    if dry_run:
-        cmd.append("--dry-run")
-
-    print(f"Running: {' '.join(cmd)}")
-    print()
-
-    try:
-        # Run the script
-        result = subprocess.run(
-            cmd,
-            check=True,
-            capture_output=False,  # Show output in real-time
-        )
-
-        if result.returncode == 0:
-            print("\n✅ Greeks enrichment completed successfully")
-        else:
-            print(f"\n⚠️  Greeks enrichment finished with code {result.returncode}")
-
-    except subprocess.CalledProcessError as e:
-        print(f"\n❌ Error running Greeks backfill: {e}")
-        print("   Data was inserted but Greeks may be incomplete")
-    except Exception as e:
-        print(f"\n❌ Unexpected error: {e}")
-        print("   Data was inserted but Greeks may be incomplete")
-
-
 def main():
     """Backfill SPX/SPXW options data."""
 
@@ -465,9 +408,6 @@ Examples:
 
   # Backfill with specific DTE range
   python scripts/backfill/massive_spx_options.py --start 2025-07-01 --end 2025-12-12 --max-dte 5
-
-  # Backfill without Greeks enrichment
-  python scripts/backfill/massive_spx_options.py --start 2025-07-01 --end 2025-12-12 --no-greeks
         """
     )
 
@@ -548,12 +488,6 @@ Examples:
         type=int,
         default=1000,
         help='Batch size for database inserts (default: 1000)'
-    )
-
-    parser.add_argument(
-        '--no-greeks',
-        action='store_true',
-        help='Skip Greeks enrichment (faster, but incomplete data)'
     )
 
     args = parser.parse_args()
@@ -803,13 +737,6 @@ Examples:
 
     finally:
         ts_store.close()
-
-    # ========================================================================
-    # ENRICH WITH GREEKS
-    # ========================================================================
-
-    if not args.no_greeks and total_bars_inserted > 0:
-        run_greeks_backfill(start_date, end_date, dry_run=False)
 
     # ========================================================================
     # SUMMARY

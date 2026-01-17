@@ -324,24 +324,31 @@ export function useLiveStats(startTime?: string, endTime?: string, tradingMode: 
   });
 }
 
-export function useDailyReport(reportDate?: string) {
+export function useDailyReport(reportDate?: string, accountHash?: string, tradingMode: 'real' | 'paper' = 'paper') {
   return useQuery({
-    queryKey: ['daily-report', reportDate],
+    queryKey: ['daily-report', reportDate, accountHash, tradingMode],
     queryFn: async () => {
+      const params: any = { trading_mode: tradingMode };
+      if (reportDate) params.report_date = reportDate;
+      if (accountHash) params.account_hash = accountHash;
+
       const response = await apiClient.get<{report: any; generated_at: string}>('/live/daily-report', {
-        params: reportDate ? { report_date: reportDate } : {},
+        params,
       });
       return response.data.report;
     },
   });
 }
 
-export function useRecentDailyReports(days: number = 7) {
+export function useRecentDailyReports(days: number = 7, accountHash?: string, tradingMode: 'real' | 'paper' = 'paper') {
   return useQuery({
-    queryKey: ['daily-reports-recent', days],
+    queryKey: ['daily-reports-recent', days, accountHash, tradingMode],
     queryFn: async () => {
+      const params: any = { days, trading_mode: tradingMode };
+      if (accountHash) params.account_hash = accountHash;
+
       const response = await apiClient.get<{reports: any[]; count: number; days: number}>('/live/daily-reports/recent', {
-        params: { days },
+        params,
       });
       return response.data.reports;
     },

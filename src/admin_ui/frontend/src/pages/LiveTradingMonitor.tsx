@@ -24,8 +24,8 @@ export function LiveTradingMonitor() {
   const toggleDataFeedMode = useToggleDataFeedMode();
   const reconcilePositions = useReconcilePositions();
   const { data: stats} = useLiveStats(undefined, undefined, tradingMode);
-  const { data: todayReport } = useDailyReport();
-  const { data: recentReports } = useRecentDailyReports(7);
+  const { data: todayReport } = useDailyReport(undefined, selectedAccount || undefined, tradingMode);
+  const { data: recentReports } = useRecentDailyReports(7, selectedAccount || undefined, tradingMode);
   const { data: activeStrategies } = useActiveStrategies();
   const { data: tradesViz, isLoading: tradesLoading } = useLiveTradesVisualization(tradesDays);
 
@@ -833,7 +833,7 @@ export function LiveTradingMonitor() {
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 <div>
-                  <div className="text-sm text-gray-600">Actual P&L</div>
+                  <div className="text-sm text-gray-600">Realized P&L</div>
                   <div className={`text-2xl font-bold ${todayReport.actual_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {formatCurrency(todayReport.actual_pnl)}
                   </div>
