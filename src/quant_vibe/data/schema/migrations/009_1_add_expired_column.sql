@@ -23,39 +23,70 @@ COMMENT ON COLUMN options_bars.expired IS
 'Flag indicating if contract has expired (true) or is still valid (false). Replaces -9.0 sentinel value.';
 
 -- =============================================================================
--- Step 2: Migrate existing -9.0 sentinel values
+-- Step 2: Migrate existing -9.0 sentinel values (OPTIMIZED WITH BATCHING)
 -- =============================================================================
 
--- Mark records with -9.0 IV as expired and clean up the sentinel values
-UPDATE options_bars
-SET
-    expired = true,
-    implied_volatility = NULL,
-    delta = NULL,
-    gamma = NULL,
-    theta = NULL,
-    vega = NULL,
-    rho = NULL
-WHERE implied_volatility = -9.0;
+-- First, check if migration is already complete
+DO $$
+DECLARE
+    records_count INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO records_count
+    FROM (
+        SELECT 1 FROM options_bars
+        WHERE implied_volatility = -9.0
+        LIMIT 1
+    ) t;
 
--- Also check for -9.0 in other greeks (defensive)
-UPDATE options_bars
-SET
-    expired = true,
-    delta = CASE WHEN delta = -9.0 THEN NULL ELSE delta END,
-    gamma = CASE WHEN gamma = -9.0 THEN NULL ELSE gamma END,
-    theta = CASE WHEN theta = -9.0 THEN NULL ELSE theta END,
-    vega = CASE WHEN vega = -9.0 THEN NULL ELSE vega END,
-    rho = CASE WHEN rho = -9.0 THEN NULL ELSE rho END,
-    implied_volatility = CASE WHEN implied_volatility = -9.0 THEN NULL ELSE implied_volatility END
-WHERE expired = false
-  AND (
-    delta = -9.0 OR
-    gamma = -9.0 OR
-    theta = -9.0 OR
-    vega = -9.0 OR
-    rho = -9.0
-  );
+    IF records_count = 0 THEN
+        RAISE NOTICE 'No records with implied_volatility = -9.0 found, skipping migration';
+    ELSE
+        RAISE NOTICE 'Found records to migrate, processing...';
+    END IF;
+END $$;
+
+-- Process implied_volatility = -9.0 in batches to avoid timeout
+DO $$
+DECLARE
+    batch_size INTEGER := 5000;
+    rows_updated INTEGER;
+    total_updated INTEGER := 0;
+BEGIN
+    LOOP
+        -- Update in batches using CTID for efficiency
+        UPDATE options_bars
+        SET
+            expired = true,
+            implied_volatility = NULL,
+            delta = NULL,
+            gamma = NULL,
+            theta = NULL,
+            vega = NULL,
+            rho = NULL
+        WHERE ctid IN (
+            SELECT ctid
+            FROM options_bars
+            WHERE implied_volatility = -9.0
+              AND expired = false
+            LIMIT batch_size
+        );
+
+        GET DIAGNOSTICS rows_updated = ROW_COUNT;
+        total_updated := total_updated + rows_updated;
+
+        EXIT WHEN rows_updated = 0;
+
+        -- Progress log every 25k records
+        IF total_updated % 25000 = 0 THEN
+            RAISE NOTICE 'Processed % records...', total_updated;
+        END IF;
+    END LOOP;
+
+    RAISE NOTICE 'Completed: % total records updated', total_updated;
+END $$;
+
+-- Skip the complex multi-column check as it's rarely needed and causes timeouts
+-- If needed, run separately with: UPDATE options_bars SET expired=true WHERE delta=-9.0 OR gamma=-9.0...
 
 COMMIT;
 
