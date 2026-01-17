@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ChevronDownIcon, CheckIcon, ArrowPathIcon, LinkIcon } from '@heroicons/react/24/outline';
 import { useBrokerAccounts, useSetDefaultAccount, useRefreshAccounts } from '../api/queries';
+import { useToast } from '../contexts/ToastContext';
 
 interface AccountSelectorProps {
   tradingMode: 'real' | 'paper';
@@ -13,6 +14,7 @@ export function AccountSelector({ tradingMode, selectedAccount, onAccountChange 
   const { data: accountsData, isLoading, refetch } = useBrokerAccounts(tradingMode);
   const setDefaultMutation = useSetDefaultAccount();
   const refreshMutation = useRefreshAccounts();
+  const { addToast } = useToast();
 
   const accounts = accountsData?.accounts || [];
 
@@ -33,7 +35,21 @@ export function AccountSelector({ tradingMode, selectedAccount, onAccountChange 
       { accountHash, tradingMode },
       {
         onSuccess: () => {
+          addToast({
+            type: 'success',
+            title: 'Default Account Updated',
+            message: 'Successfully set as default account',
+            duration: 4000,
+          });
           refetch();
+        },
+        onError: (error: any) => {
+          addToast({
+            type: 'error',
+            title: 'Failed to Set Default',
+            message: error.response?.data?.detail || error.message || 'Could not update default account',
+            duration: 5000,
+          });
         },
       }
     );
@@ -41,8 +57,22 @@ export function AccountSelector({ tradingMode, selectedAccount, onAccountChange 
 
   const handleRefresh = () => {
     refreshMutation.mutate(tradingMode, {
-      onSuccess: () => {
+      onSuccess: (data) => {
+        addToast({
+          type: 'success',
+          title: 'Accounts Refreshed',
+          message: `Successfully refreshed ${data?.count || 0} account(s)`,
+          duration: 3000,
+        });
         refetch();
+      },
+      onError: (error: any) => {
+        addToast({
+          type: 'error',
+          title: 'Refresh Failed',
+          message: error.response?.data?.detail || error.message || 'Could not refresh accounts',
+          duration: 5000,
+        });
       },
     });
   };
@@ -156,8 +186,12 @@ export function AccountSelector({ tradingMode, selectedAccount, onAccountChange 
               <button
                 onClick={() => {
                   setIsOpen(false);
-                  // Could open an add account modal here
-                  alert('Account management coming soon');
+                  addToast({
+                    type: 'info',
+                    title: 'Coming Soon',
+                    message: 'Account management features will be available in a future update',
+                    duration: 4000,
+                  });
                 }}
                 className="text-sm text-blue-600 hover:text-blue-800"
               >
@@ -179,8 +213,12 @@ export function AccountSelector({ tradingMode, selectedAccount, onAccountChange 
 
       <button
         onClick={() => {
-          // Sync orders functionality
-          alert('Order sync coming soon for account: ' + selectedAccountData?.nickname);
+          addToast({
+            type: 'info',
+            title: 'Order Sync Coming Soon',
+            message: `Order synchronization for ${selectedAccountData?.nickname || 'this account'} will be available in a future update`,
+            duration: 4000,
+          });
         }}
         className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
         title="Sync orders from broker"

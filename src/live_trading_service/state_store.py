@@ -458,6 +458,23 @@ class StateStore:
     # Orders
     # ========================================================================
 
+    def clear_broker_sync_orders(self):
+        """
+        Clear orders that were synced from broker (not created by strategies).
+        Keeps orders created by trading strategies.
+        """
+        try:
+            self.cursor.execute(f"""
+                DELETE FROM {self.table_prefix}orders
+                WHERE strategy_name = 'broker_sync'
+            """)
+            deleted_count = self.cursor.rowcount
+            self.conn.commit()
+            return deleted_count
+        except Exception as e:
+            self.conn.rollback()
+            raise
+
     def save_order(self, order_data: Dict):
         """
         Save or update an order.
@@ -487,14 +504,14 @@ class StateStore:
                     metadata = EXCLUDED.metadata,
                     updated_at = NOW()
             """, {
-                'order_id': order_data['order_id'],
+                'order_id': order_data.get('order_id', f"unknown_{now_utc().timestamp()}"),
                 'position_id': order_data.get('position_id'),
-                'strategy_name': order_data['strategy_name'],
-                'order_type': order_data['order_type'],
+                'strategy_name': order_data.get('strategy_name', 'broker_sync'),  # Default for broker-synced orders
+                'order_type': order_data.get('order_type', 'LIMIT'),
                 'action_type': order_data.get('action_type', 'opening'),
-                'side': order_data['side'],
-                'quantity': order_data['quantity'],
-                'symbol': order_data['symbol'],
+                'side': order_data.get('side', 'BUY'),
+                'quantity': order_data.get('quantity', 1),
+                'symbol': order_data.get('symbol', 'UNKNOWN'),
                 'status': order_data.get('status', 'pending'),
                 'submitted_time': order_data.get('submitted_time', now_utc()),
                 'filled_time': order_data.get('filled_time'),  # BUG FIX: was missing

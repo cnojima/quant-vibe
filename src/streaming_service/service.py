@@ -427,6 +427,39 @@ class StreamingService:
                                         except Exception as model_err:
                                             self.logger.warning(f"Failed to create OptionsBar model: {model_err}")
 
+                        # Handle account activity messages
+                        elif service == 'ACCT_ACTIVITY' and content:
+                            timestamp = now_utc()
+
+                            for item in content:
+                                # Account activity fields:
+                                # 0=Account, 1=Message Type, 2=Message Data, 3=Timestamp
+                                account = item.get('0', '')
+                                message_type = item.get('1', '')
+                                message_data = item.get('2', '')
+                                activity_timestamp = item.get('3', '')
+
+                                if not account:
+                                    continue
+
+                                # Create account activity message
+                                activity_msg = {
+                                    'timestamp': timestamp,
+                                    'account': account,
+                                    'message_type': message_type,
+                                    'message_data': message_data,
+                                    'activity_timestamp': activity_timestamp,
+                                }
+
+                                # Publish to Redis for live_trading_service to consume
+                                if self.message_broker:
+                                    try:
+                                        if self.message_broker.publish(Topic.ACCOUNT_ACTIVITY, activity_msg):
+                                            self.redis_publish_count += 1
+                                            self.logger.info(f"  📊 Account activity: {message_type} for account {account[:8]}...")
+                                    except Exception as pub_err:
+                                        self.logger.warning(f"Failed to publish account activity: {pub_err}")
+
                         # Handle underlying asset quotes (SPX, etc.)
                         elif service == 'LEVELONE_EQUITIES' and content:
                             timestamp = now_utc()
@@ -650,6 +683,9 @@ class StreamingService:
         # Subscribe to underlying asset ($SPX)
         self._subscribe_to_underlying()
 
+        # Subscribe to account activity
+        self._subscribe_to_account_activity()
+
         self.logger.info("✅ All subscriptions active")
         self.logger.info("Streaming data... (Press Ctrl+C to stop)")
 
@@ -694,6 +730,18 @@ class StreamingService:
         )
 
         self.logger.info("  ✓ Subscribed to $SPX equity quotes")
+
+    def _subscribe_to_account_activity(self):
+        """Subscribe to account activity updates."""
+        self.logger.info("Subscribing to account activity...")
+
+        # Subscribe to account activity
+        # Fields: 0=Account, 1=Message Type, 2=Message Data, 3=Timestamp
+        self.streamer.send(
+            self.streamer.account_activity()
+        )
+
+        self.logger.info("  ✓ Subscribed to account activity")
 
     def _run_main_loop(self):
         """Run main service loop."""

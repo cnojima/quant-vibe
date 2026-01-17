@@ -7,6 +7,7 @@ import { LiveTradesChart } from '../components/charts/LiveTradesChart';
 import { AccountSelector } from '../components/AccountSelector';
 import { AccountBalancePanel } from '../components/AccountBalancePanel';
 import { formatDistanceToNow } from 'date-fns';
+import { useToast } from '../contexts/ToastContext';
 
 export function LiveTradingMonitor() {
   const [tradingMode, setTradingMode] = useState<'real' | 'paper'>('paper');
@@ -14,6 +15,7 @@ export function LiveTradingMonitor() {
   const [selectedTab, setSelectedTab] = useState<'positions' | 'orders' | 'events' | 'reports' | 'trades'>('positions');
   const [orderStatusFilter, setOrderStatusFilter] = useState<'open' | 'filled' | 'rejected' | 'cancelled' | 'all'>('all');
   const [tradesDays, setTradesDays] = useState<number>(7);
+  const { addToast } = useToast();
 
   // Fetch data for current trading mode and account
   const { data: status, isLoading: statusLoading } = useLiveStatus(tradingMode);
@@ -42,10 +44,20 @@ export function LiveTradingMonitor() {
     if (window.confirm(`Switch data feed mode from "${currentMode}" to "${newMode}"?\n\n⚠️ IMPORTANT: You must restart the ${tradingMode} trading engine for this change to take effect.\n\nProceed with config update?`)) {
       toggleDataFeedMode.mutate(tradingMode, {
         onSuccess: (data) => {
-          alert(`✅ ${data.message}\n\n${data.note}`);
+          addToast({
+            type: 'success',
+            title: 'Data Feed Mode Updated',
+            message: `${data.message}. ${data.note || 'Please restart the trading engine for changes to take effect.'}`,
+            duration: 8000
+          });
         },
         onError: (error: any) => {
-          alert(`Failed to toggle data feed mode: ${error.response?.data?.detail || error.message}`);
+          addToast({
+            type: 'error',
+            title: 'Failed to Toggle Data Feed Mode',
+            message: error.response?.data?.detail || error.message || 'An unknown error occurred',
+            duration: 6000
+          });
         }
       });
     }
@@ -56,23 +68,36 @@ export function LiveTradingMonitor() {
     console.log('Reconciling with selectedAccount:', selectedAccount);
 
     if (!selectedAccount) {
-      alert('Please wait for accounts to load or select an account first');
+      addToast({
+        type: 'warning',
+        title: 'Account Required',
+        message: 'Please wait for accounts to load or select an account first',
+        duration: 5000
+      });
       return;
     }
 
-    if (window.confirm(`Trigger position reconciliation with Schwab broker?\n\nAccount: ${selectedAccount}\nThis will compare internal positions with your broker account and log any discrepancies.`)) {
       reconcilePositions.mutate({
         tradingMode,
         accountHash: selectedAccount
       }, {
         onSuccess: (data) => {
-          alert(data.message);
+          addToast({
+            type: 'success',
+            title: 'Reconciliation Complete',
+            message: data.message || 'Positions successfully synchronized with broker',
+            duration: 6000
+          });
         },
         onError: (error: any) => {
-          alert(`Reconciliation failed: ${error.response?.data?.detail || error.message}`);
+          addToast({
+            type: 'error',
+            title: 'Reconciliation Failed',
+            message: error.response?.data?.detail || error.message || 'Failed to synchronize positions',
+            duration: 6000
+          });
         }
       });
-    }
   };
 
   // WebSocket disabled - using REST API polling instead
