@@ -5,7 +5,8 @@ import { Badge } from '../components/common/Badge';
 import type { StrategyInfo } from '../types/api';
 
 export function StrategiesManager() {
-  const { data: strategiesData, isLoading } = useLiveStrategies();
+  const [tradingMode, setTradingMode] = useState<'real' | 'paper'>('paper');
+  const { data: strategiesData, isLoading } = useLiveStrategies(tradingMode);
   const toggleStrategy = useToggleLiveStrategy();
   const [expandedStrategy, setExpandedStrategy] = useState<string | null>(null);
   const [lastReloadStatus, setLastReloadStatus] = useState<{
@@ -29,6 +30,7 @@ export function StrategiesManager() {
       const result = await toggleStrategy.mutateAsync({
         strategyName,
         enabled: !currentlyEnabled,
+        tradingMode,
       });
 
       // Update reload status banner
@@ -53,11 +55,56 @@ export function StrategiesManager() {
   return (
     <div>
       <div className="mb-4 md:mb-6">
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Strategy Management</h1>
-        <p className="text-sm md:text-base text-gray-600 mt-1 md:mt-2">
-          Enable, disable, and configure trading strategies
-        </p>
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Strategy Management</h1>
+            <p className="text-sm md:text-base text-gray-600 mt-1 md:mt-2">
+              Enable, disable, and configure trading strategies
+            </p>
+          </div>
+
+          {/* Trading Mode Selector */}
+          <div className="flex items-center space-x-2 bg-white rounded-lg shadow-sm border border-gray-200 p-1">
+            <button
+              onClick={() => setTradingMode('paper')}
+              className={`px-4 py-2 rounded-md font-medium text-sm transition-all ${
+                tradingMode === 'paper'
+                  ? 'bg-blue-500 text-white'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Paper Trading
+            </button>
+            <button
+              onClick={() => setTradingMode('real')}
+              className={`px-4 py-2 rounded-md font-medium text-sm transition-all ${
+                tradingMode === 'real'
+                  ? 'bg-red-500 text-white'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Real Trading
+            </button>
+          </div>
+        </div>
       </div>
+
+      {/* Warning for Real Trading Mode */}
+      {tradingMode === 'real' && (
+        <Card className="mb-4 bg-red-50 border-red-200">
+          <div className="flex items-start gap-3">
+            <svg className="w-6 h-6 text-red-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <h3 className="font-semibold text-red-900">Real Trading Mode Active</h3>
+              <p className="text-sm text-red-800 mt-1">
+                You are configuring strategies for REAL trading with actual funds. Changes will affect real positions and capital.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Status Banner - Dynamic based on reload capability */}
       {lastReloadStatus && lastReloadStatus.autoReload ? (
