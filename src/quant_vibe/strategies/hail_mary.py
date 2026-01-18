@@ -320,7 +320,7 @@ class HailMaryStrategy(OptionsStrategy):
         # Create single leg position
         legs = [
             OptionLeg(
-                contract_symbol=selected_option['contract_symbol'],
+                option_ticker=selected_option['option_ticker'],
                 option_type=OptionType.CALL,
                 strike_price=strike,
                 expiration_date=expiration,

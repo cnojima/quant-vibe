@@ -127,10 +127,10 @@ class PositionManager:
         missing_quotes = []
 
         for leg in position.legs:
-            quote = options_data.get(leg.contract_symbol)
+            quote = options_data.get(leg.option_ticker)
 
             if not quote:
-                missing_quotes.append(leg.contract_symbol)
+                missing_quotes.append(leg.option_ticker)
                 continue
 
             # Determine exit price based on position direction
@@ -336,7 +336,7 @@ class PositionManager:
             'exit_reason': None,
             'legs': [
                 {
-                    'contract_symbol': leg.contract_symbol,
+                    'option_ticker': leg.option_ticker,
                     'option_type': leg.option_type.value,
                     'strike': _to_native_type(leg.strike_price),
                     'expiration': (

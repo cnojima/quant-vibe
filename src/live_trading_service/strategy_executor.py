@@ -125,11 +125,11 @@ class StrategyExecutor:
         logger.info(f"Processing new bar at {current_time}")
 
         # Update latest options data for exit orders
-        # Convert DataFrame to dict format {contract_symbol: {bid, ask, close, ...}}
+        # Convert DataFrame to dict format {option_ticker: {bid, ask, close, ...}}
         if not options_data.empty:
             options_dict = {}
             for _, row in options_data.iterrows():
-                symbol = row.get('contract_symbol')
+                symbol = row.get('option_ticker')
                 if symbol:
                     options_dict[symbol] = row.to_dict()
             self.latest_options_data = options_dict
@@ -271,7 +271,7 @@ class StrategyExecutor:
         # Format: {symbol: {bid, ask, ...}}
         options_dict = {}
         for _, row in options_data.iterrows():
-            symbol = row.get('contract_symbol')
+            symbol = row.get('option_ticker')
             if symbol:
                 options_dict[symbol] = row.to_dict()
 

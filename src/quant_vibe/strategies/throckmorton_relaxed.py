@@ -516,7 +516,7 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
         if direction == 'put':
             legs = [
                 OptionLeg(
-                    contract_symbol=short_data['contract_symbol'],
+                    option_ticker=short_data['option_ticker'],
                     option_type=OptionType.PUT,
                     strike_price=float(short_strike),
                     expiration_date=nearest_expiration,
@@ -524,7 +524,7 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
                     entry_price=short_price
                 ),
                 OptionLeg(
-                    contract_symbol=long_data['contract_symbol'],
+                    option_ticker=long_data['option_ticker'],
                     option_type=OptionType.PUT,
                     strike_price=float(long_strike),
                     expiration_date=nearest_expiration,
@@ -536,7 +536,7 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
         else:
             legs = [
                 OptionLeg(
-                    contract_symbol=short_data['contract_symbol'],
+                    option_ticker=short_data['option_ticker'],
                     option_type=OptionType.CALL,
                     strike_price=float(short_strike),
                     expiration_date=nearest_expiration,
@@ -544,7 +544,7 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
                     entry_price=short_price
                 ),
                 OptionLeg(
-                    contract_symbol=long_data['contract_symbol'],
+                    option_ticker=long_data['option_ticker'],
                     option_type=OptionType.CALL,
                     strike_price=float(long_strike),
                     expiration_date=nearest_expiration,

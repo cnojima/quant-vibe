@@ -14,7 +14,7 @@ Usage:
     # Create validated options bar
     bar = OptionsBar(
         timestamp=now_utc(),
-        contract_symbol="SPXW260123P06860000",
+        option_ticker="SPXW260123P06860000",
         strike_price=6860.0,
         contract_type="put",
         expiration_date=date(2026, 1, 23),

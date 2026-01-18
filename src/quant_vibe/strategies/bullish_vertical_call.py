@@ -402,7 +402,7 @@ class BullishVerticalCallStrategy(OptionsStrategy):
         # Create legs (quantity represents number of contracts = number of spreads)
         legs = [
             OptionLeg(
-                contract_symbol=long_call_data['contract_symbol'],
+                option_ticker=long_call_data['option_ticker'],
                 option_type=OptionType.CALL,
                 strike_price=long_strike,
                 expiration_date=nearest_expiration,
@@ -410,7 +410,7 @@ class BullishVerticalCallStrategy(OptionsStrategy):
                 entry_price=long_call_price
             ),
             OptionLeg(
-                contract_symbol=short_call_data['contract_symbol'],
+                option_ticker=short_call_data['option_ticker'],
                 option_type=OptionType.CALL,
                 strike_price=short_strike,
                 expiration_date=nearest_expiration,

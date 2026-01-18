@@ -11,7 +11,7 @@ from .options_base import (
     OptionType,
     SpreadType
 )
-from quant_vibe.utils import generate_position_id
+from quant_vibe.utils import generate_position_id, calculate_mark_price
 
 
 class BullishVerticalPutStrategy(OptionsStrategy):
@@ -387,7 +387,11 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             # Ensure bid and ask are numeric before calculating mark
             liquid_options['bid'] = pd.to_numeric(liquid_options['bid'], errors='coerce')
             liquid_options['ask'] = pd.to_numeric(liquid_options['ask'], errors='coerce')
-            liquid_options['mark'] = (liquid_options['bid'] + liquid_options['ask']) / 2
+            # Use utility function for consistent mark calculation
+            liquid_options['mark'] = liquid_options.apply(
+                lambda row: calculate_mark_price(row['bid'], row['ask']),
+                axis=1
+            )
 
         if liquid_options.empty:
             print(f"  ⚠️  No liquid options found (volume >= {self.min_volume}, spread <= {self.min_bid_ask_spread_pct}%)")
@@ -456,7 +460,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         # Validate data completeness for selected contracts
         # This checks that these contracts have been present in recent historical data
         # to reduce likelihood of missing data during position lifetime
-        contract_symbols = [short_put_data['contract_symbol'], long_put_data['contract_symbol']]
+        option_tickers = [short_put_data['option_ticker'], long_put_data['option_ticker']]
 
         # Use full dataset if available, otherwise fall back to current slice
         data_for_validation = full_options_data if full_options_data is not None else options_data
@@ -466,7 +470,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         print(f"     [DEBUG] Using {'FULL dataset' if full_options_data is not None else 'CURRENT SLICE only'}")
 
         is_valid, completeness = self.validate_data_completeness(
-            contract_symbols=contract_symbols,
+            option_tickers=option_tickers,
             options_data=data_for_validation,
             current_time=current_time,
             lookback_minutes=60,
@@ -475,7 +479,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
 
         print("\n  📊 Data Completeness Check:")
         for symbol, pct in completeness.items():
-            strike = short_strike if 'contract_symbol' in short_put_data and short_put_data['contract_symbol'] == symbol else long_strike
+            strike = short_strike if 'option_ticker' in short_put_data and short_put_data['option_ticker'] == symbol else long_strike
             status = "✅" if pct >= 95.0 else "❌"
             print(f"     {status} {strike} PUT: {pct:.1f}% coverage")
 
@@ -498,7 +502,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         # Long put: positive quantity (we buy for protection)
         legs = [
             OptionLeg(
-                contract_symbol=short_put_data['contract_symbol'],
+                option_ticker=short_put_data['option_ticker'],
                 option_type=OptionType.PUT,
                 strike_price=float(short_strike),
                 expiration_date=nearest_expiration,
@@ -506,7 +510,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
                 entry_price=short_put_price
             ),
             OptionLeg(
-                contract_symbol=long_put_data['contract_symbol'],
+                option_ticker=long_put_data['option_ticker'],
                 option_type=OptionType.PUT,
                 strike_price=float(long_strike),
                 expiration_date=nearest_expiration,

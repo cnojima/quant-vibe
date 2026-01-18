@@ -375,7 +375,7 @@ class OptionsBacktestEngine:
             leg_info = {
                 'action': 'BUY' if leg.quantity > 0 else 'SELL',
                 'quantity': abs(leg.quantity),
-                'contract_symbol': leg.contract_symbol,
+                'option_ticker': leg.option_ticker,
                 'option_type': leg.option_type.value,
                 'strike_price': leg.strike_price,
                 'entry_price': leg.entry_price,

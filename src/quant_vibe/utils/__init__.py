@@ -11,6 +11,11 @@ from .datetime_utils import get_date_range, make_utc_datetime
 from .decimal_utils import safe_decimal
 from .output import TeeOutput
 from .position_utils import generate_position_id
+from .pricing_utils import (
+    calculate_mark_price,
+    get_mark_price_from_row,
+    validate_price,
+)
 from .retry import RetryConfig, RetryContext, retry_with_backoff
 from .symbol_utils import (
     normalize_option_ticker,
@@ -27,12 +32,14 @@ from .timestamp_utils import (
 )
 
 __all__ = [
+    "calculate_mark_price",
     "convert_decimals_to_float",
     "convert_string_columns_to_numeric",
     "ensure_utc_aware",
     "from_timestamp",
     "generate_position_id",
     "get_date_range",
+    "get_mark_price_from_row",
     "is_utc_aware",
     "load_options_backtest_data",
     "make_utc_datetime",
@@ -50,4 +57,5 @@ __all__ = [
     "setup_backtest_output",
     "TeeOutput",
     "to_utc",
+    "validate_price",
 ]

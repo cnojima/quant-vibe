@@ -16,7 +16,7 @@ Usage:
     # Create validated bar
     bar = OptionsBar(
         timestamp=now_utc(),
-        contract_symbol="SPXW260123P06860000",
+        option_ticker="SPXW260123P06860000",
         strike_price=6860.0,
         contract_type="put",
         # ... rest of fields
@@ -44,6 +44,7 @@ from quant_vibe.utils.symbol_utils import (
     parse_strike_from_ticker,
     parse_expiration_from_ticker,
 )
+from quant_vibe.utils.pricing_utils import calculate_mark_price as calculate_mark_price_util
 
 
 class OptionsBar(BaseModel):
@@ -67,7 +68,7 @@ class OptionsBar(BaseModel):
     )
 
     # Symbol (always normalized)
-    contract_symbol: str = Field(
+    option_ticker: str = Field(
         description="Normalized contract symbol (e.g., 'SPXW260123P06860000')",
         min_length=1,
     )
@@ -221,7 +222,7 @@ class OptionsBar(BaseModel):
             return ensure_utc_aware(v)
         return v
 
-    @field_validator("contract_symbol")
+    @field_validator("option_ticker")
     @classmethod
     def normalize_symbol(cls, v: str) -> str:
         """Normalize contract symbol format."""
@@ -265,7 +266,7 @@ class OptionsBar(BaseModel):
             if bid is not None and ask is not None:
                 # Mark should be between bid and ask (with small tolerance)
                 if ask > bid:  # Normal case
-                    expected_mark = (bid + ask) / 2
+                    expected_mark = Decimal(str(calculate_mark_price_util(float(bid), float(ask))))
                     tolerance = (ask - bid) * Decimal("0.1")  # 10% of spread
 
                     if not (bid - tolerance <= v <= ask + tolerance):
@@ -308,40 +309,40 @@ class OptionsBar(BaseModel):
 
     @model_validator(mode='before')
     @classmethod
-    def enrich_from_contract_symbol(cls, data: dict) -> dict:
+    def enrich_from_option_ticker(cls, data: dict) -> dict:
         """
-        Enrich missing fields by parsing contract_symbol.
+        Enrich missing fields by parsing option_ticker.
 
         This allows creating OptionsBar from incomplete data (e.g., from Redis)
-        where only contract_symbol is reliable, and other fields might be missing.
+        where only option_ticker is reliable, and other fields might be missing.
 
         Automatically fills:
-        - strike_price (from contract_symbol if missing)
-        - contract_type (from contract_symbol if missing)
-        - expiration_date (from contract_symbol if missing)
+        - strike_price (from option_ticker if missing)
+        - contract_type (from option_ticker if missing)
+        - expiration_date (from option_ticker if missing)
         """
-        contract_symbol = data.get('contract_symbol') or data.get('option_ticker')
+        option_ticker = data.get('option_ticker') or data.get('option_ticker')
 
-        if contract_symbol:
-            # Rename option_ticker to contract_symbol if needed
-            if 'option_ticker' in data and 'contract_symbol' not in data:
-                data['contract_symbol'] = data.pop('option_ticker')
+        if option_ticker:
+            # Rename option_ticker to option_ticker if needed
+            if 'option_ticker' in data and 'option_ticker' not in data:
+                data['option_ticker'] = data.pop('option_ticker')
 
             # Enrich strike_price if missing
             if data.get('strike_price') is None:
-                strike = parse_strike_from_ticker(contract_symbol)
+                strike = parse_strike_from_ticker(option_ticker)
                 if strike is not None:
                     data['strike_price'] = strike
 
             # Enrich contract_type if missing
             if data.get('contract_type') is None:
-                contract_type = parse_contract_type_from_ticker(contract_symbol)
+                contract_type = parse_contract_type_from_ticker(option_ticker)
                 if contract_type is not None:
                     data['contract_type'] = contract_type
 
             # Enrich expiration_date if missing
             if data.get('expiration_date') is None:
-                exp_date = parse_expiration_from_ticker(contract_symbol)
+                exp_date = parse_expiration_from_ticker(option_ticker)
                 if exp_date is not None:
                     data['expiration_date'] = exp_date
 
@@ -440,9 +441,11 @@ class OptionsBar(BaseModel):
 
     def calculate_mark(self) -> Optional[Decimal]:
         """Calculate mark price as midpoint of bid/ask."""
-        if self.bid is not None and self.ask is not None:
-            return (self.bid + self.ask) / 2
-        return None
+        mark = calculate_mark_price_util(
+            float(self.bid) if self.bid is not None else None,
+            float(self.ask) if self.ask is not None else None
+        )
+        return Decimal(str(mark)) if mark is not None else None
 
     def intrinsic_value(self, underlying_price: Decimal) -> Decimal:
         """

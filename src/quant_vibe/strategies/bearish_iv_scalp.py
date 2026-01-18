@@ -544,15 +544,15 @@ class BearishIVScalpStrategy(OptionsStrategy):
             print(f"       IV: {long_call_data['implied_volatility']:.2%}")
 
         # Validate data completeness
-        contract_symbols = [
-            short_call_data['contract_symbol'],
-            long_call_data['contract_symbol']
+        option_tickers = [
+            short_call_data['option_ticker'],
+            long_call_data['option_ticker']
         ]
 
         data_for_validation = full_options_data if full_options_data is not None else options_data
 
         is_valid, completeness = self.validate_data_completeness(
-            contract_symbols=contract_symbols,
+            option_tickers=option_tickers,
             options_data=data_for_validation,
             current_time=current_time,
             lookback_minutes=30,  # Shorter lookback for 0DTE
@@ -561,7 +561,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
 
         print("\n  📊 Data Completeness Check:")
         for symbol, pct in completeness.items():
-            strike = short_strike if symbol == short_call_data['contract_symbol'] else long_strike
+            strike = short_strike if symbol == short_call_data['option_ticker'] else long_strike
             status = "✅" if pct >= 80.0 else "❌"
             print(f"     {status} {strike} CALL: {pct:.1f}% coverage")
 
@@ -586,7 +586,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
         # Create legs
         legs = [
             OptionLeg(
-                contract_symbol=short_call_data['contract_symbol'],
+                option_ticker=short_call_data['option_ticker'],
                 option_type=OptionType.CALL,
                 strike_price=short_strike,
                 expiration_date=today,
@@ -594,7 +594,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
                 entry_price=short_call_price
             ),
             OptionLeg(
-                contract_symbol=long_call_data['contract_symbol'],
+                option_ticker=long_call_data['option_ticker'],
                 option_type=OptionType.CALL,
                 strike_price=long_strike,
                 expiration_date=today,

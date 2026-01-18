@@ -1,0 +1,2 @@
+# Debug args for run_backtest.py
+--config config/backtest.yaml --strategy bullish_vertical_put --start-date 2026-01-14 --end-date 2026-01-16 --min-dte 0 --max-dte 2 --max-trades-daily 3 --timeframe 1min

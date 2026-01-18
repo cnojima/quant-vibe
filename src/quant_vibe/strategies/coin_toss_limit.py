@@ -40,7 +40,7 @@ class OrderStatus(Enum):
 class LimitOrder:
     """Represents a pending limit order."""
     order_id: str
-    contract_symbol: str
+    option_ticker: str
     option_type: OptionType
     strike_price: float
     expiration_date: datetime
@@ -242,7 +242,7 @@ class CoinTossLimitStrategy(OptionsStrategy):
         selected = options_filtered.iloc[0]
 
         return {
-            "contract_symbol": selected["contract_symbol"],
+            "option_ticker": selected["option_ticker"],
             "option_type": OptionType.CALL if direction == "call" else OptionType.PUT,
             "strike_price": selected["strike_price"],
             "expiration_date": selected["expiration_date"],
@@ -277,7 +277,7 @@ class CoinTossLimitStrategy(OptionsStrategy):
 
         # Find the contract in current options data
         contract_data = options_data[
-            options_data["contract_symbol"] == order.contract_symbol
+            options_data["option_ticker"] == order.option_ticker
         ]
 
         if contract_data.empty:
@@ -313,7 +313,7 @@ class CoinTossLimitStrategy(OptionsStrategy):
 
         # Find the contract in current options data
         contract_data = options_data[
-            options_data["contract_symbol"] == order.contract_symbol
+            options_data["option_ticker"] == order.option_ticker
         ]
 
         if contract_data.empty:
@@ -493,7 +493,7 @@ class CoinTossLimitStrategy(OptionsStrategy):
 
         buy_order = LimitOrder(
             order_id=order_id,
-            contract_symbol=target["contract_symbol"],
+            option_ticker=target["option_ticker"],
             option_type=target["option_type"],
             strike_price=target["strike_price"],
             expiration_date=target["expiration_date"],
@@ -541,7 +541,7 @@ class CoinTossLimitStrategy(OptionsStrategy):
         )
 
         leg = OptionLeg(
-            contract_symbol=filled_order.contract_symbol,
+            option_ticker=filled_order.option_ticker,
             option_type=filled_order.option_type,
             strike_price=filled_order.strike_price,
             expiration_date=filled_order.expiration_date,
@@ -567,7 +567,7 @@ class CoinTossLimitStrategy(OptionsStrategy):
         sell_order_id = f"COINLIMIT_SELL_{position_id}"
         sell_order = LimitOrder(
             order_id=sell_order_id,
-            contract_symbol=filled_order.contract_symbol,
+            option_ticker=filled_order.option_ticker,
             option_type=filled_order.option_type,
             strike_price=filled_order.strike_price,
             expiration_date=filled_order.expiration_date,

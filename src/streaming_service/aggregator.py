@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 from quant_vibe.utils import (
+    calculate_mark_price,
     normalize_option_ticker,
     now_utc,
     parse_expiration_from_ticker,
@@ -106,13 +107,13 @@ class BarAggregator:
 
         bid = latest_quote.get('bid')
         ask = latest_quote.get('ask')
-        mark = (bid + ask) / 2.0 if bid is not None and ask is not None else None
+        mark = calculate_mark_price(bid, ask)
 
         volumes = [q.get('volume', 0) for q in quotes if q.get('volume') is not None]
 
         return OptionsBar(
             timestamp=timestamp,
-            contract_symbol=normalize_option_ticker(symbol),
+            option_ticker=normalize_option_ticker(symbol),
             underlying_ticker='SPX',
             strike_price=Decimal(str(strike_price)),
             contract_type=contract_type,
@@ -150,9 +151,9 @@ class BarAggregator:
         prices = []
         for quote in quotes:
             price = quote.get('last')
-            if price is None and quote.get('bid') and quote.get('ask'):
-                price = (quote['bid'] + quote['ask']) / 2.0
-            if price:
+            if price is None:
+                price = calculate_mark_price(quote.get('bid'), quote.get('ask'))
+            if price > 0:
                 prices.append(price)
         return prices
 
@@ -170,8 +171,8 @@ class BarAggregator:
 
         for i, quote in enumerate(quotes):
             price = quote.get('last')
-            if price is None and quote.get('bid') and quote.get('ask'):
-                price = (quote['bid'] + quote['ask']) / 2.0
+            if price is None:
+                price = calculate_mark_price(quote.get('bid'), quote.get('ask'))
 
             volume = quote.get('volume', 0)
 

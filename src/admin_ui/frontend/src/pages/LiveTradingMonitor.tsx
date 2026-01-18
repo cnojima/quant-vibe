@@ -669,7 +669,7 @@ export function LiveTradingMonitor() {
                       {position.legs.map((leg, idx) => (
                         <div key={idx} className="flex justify-between text-sm">
                           <span>
-                            {(leg.quantity ?? 0) > 0 ? '🟢 BUY' : '🔴 SELL'} {leg.contract_symbol}
+                            {(leg.quantity ?? 0) > 0 ? '🟢 BUY' : '🔴 SELL'} {leg.option_ticker}
                           </span>
                           <span className="font-mono">{formatCurrency(leg.price ?? leg.entry_price)}</span>
                         </div>

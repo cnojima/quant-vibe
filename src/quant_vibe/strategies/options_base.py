@@ -33,7 +33,7 @@ class SpreadType(Enum):
 @dataclass
 class OptionLeg:
     """Represents a single option leg in a spread."""
-    contract_symbol: str
+    option_ticker: str
     option_type: OptionType
     strike_price: float
     expiration_date: date  # Changed from datetime to date to match OptionsBar Pydantic model
@@ -50,6 +50,14 @@ class OptionLeg:
         # Convert entry_price from Decimal to float if necessary
         if not isinstance(self.entry_price, float):
             self.entry_price = float(self.entry_price)
+
+        # Convert expiration_date to date if it's a Timestamp or datetime
+        if hasattr(self.expiration_date, 'date'):
+            # It's a pandas Timestamp or datetime object
+            self.expiration_date = self.expiration_date.date()
+        elif hasattr(self.expiration_date, 'to_pydatetime'):
+            # It's a pandas Timestamp with to_pydatetime method
+            self.expiration_date = self.expiration_date.to_pydatetime().date()
 
         # Convert current_price from Decimal to float if necessary
         if self.current_price is not None and not isinstance(self.current_price, float):
@@ -477,18 +485,19 @@ class OptionsStrategy(ABC):
         for leg in position.legs:
             # Find current price for this contract
             leg_data = options_data[
-                options_data['contract_symbol'] == leg.contract_symbol
+                options_data['option_ticker'] == leg.option_ticker
             ]
 
             if not leg_data.empty:
-                # Use mark price (mid of bid/ask)
-                mark_value = leg_data.iloc[0]['mark']
-
-                # Validate mark price (check for None/NaN before converting)
-                if mark_value is None or pd.isna(mark_value):
-                    current_price = None
-                else:
-                    current_price = float(mark_value)
+                # Calculate mark price from bid/ask, with fallback to pre-calculated mark
+                from quant_vibe.utils.pricing_utils import get_mark_price_from_row
+                current_price = get_mark_price_from_row(
+                    leg_data.iloc[0],
+                    bid_col='bid',
+                    ask_col='ask',
+                    mark_col='mark',
+                    fallback_col='last'  # Use last price as additional fallback
+                )
 
                 # Additional validation: check if mark price is reasonable given underlying
                 if current_price > 0 and underlying_price is not None:
@@ -524,7 +533,7 @@ class OptionsStrategy(ABC):
                                     max_reasonable_value = 0.50  # Slightly OTM
 
                                 if current_price > max_reasonable_value:
-                                    logger.debug(f"      ⚠️  0 DTE OTM option may be overpriced: {leg.contract_symbol} @ ${current_price:.2f} "
+                                    logger.debug(f"      ⚠️  0 DTE OTM option may be overpriced: {leg.option_ticker} @ ${current_price:.2f} "
                                                f"(expires TODAY, OTM by ${otm_amount:.2f})")
                                     current_price = max_reasonable_value
                                     used_fallback = True
@@ -536,7 +545,7 @@ class OptionsStrategy(ABC):
                             if otm_amount > 10 and current_price > otm_amount * 0.5:
                                 # If more than 10 points OTM, shouldn't be worth more than 50% of OTM distance
                                 max_reasonable_value = otm_amount * 0.5
-                                logger.debug(f"      ⚠️  1 DTE option seems overpriced: {leg.contract_symbol} @ ${current_price:.2f} "
+                                logger.debug(f"      ⚠️  1 DTE option seems overpriced: {leg.option_ticker} @ ${current_price:.2f} "
                                            f"(expires tomorrow, OTM by ${otm_amount:.2f})")
                                 current_price = max_reasonable_value
                                 used_fallback = True
@@ -547,7 +556,7 @@ class OptionsStrategy(ABC):
                             # OTM options > 10 points out shouldn't have mark > 10% of the OTM distance
                             max_reasonable_value = otm_amount * 0.1  # 10% of OTM distance
                             if current_price > max_reasonable_value:
-                                logger.debug(f"      ⚠️  Suspicious mark price for {leg.contract_symbol}: ${current_price:.2f} "
+                                logger.debug(f"      ⚠️  Suspicious mark price for {leg.option_ticker}: ${current_price:.2f} "
                                            f"(OTM by ${otm_amount:.2f}, max reasonable: ${max_reasonable_value:.2f})")
                                 # Use intrinsic value (0 for OTM) plus small time value
                                 current_price = intrinsic + min(0.5, max_reasonable_value * 0.1)
@@ -556,18 +565,18 @@ class OptionsStrategy(ABC):
 
                     # For ITM options, mark should be at least intrinsic value
                     elif current_price < intrinsic:
-                        logger.debug(f"      ⚠️  Mark price ${current_price:.2f} below intrinsic ${intrinsic:.2f} for {leg.contract_symbol}")
+                        logger.debug(f"      ⚠️  Mark price ${current_price:.2f} below intrinsic ${intrinsic:.2f} for {leg.option_ticker}")
                         current_price = intrinsic  # Use intrinsic as minimum
                         used_fallback = True
 
                 if current_price is None or current_price < 0:
                     # Mark price invalid - try to calculate intrinsic value
-                    missing_legs.append(leg.contract_symbol)
+                    missing_legs.append(leg.option_ticker)
                     used_fallback = True  # Using fallback pricing
                     if underlying_price is not None:
                         # Use intrinsic value (conservative estimate)
                         current_price = self._calculate_intrinsic_value(leg, underlying_price)
-                        logger.debug(f"      ⚠️  Using intrinsic value for {leg.contract_symbol}: ${current_price:.2f} (invalid mark price)")
+                        logger.debug(f"      ⚠️  Using intrinsic value for {leg.option_ticker}: ${current_price:.2f} (invalid mark price)")
                     else:
                         # No underlying price - use entry price as last resort
                         current_price = leg.entry_price if leg.entry_price else 0
@@ -589,7 +598,7 @@ class OptionsStrategy(ABC):
                 current_value += leg_value
             else:
                 # No data for this leg at this timestamp - this is a DATA QUALITY ISSUE
-                missing_legs.append(leg.contract_symbol)
+                missing_legs.append(leg.option_ticker)
                 used_fallback = True  # Using fallback pricing
 
                 # Try to estimate price from similar strikes
@@ -630,17 +639,17 @@ class OptionsStrategy(ABC):
                                     leg_value = -(estimated_price * abs(leg.quantity) * 100)  # Short: negative
                                 current_value += leg_value
 
-                                logger.debug(f"      ⚠️  Interpolated {leg.contract_symbol}: ${estimated_price:.2f} (from ${mark_below:.2f} @ {strike_below['strike_price']} and ${mark_above:.2f} @ {strike_above['strike_price']})")
+                                logger.debug(f"      ⚠️  Interpolated {leg.option_ticker}: ${estimated_price:.2f} (from ${mark_below:.2f} @ {strike_below['strike_price']} and ${mark_above:.2f} @ {strike_above['strike_price']})")
                                 continue
 
                 # Fallback: use intrinsic value if we have underlying price, else entry price
                 if underlying_price is not None:
                     # Calculate intrinsic value (conservative, no time value)
                     current_price = self._calculate_intrinsic_value(leg, underlying_price)
-                    logger.debug(f"      ⚠️  Using intrinsic value for {leg.contract_symbol}: ${current_price:.2f} (NO CURRENT DATA, underlying=${underlying_price:.2f})")
+                    logger.debug(f"      ⚠️  Using intrinsic value for {leg.option_ticker}: ${current_price:.2f} (NO CURRENT DATA, underlying=${underlying_price:.2f})")
                 else:
                     # Last resort: use entry price
-                    logger.debug(f"      ⚠️  Using entry price for {leg.contract_symbol}: ${leg.entry_price:.2f} (NO CURRENT DATA)")
+                    logger.debug(f"      ⚠️  Using entry price for {leg.option_ticker}: ${leg.entry_price:.2f} (NO CURRENT DATA)")
                     current_price = leg.entry_price if leg.entry_price else 0
 
                 leg.current_price = current_price
@@ -819,7 +828,7 @@ class OptionsStrategy(ABC):
 
     def validate_data_completeness(
         self,
-        contract_symbols: List[str],
+        option_tickers: List[str],
         options_data: pd.DataFrame,
         current_time: datetime,
         lookback_minutes: int = 60,
@@ -832,7 +841,7 @@ class OptionsStrategy(ABC):
         missing data issues during the position lifetime.
 
         Args:
-            contract_symbols: List of contract symbols to validate
+            option_tickers: List of contract symbols to validate
             options_data: Full options dataset
             current_time: Current timestamp
             lookback_minutes: How many minutes back to check (default: 60)
@@ -866,9 +875,9 @@ class OptionsStrategy(ABC):
 
         # Check completeness for each contract
         completeness = {}
-        for symbol in contract_symbols:
+        for symbol in option_tickers:
             contract_data = historical_data[
-                historical_data['contract_symbol'] == symbol
+                historical_data['option_ticker'] == symbol
             ]
             timestamps_with_data = contract_data['timestamp'].nunique()
             completeness_pct = (timestamps_with_data / total_timestamps) * 100

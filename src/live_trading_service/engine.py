@@ -514,7 +514,7 @@ class LiveTradingEngine:
 
                         # Create position legs from broker position
                         legs = [{
-                            'contract_symbol': broker_pos['symbol'],
+                            'option_ticker': broker_pos['symbol'],
                             'quantity': broker_pos['quantity'],
                             'side': 'long' if broker_pos['quantity'] > 0 else 'short',
                             'entry_price': broker_pos['average_price'],
@@ -782,7 +782,7 @@ class LiveTradingEngine:
                     # Check if any leg has the matching symbol
                     legs = pos.get('legs', [])
                     for leg in legs:
-                        if leg.get('contract_symbol') == symbol:
+                        if leg.get('option_ticker') == symbol:
                             return pos
 
             return None
@@ -872,7 +872,7 @@ class LiveTradingEngine:
 
                     # Create an OptionLeg
                     leg = OptionLeg(
-                        contract_symbol=symbol,
+                        option_ticker=symbol,
                         quantity=int(broker_qty),  # Positive for long
                         option_type=option_type,
                         strike_price=strike_price,
@@ -926,7 +926,7 @@ class LiveTradingEngine:
                         'current_value': broker_pos.get('marketValue', 0),
                         'account_hash': position_account_hash,  # Use correct account_hash
                         'legs': [{
-                            'contract_symbol': leg.contract_symbol,
+                            'option_ticker': leg.option_ticker,
                             'option_type': leg.option_type.value,
                             'strike_price': leg.strike_price,
                             'expiration_date': leg.expiration_date.isoformat(),

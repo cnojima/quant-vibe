@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from quant_vibe.logging.unified_logging import get_logger
 from quant_vibe.utils.timestamp_utils import now_utc
 from quant_vibe.utils.dataframe_utils import convert_string_columns_to_numeric
+from quant_vibe.utils.pricing_utils import calculate_mark_price
 
 if TYPE_CHECKING:
     from ..live.data_feed import RealtimeDataFeed
@@ -111,7 +112,7 @@ class LiveMarketDataProvider:
 
         Uses Pydantic OptionsBar model for validation to ensure:
         - Type safety (expiration_date is date, not string/timestamp)
-        - Schema consistency (contract_symbol, not option_ticker)
+        - Schema consistency (option_ticker, not option_ticker)
         - UTC-aware timestamps
         - Normalized symbols and contract types
 
@@ -121,7 +122,7 @@ class LiveMarketDataProvider:
         Returns:
             DataFrame with columns:
                 - timestamp: Bar timestamp (UTC-aware)
-                - contract_symbol: Option contract symbol (e.g., SPXW251226C06875000)
+                - option_ticker: Option contract symbol (e.g., SPXW251226C06875000)
                 - underlying_ticker: Underlying ticker (SPX)
                 - strike_price: Strike price
                 - contract_type: 'call' or 'put' (lowercase, matches DB schema)
@@ -141,7 +142,7 @@ class LiveMarketDataProvider:
             self.logger.debug("No bars available from data feed")
             # Return empty DataFrame with expected columns
             return pd.DataFrame(columns=[
-                'timestamp', 'contract_symbol', 'underlying_ticker',
+                'timestamp', 'option_ticker', 'underlying_ticker',
                 'strike_price', 'contract_type', 'expiration_date',
                 'open', 'high', 'low', 'close', 'volume', 'vwap',
                 'bid', 'ask', 'mark', 'bid_size', 'ask_size',
@@ -155,7 +156,7 @@ class LiveMarketDataProvider:
         # Validate and normalize all bars using Pydantic OptionsBar model
         # This ensures:
         # - Correct types (expiration_date is date, not string)
-        # - Schema consistency (contract_symbol, not option_ticker)
+        # - Schema consistency (option_ticker, not option_ticker)
         # - UTC-aware timestamps
         # - Normalized symbols and contract types
         validated_bars = []
@@ -166,12 +167,12 @@ class LiveMarketDataProvider:
                 # Convert DataFrame row to dict
                 row_dict = row.to_dict()
 
-                # Handle option_ticker -> contract_symbol renaming
-                if 'option_ticker' in row_dict and 'contract_symbol' not in row_dict:
-                    row_dict['contract_symbol'] = row_dict.pop('option_ticker')
+                # Handle option_ticker -> option_ticker renaming
+                if 'option_ticker' in row_dict and 'option_ticker' not in row_dict:
+                    row_dict['option_ticker'] = row_dict.pop('option_ticker')
 
-                # Skip if no contract_symbol (underlying bars)
-                if 'contract_symbol' not in row_dict or pd.isna(row_dict.get('contract_symbol')):
+                # Skip if no option_ticker (underlying bars)
+                if 'option_ticker' not in row_dict or pd.isna(row_dict.get('option_ticker')):
                     continue
 
                 # Convert pandas NaN to None for optional fields
@@ -182,7 +183,7 @@ class LiveMarketDataProvider:
 
                 # Validate with Pydantic model
                 # This automatically:
-                # - Parses expiration_date from contract_symbol if missing
+                # - Parses expiration_date from option_ticker if missing
                 # - Converts expiration_date to date object
                 # - Normalizes contract_type to lowercase
                 # - Ensures UTC-aware timestamps
@@ -209,7 +210,7 @@ class LiveMarketDataProvider:
         if not validated_bars:
             self.logger.debug("No valid options bars after Pydantic validation")
             return pd.DataFrame(columns=[
-                'timestamp', 'contract_symbol', 'underlying_ticker',
+                'timestamp', 'option_ticker', 'underlying_ticker',
                 'strike_price', 'contract_type', 'expiration_date',
                 'open', 'high', 'low', 'close', 'volume', 'vwap',
                 'bid', 'ask', 'mark', 'bid_size', 'ask_size',
@@ -228,12 +229,12 @@ class LiveMarketDataProvider:
         snapshot_df = convert_decimals_to_float(snapshot_df)
 
         # Get most recent bar for each contract (for snapshot)
-        if 'contract_symbol' in snapshot_df.columns:
+        if 'option_ticker' in snapshot_df.columns:
             # Sort by timestamp to get latest
             snapshot_df = snapshot_df.sort_values('timestamp')
 
             # Get last bar for each symbol
-            snapshot = snapshot_df.groupby('contract_symbol', as_index=False).last()
+            snapshot = snapshot_df.groupby('option_ticker', as_index=False).last()
         else:
             snapshot = snapshot_df
 
@@ -246,19 +247,17 @@ class LiveMarketDataProvider:
             # Calculate mark for rows where it's missing or NaN
             mask = snapshot['mark'].isna()
             if mask.any():
-                # Calculate from bid/ask where both are available
-                has_both = snapshot['bid'].notna() & snapshot['ask'].notna()
-                snapshot.loc[mask & has_both, 'mark'] = (
-                    (snapshot.loc[mask & has_both, 'bid'] + snapshot.loc[mask & has_both, 'ask']) / 2.0
+                # Calculate mark using utility function for consistency
+                snapshot.loc[mask, 'mark'] = snapshot.loc[mask].apply(
+                    lambda row: calculate_mark_price(
+                        row.get('bid'),
+                        row.get('ask'),
+                        fallback=row.get('bid') if pd.notna(row.get('bid')) else row.get('ask')
+                    ),
+                    axis=1
                 )
 
-                # Fallback to bid if no ask
-                has_bid_only = snapshot['bid'].notna() & snapshot['ask'].isna()
-                snapshot.loc[mask & has_bid_only, 'mark'] = snapshot.loc[mask & has_bid_only, 'bid']
-
-                # Fallback to ask if no bid
-                has_ask_only = snapshot['bid'].isna() & snapshot['ask'].notna()
-                snapshot.loc[mask & has_ask_only, 'mark'] = snapshot.loc[mask & has_ask_only, 'ask']
+                # The utility function handles all fallback scenarios
 
         # Ensure timestamp is datetime
         if not snapshot.empty and 'timestamp' in snapshot.columns:

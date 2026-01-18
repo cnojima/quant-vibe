@@ -314,7 +314,7 @@ class OrderManager:
                 side = OrderSide.SELL if leg.quantity > 0 else OrderSide.BUY
 
             order_legs.append({
-                'symbol': leg.contract_symbol,
+                'symbol': leg.option_ticker,
                 'quantity': abs(leg.quantity),
                 'side': side.value,
                 'option_type': leg.option_type.value,
@@ -349,10 +349,10 @@ class OrderManager:
         total = 0.0
 
         for leg in legs:
-            quote = options_data.get(leg.contract_symbol, {})
+            quote = options_data.get(leg.option_ticker, {})
 
             if not quote:
-                self.logger.warning(f"No quote data for {leg.contract_symbol}")
+                self.logger.warning(f"No quote data for {leg.option_ticker}")
                 continue
 
             # Buy at ask, sell at bid
@@ -387,10 +387,10 @@ class OrderManager:
         total = 0.0
 
         for leg in legs:
-            quote = options_data.get(leg.contract_symbol, {})
+            quote = options_data.get(leg.option_ticker, {})
 
             if not quote:
-                self.logger.warning(f"No quote data for {leg.contract_symbol}")
+                self.logger.warning(f"No quote data for {leg.option_ticker}")
                 continue
 
             # Get exit price (we reverse the side)
@@ -900,7 +900,7 @@ class OrderManager:
             exit_legs.append({
                 'instruction': instruction,
                 'quantity': abs(leg.quantity),
-                'symbol': leg.contract_symbol,
+                'symbol': leg.option_ticker,
                 'option_type': leg.option_type.value,
                 'strike': leg.strike_price,
                 'expiration': leg.expiration_date.strftime('%Y-%m-%d') if isinstance(leg.expiration_date, datetime) else str(leg.expiration_date)
@@ -1237,7 +1237,7 @@ class OrderManager:
         Args:
             internal_positions: List of internal position dicts with keys:
                 - position_id
-                - contract_symbols (list of symbols)
+                - option_tickers (list of symbols)
                 - quantities (dict mapping symbol to quantity)
             broker_positions: Optional list of broker positions. If not provided,
                             will fetch using get_broker_positions()

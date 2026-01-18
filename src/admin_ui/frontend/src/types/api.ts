@@ -92,7 +92,7 @@ export interface LiveEngineStatus {
 }
 
 export interface OptionLeg {
-  contract_symbol: string;
+  option_ticker: string;
   quantity: number;
   side: 'buy' | 'sell';
   action?: 'buy' | 'sell';

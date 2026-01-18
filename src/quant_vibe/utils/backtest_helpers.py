@@ -418,6 +418,7 @@ def save_backtest_to_db(
 
         # 1. Save backtest run metadata
         ts_store.save_backtest_run(
+            ticker="SPX",  # Currently only SPX supported
             backtest_id=backtest_id,
             strategy_name=strategy_name,
             start_date=start_date,

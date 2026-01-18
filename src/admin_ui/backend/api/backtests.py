@@ -691,10 +691,13 @@ async def get_backtest_history(
         ts_store = _get_timescale_store()
         try:
             # Fetch backtest history from database
-            history = ts_store.get_backtest_history(
+            history_df = ts_store.get_backtest_history(
                 strategy_name=strategy_name,
                 limit=limit,
             )
+
+            # Convert DataFrame to list of dictionaries
+            history = history_df.to_dict('records') if not history_df.empty else []
 
             # Convert datetime objects to ISO strings for JSON serialization
             for backtest in history:

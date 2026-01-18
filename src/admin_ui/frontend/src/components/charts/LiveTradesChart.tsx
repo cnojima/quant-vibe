@@ -16,7 +16,7 @@ interface UnderlyingBar {
 }
 
 interface OptionLeg {
-  contract_symbol: string;
+  option_ticker: string;
   option_type: string;
   strike_price: number;
   action: string; // "BUY" or "SELL"

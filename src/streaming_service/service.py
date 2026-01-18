@@ -21,7 +21,7 @@ from quant_vibe.data.timescale_store import TimescaleStore
 from quant_vibe.logging import setup_normalized_logging
 from quant_vibe.messaging import RedisMessageBroker, Topic
 from quant_vibe.models import OptionsBar, UnderlyingBar
-from quant_vibe.utils import normalize_option_ticker, now_utc, safe_decimal
+from quant_vibe.utils import calculate_mark_price, normalize_option_ticker, now_utc, safe_decimal
 from quant_vibe.utils.retry import retry_with_backoff
 from streaming_service.aggregator import BarAggregator
 from streaming_service.config import StreamingConfig
@@ -412,7 +412,7 @@ class StreamingService:
 
         bid = quote.get('bid')
         ask = quote.get('ask')
-        mark = (bid + ask) / 2.0 if bid is not None and ask is not None else None
+        mark = calculate_mark_price(bid, ask)
 
         current_price = self._determine_current_price(quote, mark, bid, ask)
         if current_price is None:
@@ -423,7 +423,7 @@ class StreamingService:
         try:
             options_bar = OptionsBar(
                 timestamp=timestamp,
-                contract_symbol=normalized_symbol,
+                option_ticker=normalized_symbol,
                 underlying_ticker='SPX',
                 strike_price=Decimal(str(strike_price)),
                 contract_type=contract_type,
@@ -544,8 +544,8 @@ class StreamingService:
         normalized_symbol = quote['symbol'].replace('$', '').replace('.X', '')
 
         last = quote.get('last')
-        if last is None and quote.get('bid') and quote.get('ask'):
-            last = (quote['bid'] + quote['ask']) / 2.0
+        if last is None:
+            last = calculate_mark_price(quote.get('bid'), quote.get('ask'))
         if last is None:
             last = quote.get('bid') or quote.get('ask')
 

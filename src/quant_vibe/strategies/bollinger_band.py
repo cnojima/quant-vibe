@@ -365,7 +365,7 @@ class BollingerBandStrategy(OptionsStrategy):
         entry_price = selected["ask"]
 
         leg = OptionLeg(
-            contract_symbol=selected["contract_symbol"],
+            option_ticker=selected["option_ticker"],
             option_type=option_type,
             strike_price=selected["strike_price"],
             expiration_date=selected["expiration_date"],
@@ -447,7 +447,7 @@ class BollingerBandStrategy(OptionsStrategy):
             # Override position value to use bid price (what we'd actually get when selling)
             # This prevents P&L distortion from wide bid/ask spreads
             leg = position.legs[0]
-            leg_data = options_data[options_data['contract_symbol'] == leg.contract_symbol]
+            leg_data = options_data[options_data['option_ticker'] == leg.option_ticker]
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:
@@ -475,7 +475,7 @@ class BollingerBandStrategy(OptionsStrategy):
 
         if current_time_et.time() >= exit_time:
             # Use bid price for exit value
-            leg_data = options_data[options_data['contract_symbol'] == leg.contract_symbol]
+            leg_data = options_data[options_data['option_ticker'] == leg.option_ticker]
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:
@@ -493,7 +493,7 @@ class BollingerBandStrategy(OptionsStrategy):
         # Force exit if past expiration date (should not happen in normal flow)
         if current_time.date() > leg.expiration_date:
             # Use bid price for exit value
-            leg_data = options_data[options_data['contract_symbol'] == leg.contract_symbol]
+            leg_data = options_data[options_data['option_ticker'] == leg.option_ticker]
             if not leg_data.empty:
                 bid_price = leg_data.iloc[0]['bid']
                 if not pd.isna(bid_price) and bid_price > 0:

@@ -89,7 +89,7 @@ class TimescaleStore:
             self.pool.putconn(conn)
 
     @staticmethod
-    def normalize_contract_symbol(symbol: str) -> str:
+    def normalize_option_ticker(symbol: str) -> str:
         """Normalize option contract symbols to canonical format.
 
         Format: {UNDERLYING}{YYMMDD}{C|P}{STRIKE8DIGITS}
@@ -124,7 +124,7 @@ class TimescaleStore:
 
     def _prepare_option_bar_values(self, bar: "OptionsBar") -> tuple:
         """Prepare values from OptionsBar for database insertion."""
-        option_ticker = self.normalize_contract_symbol(bar.contract_symbol)
+        option_ticker = self.normalize_option_ticker(bar.option_ticker)
 
         return (
             bar.timestamp,
@@ -266,7 +266,7 @@ class TimescaleStore:
 
         if option_ticker:
             query += " AND option_ticker = %s"
-            params.append(self.normalize_contract_symbol(option_ticker))
+            params.append(self.normalize_option_ticker(option_ticker))
 
         if underlying_ticker:
             query += " AND underlying_ticker = %s"
@@ -565,7 +565,7 @@ class TimescaleStore:
 
         with self.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(query, (self.normalize_contract_symbol(option_ticker),))
+                cur.execute(query, (self.normalize_option_ticker(option_ticker),))
                 result = cur.fetchone()
                 return result if result[0] else None
 
@@ -593,7 +593,7 @@ class TimescaleStore:
 
         if option_ticker:
             query += " AND option_ticker = %s"
-            params.append(self.normalize_contract_symbol(option_ticker))
+            params.append(self.normalize_option_ticker(option_ticker))
 
         if underlying_ticker:
             query += " AND underlying_ticker = %s"
@@ -775,6 +775,7 @@ class TimescaleStore:
         win_rate: Optional[float] = None,
         status: str = "running",
         error_message: Optional[str] = None,
+        max_positions: Optional[int] = 1,
     ) -> None:
         """Save backtest run metadata and metrics."""
         query = """
@@ -783,10 +784,10 @@ class TimescaleStore:
             initial_capital, parameters, final_capital, total_return,
             max_drawdown, sharpe_ratio, total_trades, winning_trades,
             losing_trades, avg_profit, avg_loss, profit_factor, win_rate,
-            status, error_message, created_at
+            status, error_message, max_positions, created_at
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s
         )
         ON CONFLICT (backtest_id) DO UPDATE SET
             final_capital = EXCLUDED.final_capital,
@@ -802,6 +803,7 @@ class TimescaleStore:
             win_rate = EXCLUDED.win_rate,
             status = EXCLUDED.status,
             error_message = EXCLUDED.error_message,
+            max_positions = EXCLUDED.max_positions,
             updated_at = NOW()
         """
 
@@ -814,7 +816,7 @@ class TimescaleStore:
                         initial_capital, json.dumps(parameters), final_capital,
                         total_return, max_drawdown, sharpe_ratio, total_trades,
                         winning_trades, losing_trades, avg_profit, avg_loss,
-                        profit_factor, win_rate, status, error_message, now_utc()
+                        profit_factor, win_rate, status, error_message, max_positions, now_utc()
                     ),
                 )
             conn.commit()

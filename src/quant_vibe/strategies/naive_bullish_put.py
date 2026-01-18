@@ -287,7 +287,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         # Create legs
         legs = [
             OptionLeg(
-                contract_symbol=short_put_data['contract_symbol'],
+                option_ticker=short_put_data['option_ticker'],
                 option_type=OptionType.PUT,
                 strike_price=short_strike,
                 expiration_date=nearest_expiration,
@@ -295,7 +295,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
                 entry_price=short_put_price
             ),
             OptionLeg(
-                contract_symbol=long_put_data['contract_symbol'],
+                option_ticker=long_put_data['option_ticker'],
                 option_type=OptionType.PUT,
                 strike_price=long_strike,
                 expiration_date=nearest_expiration,

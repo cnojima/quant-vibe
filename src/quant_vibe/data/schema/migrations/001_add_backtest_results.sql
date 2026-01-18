@@ -16,6 +16,7 @@
 CREATE TABLE IF NOT EXISTS backtest_runs (
     backtest_id TEXT PRIMARY KEY,
     strategy_name TEXT NOT NULL,
+    ticker TEXT NOT NULL,
 
     -- Backtest configuration
     start_date TIMESTAMPTZ NOT NULL,

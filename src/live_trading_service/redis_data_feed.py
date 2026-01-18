@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from quant_vibe.logging.unified_logging import get_logger
 from quant_vibe.messaging import RedisMessageBroker, Topic
 from quant_vibe.models import OptionsBar
-from quant_vibe.utils import convert_string_columns_to_numeric, now_utc
+from quant_vibe.utils import calculate_mark_price, convert_string_columns_to_numeric, now_utc
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -183,7 +183,7 @@ class RedisDataFeed:
     def _handle_option_bar(self, bar_data: Dict):
         """Handle incoming option bar."""
         # Create message ID for deduplication
-        msg_id = f"{bar_data.get('contract_symbol', '')}@{bar_data.get('timestamp', '')}"
+        msg_id = f"{bar_data.get('option_ticker', '')}@{bar_data.get('timestamp', '')}"
 
         # Skip duplicate messages
         if msg_id in self._recent_messages_set:
@@ -203,7 +203,7 @@ class RedisDataFeed:
             validated_bar = OptionsBar(**bar_data)
             bar = validated_bar.model_dump(mode='python')
 
-            symbol = bar['contract_symbol']
+            symbol = bar['option_ticker']
             self.option_bars[symbol].append(bar)
             self.bars_received += 1
 
@@ -277,14 +277,17 @@ class RedisDataFeed:
         if ask:
             ask = float(ask) if isinstance(ask, str) else ask
 
-        if bid and ask:
-            return (bid + ask) / 2
-        elif bid:
-            return bid
-        elif ask:
-            return ask
+        # Use utility function for mark calculation with fallback
+        mark = calculate_mark_price(bid, ask)
+        if mark > 0:
+            return mark
 
-        return None
+        # Fallback to bid or ask if mark is zero
+        if bid is not None and not pd.isna(bid):
+            return bid
+        if ask is not None and not pd.isna(ask):
+            return ask
+        return 0.0  # Always return a valid float
 
     def _maybe_flush_batch(self):
         """Flush pending bars if interval has elapsed."""

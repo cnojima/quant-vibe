@@ -4,7 +4,7 @@ from collections import defaultdict
 from decimal import Decimal
 from typing import Dict, List, Optional, TYPE_CHECKING
 
-from quant_vibe.utils import now_utc, safe_decimal
+from quant_vibe.utils import calculate_mark_price, now_utc, safe_decimal
 
 if TYPE_CHECKING:
     from quant_vibe.models import UnderlyingBar
@@ -119,11 +119,12 @@ class UnderlyingBarAggregator:
         for quote in quotes:
             price = quote.get('last')
 
-            if price is None and quote.get('bid') and quote.get('ask'):
-                price = (quote['bid'] + quote['ask']) / 2.0
-
             if price is None:
-                price = quote.get('bid') or quote.get('ask')
+                # Try to calculate mark price from bid/ask
+                price = calculate_mark_price(quote.get('bid'), quote.get('ask'))
+                # Fallback to bid or ask if mark is zero
+                if price <= 0:
+                    price = quote.get('bid') or quote.get('ask') or 0.0
 
             if price:
                 prices.append(price)
@@ -144,8 +145,8 @@ class UnderlyingBarAggregator:
 
         for i, quote in enumerate(quotes):
             price = quote.get('last')
-            if price is None and quote.get('bid') and quote.get('ask'):
-                price = (quote['bid'] + quote['ask']) / 2.0
+            if price is None:
+                price = calculate_mark_price(quote.get('bid'), quote.get('ask'))
 
             volume = quote.get('volume', 0)
 
