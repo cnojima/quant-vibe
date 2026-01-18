@@ -11,6 +11,7 @@ from collections import defaultdict
 from quant_vibe.logging import get_logger
 from quant_vibe.strategies.options_base import OptionsPosition
 from quant_vibe.utils import now_utc
+from quant_vibe.utils.pnl_utils import PnLCalculator
 
 
 def _to_native_type(value: Any) -> Any:
@@ -226,13 +227,7 @@ class PositionManager:
         """
         Get P&L for a position.
 
-        Formula: P&L = current_value - entry_cost
-
-        Examples:
-        - Long position: entry_cost = +1000, current_value = +1500 → P&L = +500 (profit)
-        - Long position: entry_cost = +1000, current_value = +800 → P&L = -200 (loss)
-        - Short position: entry_cost = -1000, current_value = -600 → P&L = +400 (profit)
-        - Short position: entry_cost = -1000, current_value = -1200 → P&L = -200 (loss)
+        Uses centralized PnL calculation for consistency.
 
         Returns:
             P&L as float (positive = profit, negative = loss), or None if no current value
@@ -244,9 +239,12 @@ class PositionManager:
         if position.current_value is None:
             return None
 
-        # P&L = current exit value - entry cost
-        pnl = position.current_value - position.entry_cost
-        return pnl
+        # Use centralized PnL calculator
+        result = PnLCalculator.calculate_unrealized_pnl(
+            position.entry_cost,
+            position.current_value
+        )
+        return result.pnl
 
     def get_position_pnl_pct(self, position_id: str) -> Optional[float]:
         """Get P&L percentage for a position."""
@@ -254,13 +252,15 @@ class PositionManager:
         if not position:
             return None
 
-        pnl = self.get_position_pnl(position_id)
-        if pnl is None or position.entry_cost == 0:
+        if position.current_value is None:
             return None
 
-        # Percentage based on entry cost
-        pnl_pct = (pnl / abs(position.entry_cost)) * 100
-        return pnl_pct
+        # Use centralized PnL calculator
+        result = PnLCalculator.calculate_unrealized_pnl(
+            position.entry_cost,
+            position.current_value
+        )
+        return result.pnl_pct
 
     def close_position(
         self,
@@ -290,14 +290,17 @@ class PositionManager:
             position.exit_value = exit_value
             position.exit_reason = exit_reason
 
-            # Calculate P&L
-            pnl = exit_value - position.entry_cost
+            # Calculate P&L using centralized calculator
+            pnl_result = PnLCalculator.calculate_realized_pnl(
+                position.entry_cost,
+                exit_value
+            )
 
             # Update daily stats
             self.daily_stats['closed_today'] += 1
-            self.daily_stats['total_pnl_today'] += pnl
+            self.daily_stats['total_pnl_today'] += pnl_result.pnl
 
-            if pnl >= 0:
+            if pnl_result.is_winner:
                 self.daily_stats['wins_today'] += 1
             else:
                 self.daily_stats['losses_today'] += 1
@@ -324,7 +327,7 @@ class PositionManager:
             self.logger.info(
                 f"Position closed: {position_id} "
                 f"Reason: {exit_reason} "
-                f"P&L: ${pnl:.2f} ({(pnl/abs(position.entry_cost)*100):.2f}%)"
+                f"P&L: {PnLCalculator.format_pnl_display(pnl_result.pnl, pnl_result.pnl_pct)}"
             )
 
             return True

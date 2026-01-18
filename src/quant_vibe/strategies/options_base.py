@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, date
 import pandas as pd
 
 from quant_vibe.logging import get_logger
+from quant_vibe.utils.pnl_utils import PnLCalculator
 
 logger = get_logger(__name__)
 
@@ -99,29 +100,50 @@ class OptionsPosition:
     @property
     def pnl(self) -> Optional[float]:
         """
-        Calculate current P&L.
+        Calculate current P&L using centralized calculator.
 
-        For debit spreads (entry_cost > 0): profit when current_value > entry_cost
-        For credit spreads (entry_cost < 0): profit when current_value < abs(entry_cost)
-
-        The formula current_value - entry_cost works for both:
-        - Debit: current_value - (+entry_cost) = profit when current_value increases
-        - Credit: current_value - (-entry_cost) = profit when current_value decreases
+        Uses unrealized PnL for open positions or realized PnL for closed positions.
         """
-        if self.current_value is None:
+        if self.is_closed and self.exit_value is not None:
+            # Closed position - use realized PnL
+            result = PnLCalculator.calculate_realized_pnl(
+                self.entry_cost,
+                self.exit_value
+            )
+        elif self.current_value is not None:
+            # Open position - use unrealized PnL
+            result = PnLCalculator.calculate_unrealized_pnl(
+                self.entry_cost,
+                self.current_value
+            )
+        else:
             return None
-        return self.current_value - self.entry_cost
+
+        return result.pnl
 
     @property
     def pnl_percent(self) -> Optional[float]:
         """
-        Calculate current P&L percentage.
+        Calculate current P&L percentage using centralized calculator.
 
         Percentage is always based on absolute value of entry cost (capital at risk).
         """
-        if self.current_value is None or self.entry_cost == 0:
+        if self.is_closed and self.exit_value is not None:
+            # Closed position - use realized PnL
+            result = PnLCalculator.calculate_realized_pnl(
+                self.entry_cost,
+                self.exit_value
+            )
+        elif self.current_value is not None:
+            # Open position - use unrealized PnL
+            result = PnLCalculator.calculate_unrealized_pnl(
+                self.entry_cost,
+                self.current_value
+            )
+        else:
             return None
-        return (self.current_value - self.entry_cost) / abs(self.entry_cost)
+
+        return result.pnl_pct
 
     @property
     def is_closed(self) -> bool:
@@ -467,6 +489,76 @@ class OptionsStrategy(ABC):
                 else:
                     current_price = float(mark_value)
 
+                # Additional validation: check if mark price is reasonable given underlying
+                if current_price is not None and current_price > 0 and underlying_price is not None:
+                    intrinsic = self._calculate_intrinsic_value(leg, underlying_price)
+
+                    # Check days to expiration if we have the current time
+                    days_to_expiry = None
+                    if hasattr(position, 'entry_time') and position.entry_time:
+                        from datetime import datetime
+                        if isinstance(position.entry_time, datetime):
+                            current_date = position.entry_time.date()
+                            days_to_expiry = (leg.expiration_date - current_date).days
+
+                    # For OTM options, mark should not be much higher than a reasonable time value
+                    # Time value typically decreases as options go further OTM
+                    if intrinsic == 0:  # Out-of-the-money
+                        # Calculate how far OTM
+                        if leg.option_type == OptionType.PUT:
+                            otm_amount = underlying_price - leg.strike_price
+                        else:  # CALL
+                            otm_amount = leg.strike_price - underlying_price
+
+                        # Check for near-expiry options - but be LESS aggressive for 1 DTE
+                        if days_to_expiry is not None and days_to_expiry == 0:
+                            # Options expiring TODAY should have minimal time value if OTM
+                            if otm_amount > 5:  # More than 5 points OTM on expiry day
+                                # Use aggressive caps for 0 DTE
+                                if otm_amount > 15:
+                                    max_reasonable_value = 0.05  # Deep OTM on expiry day
+                                elif otm_amount > 10:
+                                    max_reasonable_value = 0.20  # Moderately OTM
+                                else:
+                                    max_reasonable_value = 0.50  # Slightly OTM
+
+                                if current_price > max_reasonable_value:
+                                    logger.debug(f"      ⚠️  0 DTE OTM option may be overpriced: {leg.contract_symbol} @ ${current_price:.2f} "
+                                               f"(expires TODAY, OTM by ${otm_amount:.2f})")
+                                    current_price = max_reasonable_value
+                                    used_fallback = True
+                                    logger.debug(f"      → Capped at: ${current_price:.2f}")
+
+                        elif days_to_expiry is not None and days_to_expiry == 1:
+                            # Options expiring TOMORROW - should still have significant time value
+                            # Only cap if price is unreasonably high
+                            if otm_amount > 10 and current_price > otm_amount * 0.5:
+                                # If more than 10 points OTM, shouldn't be worth more than 50% of OTM distance
+                                max_reasonable_value = otm_amount * 0.5
+                                logger.debug(f"      ⚠️  1 DTE option seems overpriced: {leg.contract_symbol} @ ${current_price:.2f} "
+                                           f"(expires tomorrow, OTM by ${otm_amount:.2f})")
+                                current_price = max_reasonable_value
+                                used_fallback = True
+                                logger.debug(f"      → Capped at: ${current_price:.2f}")
+
+                        # Standard check for all OTM options
+                        elif otm_amount > 10:
+                            # OTM options > 10 points out shouldn't have mark > 10% of the OTM distance
+                            max_reasonable_value = otm_amount * 0.1  # 10% of OTM distance
+                            if current_price > max_reasonable_value:
+                                logger.debug(f"      ⚠️  Suspicious mark price for {leg.contract_symbol}: ${current_price:.2f} "
+                                           f"(OTM by ${otm_amount:.2f}, max reasonable: ${max_reasonable_value:.2f})")
+                                # Use intrinsic value (0 for OTM) plus small time value
+                                current_price = intrinsic + min(0.5, max_reasonable_value * 0.1)
+                                used_fallback = True
+                                logger.debug(f"      → Using adjusted price: ${current_price:.2f}")
+
+                    # For ITM options, mark should be at least intrinsic value
+                    elif current_price < intrinsic:
+                        logger.debug(f"      ⚠️  Mark price ${current_price:.2f} below intrinsic ${intrinsic:.2f} for {leg.contract_symbol}")
+                        current_price = intrinsic  # Use intrinsic as minimum
+                        used_fallback = True
+
                 if current_price is None or current_price < 0:
                     # Mark price invalid - try to calculate intrinsic value
                     missing_legs.append(leg.contract_symbol)
@@ -562,25 +654,96 @@ class OptionsStrategy(ABC):
         if missing_legs:
             logger.debug(f"   ⚠️  Missing/invalid data for legs: {', '.join(missing_legs)}")
 
+        # Additional sanity check for vertical spreads
+        # If one leg is near worthless, the other shouldn't have much value either
+        if position.spread_type in [SpreadType.VERTICAL_PUT, SpreadType.VERTICAL_CALL] and len(position.legs) == 2:
+            leg_prices = [leg.current_price for leg in position.legs if leg.current_price is not None]
+            if len(leg_prices) == 2:
+                # If one option is < $0.10, the other shouldn't be > $1.00 for same expiry
+                min_price = min(leg_prices)
+                max_price = max(leg_prices)
+                if min_price < 0.10 and max_price > 1.00:
+                    logger.debug(f"⚠️  WARNING: Inconsistent spread prices: ${min_price:.2f} vs ${max_price:.2f}")
+                    logger.debug(f"   Capping higher price to $0.50 for consistency")
+                    for leg in position.legs:
+                        if leg.current_price is not None and leg.current_price > 1.00:
+                            leg.current_price = 0.50
+                    # Recalculate current_value
+                    current_value = 0.0
+                    for leg in position.legs:
+                        if leg.quantity > 0:
+                            current_value += leg.current_price * abs(leg.quantity) * 100
+                        else:
+                            current_value -= leg.current_price * abs(leg.quantity) * 100
+                    used_fallback = True
+
         # Ensure current_value is float (in case of Decimal arithmetic)
         position.current_value = float(current_value) if current_value is not None else None
         position.has_valid_market_data = not used_fallback  # Mark if using real market data
 
         # Validate current_value is reasonable for the spread
-        # For credit spreads (entry_cost < 0), max loss is limited to spread width
-        # For debit spreads (entry_cost > 0), max gain is limited to spread width
-        if position.entry_cost < 0:  # Credit spread
-            # Maximum risk = spread width * contracts * multiplier
-            # If current_value (cost to buy back) exceeds max risk, something is wrong
-            max_risk = abs(position.entry_cost) * 10  # Allow 10x for safety check
-            if abs(current_value) > max_risk:
-                logger.debug(f"⚠️  WARNING: Position value ${current_value:,.2f} exceeds reasonable max ${max_risk:,.2f}")
-                logger.debug(f"   Entry cost: ${position.entry_cost:,.2f}, Entry time: {position.entry_time}")
-                logger.debug("   This may indicate bad data or calculation error")
+        # For vertical spreads, calculate the maximum theoretical values
+        if position.spread_type in [SpreadType.VERTICAL_PUT, SpreadType.VERTICAL_CALL]:
+            # Find the spread width (difference between strikes)
+            strikes = [leg.strike_price for leg in position.legs]
+            if len(strikes) == 2:
+                spread_width = abs(strikes[0] - strikes[1])
+                max_spread_value = spread_width * abs(position.legs[0].quantity) * 100
 
-        # Track highest value for trailing stop
-        if position.highest_value is None or current_value > position.highest_value:
-            position.highest_value = current_value
+                # For credit spreads (entry_cost < 0)
+                if position.entry_cost < 0:
+                    # Max profit = credit received (when spread expires worthless)
+                    max_profit = abs(position.entry_cost)
+                    # Max loss = spread width - credit received
+                    max_loss = max_spread_value - abs(position.entry_cost)
+
+                    # Current PnL
+                    current_pnl = current_value - position.entry_cost
+
+                    # For credit spreads, current_value should NEVER be positive
+                    # Positive value would mean we receive money when closing, which would exceed max profit
+                    if current_value > 0:
+                        logger.debug(f"⚠️  WARNING: Credit spread has positive exit value ${current_value:.2f}")
+                        logger.debug(f"   This would create profit > initial credit. Setting to 0.")
+                        current_value = 0
+                        position.current_value = 0
+
+                    # Check if PnL exceeds theoretical maximum
+                    current_pnl = current_value - position.entry_cost
+                    if current_pnl > max_profit * 1.05:  # Allow 5% buffer for pricing anomalies
+                        logger.debug(f"⚠️  WARNING: Credit spread PnL ${current_pnl:.2f} exceeds max profit ${max_profit:.2f}")
+                        logger.debug(f"   Entry: ${position.entry_cost:.2f}, Current: ${current_value:.2f}")
+                        logger.debug(f"   Spread width: ${spread_width:.2f}, Max value: ${max_spread_value:.2f}")
+
+                        # Cap the current value to enforce maximum profit
+                        # For credit spreads, max profit occurs when current_value = 0 (spread expires worthless)
+                        # We'll allow keeping 99% of the credit as max profit
+                        position.current_value = -abs(position.entry_cost) * 0.01  # Tiny cost to close
+                        logger.debug(f"   → Capped current value at: ${position.current_value:.2f}")
+
+                # For debit spreads (entry_cost > 0)
+                else:
+                    # Max profit = spread width - debit paid
+                    max_profit = max_spread_value - position.entry_cost
+                    # Max loss = debit paid
+                    max_loss = position.entry_cost
+
+                    # Current PnL
+                    current_pnl = current_value - position.entry_cost
+
+                    # Check if PnL exceeds theoretical maximum
+                    if current_pnl > max_profit * 1.1:  # Allow 10% buffer
+                        logger.debug(f"⚠️  WARNING: Debit spread PnL ${current_pnl:.2f} exceeds max profit ${max_profit:.2f}")
+                        logger.debug(f"   Entry: ${position.entry_cost:.2f}, Current: ${current_value:.2f}")
+
+                        # Cap the current value to enforce maximum profit
+                        position.current_value = position.entry_cost + max_profit
+                        logger.debug(f"   → Capped current value at: ${position.current_value:.2f}")
+
+        # Track highest value for trailing stop (use the potentially capped value)
+        effective_value = position.current_value if position.current_value is not None else current_value
+        if position.highest_value is None or effective_value > position.highest_value:
+            position.highest_value = effective_value
 
     def check_profit_target(self, position: OptionsPosition) -> bool:
         """

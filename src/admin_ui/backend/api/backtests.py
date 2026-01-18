@@ -23,6 +23,7 @@ from admin_ui.backend.config import get_settings
 from backtest.config_loader import BacktestConfig
 from quant_vibe.data.timescale_store import TimescaleStore
 from quant_vibe.utils.backtest_helpers import _convert_decimals_to_float
+from quant_vibe.utils.pnl_utils import PnLCalculator
 
 router = APIRouter()
 
@@ -960,41 +961,43 @@ def calculate_metrics(trades: list[dict], equity_curve: list[dict]) -> dict[str,
     if not trades or not equity_curve:
         return {}
 
-    # Convert string values to floats
-    pnls = [float(t.get('pnl', 0)) for t in trades]
-    win_trades = [p for p in pnls if p > 0]
+    # Use centralized PnL aggregation
+    pnl_stats = PnLCalculator.aggregate_pnl(trades)
 
     # Get initial and final equity
     initial_equity = float(equity_curve[0].get('portfolio_value', 100000))
     final_equity = float(equity_curve[-1].get('portfolio_value', initial_equity))
 
-    # Calculate returns
-    total_return = ((final_equity - initial_equity) / initial_equity) * 100
+    # Calculate returns using centralized calculator
+    return_metrics = PnLCalculator.calculate_return_metrics(
+        initial_equity,
+        final_equity,
+        num_periods=len(equity_curve)
+    )
 
-    # Calculate max drawdown from equity curve
-    max_drawdown = 0
-    if equity_curve:
-        drawdowns = [float(row.get('drawdown', 0)) for row in equity_curve]
-        max_drawdown = min(drawdowns) if drawdowns else 0
+    # Calculate max drawdown from equity curve using centralized calculator
+    portfolio_values = [float(row.get('portfolio_value', 0)) for row in equity_curve]
+    max_dd_value, max_dd_pct = PnLCalculator.calculate_max_drawdown(portfolio_values)
 
-    # Calculate win rate
-    win_rate = len(win_trades) / len(trades) if trades else 0
-
-    # Calculate Sharpe ratio (simplified - using trade returns)
-    if len(pnls) > 1:
-        import statistics
-        mean_return = statistics.mean(pnls)
-        std_return = statistics.stdev(pnls)
-        sharpe_ratio = (mean_return / std_return) if std_return > 0 else 0
+    # Calculate Sharpe ratio using centralized calculator
+    # Convert PnLs to returns for Sharpe calculation
+    pnls = [float(t.get('pnl', 0)) for t in trades]
+    if len(pnls) > 1 and initial_equity > 0:
+        # Convert to returns as percentage of capital
+        returns = [pnl / initial_equity for pnl in pnls]
+        sharpe_ratio = PnLCalculator.calculate_sharpe_ratio(
+            returns,
+            periods_per_year=252  # Assuming daily trading
+        )
     else:
-        sharpe_ratio = 0
+        sharpe_ratio = 0.0
 
     return {
-        "total_return": total_return,
-        "max_drawdown": max_drawdown,
-        "win_rate": win_rate,
+        "total_return": return_metrics['total_return_pct'],
+        "max_drawdown": max_dd_pct,
+        "win_rate": pnl_stats['win_rate'],
         "sharpe_ratio": sharpe_ratio,
-        "total_trades": len(trades),
+        "total_trades": pnl_stats['num_trades'],
     }
 
 

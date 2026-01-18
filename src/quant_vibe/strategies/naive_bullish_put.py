@@ -13,6 +13,7 @@ from .options_base import (
     SpreadType
 )
 from quant_vibe.utils import generate_position_id
+from quant_vibe.utils.pnl_utils import PnLCalculator
 
 
 class NaiveBullishPutStrategy(OptionsStrategy):
@@ -348,9 +349,9 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         print(f"NBP    Position current value: ${position.current_value:.2f}")
         if position.pnl is not None:
             print(f"NBP    Position P&L: ${position.pnl:.2f}")
-            if position.current_value != 0:
-                pnl_pct = (position.pnl / abs(position.entry_cost)) * 100
-                print(f"NBP    P&L %: {pnl_pct:.2f}%")
+            # Use position.pnl_percent property which now uses centralized calculator
+            if position.pnl_percent is not None:
+                print(f"NBP    P&L %: {position.pnl_percent*100:.2f}%")
 
         # Check profit target
         if self.check_profit_target(position):

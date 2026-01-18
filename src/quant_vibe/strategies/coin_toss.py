@@ -24,6 +24,7 @@ from quant_vibe.strategies.options_base import (
     SpreadType,
 )
 from quant_vibe.utils import generate_position_id
+from quant_vibe.utils.pnl_utils import PnLCalculator
 
 
 class CoinTossStrategy(OptionsStrategy):
@@ -309,11 +310,13 @@ class CoinTossStrategy(OptionsStrategy):
         if not position.has_valid_market_data:
             return False, None
 
-        # Calculate current P&L and mark price
-        # current_value = quantity * price * 100 (multiplier)
-        # entry_cost = quantity * entry_price * 100
-        pnl = position.current_value - position.entry_cost
-        pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
+        # Calculate current P&L using centralized calculator
+        pnl_result = PnLCalculator.calculate_unrealized_pnl(
+            position.entry_cost,
+            position.current_value
+        )
+        pnl = pnl_result.pnl
+        pnl_pct = pnl_result.pnl_pct / 100 if pnl_result.pnl_pct is not None else 0
 
         # Validate pnl_pct - skip if NaN
         if pd.isna(pnl_pct):
@@ -335,8 +338,12 @@ class CoinTossStrategy(OptionsStrategy):
                     position.legs[0].current_price = bid_price
 
             # Calculate final P&L with actual bid price (do this AFTER the override)
-            pnl = position.current_value - position.entry_cost
-            pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
+            pnl_result = PnLCalculator.calculate_unrealized_pnl(
+                position.entry_cost,
+                position.current_value
+            )
+            pnl = pnl_result.pnl
+            pnl_pct = pnl_result.pnl_pct / 100 if pnl_result.pnl_pct is not None else 0
 
             return True, f"Profit target ({position.profit_target_pct*100:.0f}%) reached - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 
@@ -361,8 +368,12 @@ class CoinTossStrategy(OptionsStrategy):
                     position.legs[0].current_price = bid_price
 
             # Calculate final P&L with actual bid price (do this AFTER the override)
-            pnl = position.current_value - position.entry_cost
-            pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
+            pnl_result = PnLCalculator.calculate_unrealized_pnl(
+                position.entry_cost,
+                position.current_value
+            )
+            pnl = pnl_result.pnl
+            pnl_pct = pnl_result.pnl_pct / 100 if pnl_result.pnl_pct is not None else 0
 
             return True, f"End of day exit - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 
@@ -379,8 +390,12 @@ class CoinTossStrategy(OptionsStrategy):
                     position.legs[0].current_price = bid_price
 
             # Calculate final P&L with actual bid price (do this AFTER the override)
-            pnl = position.current_value - position.entry_cost
-            pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
+            pnl_result = PnLCalculator.calculate_unrealized_pnl(
+                position.entry_cost,
+                position.current_value
+            )
+            pnl = pnl_result.pnl
+            pnl_pct = pnl_result.pnl_pct / 100 if pnl_result.pnl_pct is not None else 0
 
             return True, f"Past expiration - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
 

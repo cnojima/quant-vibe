@@ -28,6 +28,7 @@ from quant_vibe.strategies.options_base import (
     SpreadType,
 )
 from quant_vibe.utils import generate_position_id
+from quant_vibe.utils.pnl_utils import PnLCalculator
 
 
 class OrderStatus(Enum):
@@ -715,9 +716,11 @@ class BollingerBandLimitStrategy(OptionsStrategy):
             position.current_value = filled_sell.filled_price * position.legs[0].quantity * 100
             position.legs[0].current_price = filled_sell.filled_price
 
-            pnl = (filled_sell.filled_price - position.legs[0].entry_price) * position.legs[0].quantity * 100
-            pnl_pct = (filled_sell.filled_price - position.legs[0].entry_price) / position.legs[0].entry_price
-            return True, f"Sell limit filled at ${filled_sell.filled_price:.2f} - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
+            # Calculate PnL using centralized calculator
+            entry_cost = position.legs[0].entry_price * position.legs[0].quantity * 100
+            exit_value = filled_sell.filled_price * position.legs[0].quantity * 100
+            pnl_result = PnLCalculator.calculate_realized_pnl(entry_cost, exit_value)
+            return True, f"Sell limit filled at ${filled_sell.filled_price:.2f} - P&L: {PnLCalculator.format_pnl_display(pnl_result.pnl, pnl_result.pnl_pct)}"
 
         # Check sell orders for fills
         for order in self.pending_sell_orders:
@@ -729,14 +732,16 @@ class BollingerBandLimitStrategy(OptionsStrategy):
                     position.current_value = order.filled_price * position.legs[0].quantity * 100
                     position.legs[0].current_price = order.filled_price
 
-                    pnl = (order.filled_price - position.legs[0].entry_price) * position.legs[0].quantity * 100
-                    pnl_pct = (order.filled_price - position.legs[0].entry_price) / position.legs[0].entry_price
+                    # Calculate PnL using centralized calculator
+                    entry_cost = position.legs[0].entry_price * position.legs[0].quantity * 100
+                    exit_value = order.filled_price * position.legs[0].quantity * 100
+                    pnl_result = PnLCalculator.calculate_realized_pnl(entry_cost, exit_value)
                     # Clean up
                     self.pending_sell_orders = [
                         o for o in self.pending_sell_orders
                         if o.status == OrderStatus.PENDING
                     ]
-                    return True, f"Profit target reached at ${order.filled_price:.2f} - P&L: ${pnl:.2f} ({pnl_pct*100:.1f}%)"
+                    return True, f"Profit target reached at ${order.filled_price:.2f} - P&L: {PnLCalculator.format_pnl_display(pnl_result.pnl, pnl_result.pnl_pct)}"
 
         # Validate position value
         if position.current_value is None or pd.isna(position.current_value):
@@ -746,9 +751,12 @@ class BollingerBandLimitStrategy(OptionsStrategy):
         if not position.has_valid_market_data:
             return False, None
 
-        # Calculate current P&L
-        pnl = position.current_value - position.entry_cost
-        pnl_pct = pnl / abs(position.entry_cost) if position.entry_cost != 0 else 0
+        # Calculate current P&L using centralized calculator
+        pnl_result = PnLCalculator.calculate_unrealized_pnl(
+            position.entry_cost,
+            position.current_value
+        )
+        pnl_pct = pnl_result.pnl_pct / 100 if pnl_result.pnl_pct is not None else 0
 
         if pd.isna(pnl_pct):
             return False, None

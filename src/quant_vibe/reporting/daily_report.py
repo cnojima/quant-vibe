@@ -13,6 +13,7 @@ import pandas as pd
 
 from quant_vibe.logging import get_logger
 from quant_vibe.utils.timestamp_utils import now_utc
+from quant_vibe.utils.pnl_utils import PnLCalculator
 
 
 class DailyPerformanceReport:
@@ -98,26 +99,27 @@ class DailyPerformanceReport:
         else:
             day_trades = pd.DataFrame()
 
-        # Calculate basic metrics (convert to native Python types)
-        total_trades = int(len(day_trades))
-        actual_pnl = float(day_trades['pnl'].sum()) if total_trades > 0 else 0.0
+        # Calculate basic metrics using centralized PnL aggregation
+        if len(day_trades) > 0:
+            # Use centralized PnL aggregator
+            pnl_stats = PnLCalculator.aggregate_pnl(day_trades.to_dict('records'))
 
-        # Win/loss analysis
-        if total_trades > 0:
-            winners = day_trades[day_trades['pnl'] > 0]
-            losers = day_trades[day_trades['pnl'] < 0]
-
-            winning_trades = int(len(winners))
-            losing_trades = int(len(losers))
-            win_rate = float((winning_trades / total_trades) * 100) if total_trades > 0 else 0.0
-
-            avg_win = float(winners['pnl'].mean()) if len(winners) > 0 else 0.0
-            avg_loss = float(losers['pnl'].mean()) if len(losers) > 0 else 0.0
-            largest_win = float(winners['pnl'].max()) if len(winners) > 0 else 0.0
-            largest_loss = float(losers['pnl'].min()) if len(losers) > 0 else 0.0
+            total_trades = pnl_stats['num_trades']
+            actual_pnl = pnl_stats['total_pnl']
+            winning_trades = pnl_stats['num_winners']
+            losing_trades = pnl_stats['num_losers']
+            win_rate = pnl_stats['win_rate']
+            avg_win = pnl_stats['avg_win']
+            avg_loss = pnl_stats['avg_loss']
+            largest_win = pnl_stats['largest_win']
+            largest_loss = pnl_stats['largest_loss']
+            profit_factor = pnl_stats['profit_factor']
         else:
+            total_trades = 0
+            actual_pnl = 0.0
             winning_trades = losing_trades = 0
             win_rate = avg_win = avg_loss = largest_win = largest_loss = 0.0
+            profit_factor = 0.0
 
         # Achievement percentage
         achievement_pct = float((actual_pnl / self.target) * 100) if self.target > 0 else 0.0
@@ -157,7 +159,7 @@ class DailyPerformanceReport:
             'avg_loss': round(avg_loss, 2),
             'largest_win': round(largest_win, 2),
             'largest_loss': round(largest_loss, 2),
-            'profit_factor': round(abs(avg_win / avg_loss), 2) if avg_loss != 0 else 0.0,
+            'profit_factor': profit_factor,  # Now always a valid numeric value
             'max_drawdown': round(max_drawdown, 2),
             'max_drawdown_pct': round(max_drawdown_pct, 2),
             'by_strategy': by_strategy,
@@ -241,10 +243,14 @@ class DailyPerformanceReport:
             trades_sorted = trades_df.sort_values('exit_time')
             trades_sorted['cumulative_pnl'] = trades_sorted['pnl'].cumsum()
 
-            # Find maximum drawdown from running peak
-            running_max = trades_sorted['cumulative_pnl'].cummax()
-            drawdown = trades_sorted['cumulative_pnl'] - running_max
-            max_drawdown = abs(drawdown.min()) if not drawdown.empty else 0.0
+            # Use centralized max drawdown calculator
+            if not trades_sorted.empty:
+                dd_value, dd_pct = PnLCalculator.calculate_max_drawdown(
+                    trades_sorted['cumulative_pnl']
+                )
+                max_drawdown = abs(dd_value)
+            else:
+                max_drawdown = 0.0
 
         else:
             # Use equity curve if available
@@ -255,9 +261,11 @@ class DailyPerformanceReport:
             if day_equity.empty:
                 return 0.0, 0.0
 
-            running_max = day_equity['value'].cummax()
-            drawdown = day_equity['value'] - running_max
-            max_drawdown = abs(drawdown.min())
+            # Use centralized max drawdown calculator
+            dd_value, dd_pct_calc = PnLCalculator.calculate_max_drawdown(
+                day_equity['value']
+            )
+            max_drawdown = abs(dd_value)
 
         # Calculate percentage
         max_drawdown_pct = (max_drawdown / self.initial_capital) * 100

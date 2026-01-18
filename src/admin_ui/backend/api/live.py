@@ -4,7 +4,7 @@ Live trading monitoring API endpoints.
 Provides endpoints to view live trading status, positions, orders, and events.
 """
 
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any
 import sys
 from pathlib import Path
@@ -20,9 +20,80 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
 from quant_vibe.reporting import DailyPerformanceReport
 from live_trading_service.state_store import StateStore
-from quant_vibe.utils import now_utc
+from quant_vibe.utils import now_utc, to_utc
+from quant_vibe.logging import get_logger
 
 router = APIRouter()
+logger = get_logger(__name__)
+
+
+def _convert_trades_decimals_to_float(trades: List[Dict]) -> List[Dict]:
+    """
+    Convert Decimal values to float in trades data.
+
+    Args:
+        trades: List of trade dictionaries
+
+    Returns:
+        Modified trades list with Decimal values converted to float
+    """
+    from decimal import Decimal
+
+    for trade in trades:
+        for key in ['entry_cost', 'exit_value', 'pnl']:
+            if key in trade and isinstance(trade[key], Decimal):
+                trade[key] = float(trade[key])
+    return trades
+
+
+def _create_default_paper_account() -> Dict[str, Any]:
+    """
+    Create default paper trading account configuration.
+
+    Returns:
+        Dictionary with default paper account settings
+    """
+    import hashlib
+
+    return {
+        'account_hash': hashlib.sha256(b'PAPER_DEFAULT').hexdigest()[:32],
+        'account_number': 'PAPER001',
+        'nickname': 'Paper Trading Account',
+        'account_type': 'MARGIN',
+        'is_day_trader': True,  # Paper trading has no PDT restrictions
+        'is_closing_only_restricted': False,
+        'is_default': True,
+        'round_trips': 0
+    }
+
+
+def _create_default_paper_balance(account_hash: str) -> Dict[str, Any]:
+    """
+    Create default paper trading account balance.
+
+    Args:
+        account_hash: Account hash identifier
+
+    Returns:
+        Dictionary with initial balance settings
+    """
+    return {
+        'account_hash': account_hash,
+        'cash_balance': 100000.0,  # Start with $100k
+        'available_funds': 100000.0,
+        'buying_power': 400000.0,  # 4x margin for day trading
+        'day_trading_buying_power': 400000.0,
+        'liquidation_value': 100000.0,
+        'portfolio_value': 100000.0,
+        'long_option_market_value': 0.0,
+        'short_option_market_value': 0.0,
+        'maintenance_requirement': 0.0,
+        'margin_balance': 0.0,
+        'daily_pnl': 0.0,
+        'total_pnl': 0.0,
+        'win_rate': None,
+        'sharpe_ratio': None
+    }
 
 
 # Pydantic models for account endpoints
@@ -114,42 +185,12 @@ async def get_accounts(
 
     # For paper trading, create a default account if none exist
     if trading_mode == 'paper' and len(accounts) == 0:
-        import hashlib
-        from datetime import datetime
-
         # Create a default paper trading account
-        default_account = {
-            'account_hash': hashlib.sha256(b'PAPER_DEFAULT').hexdigest()[:32],
-            'account_number': 'PAPER001',
-            'nickname': 'Paper Trading Account',
-            'account_type': 'MARGIN',
-            'is_day_trader': True,  # Paper trading has no PDT restrictions
-            'is_closing_only_restricted': False,
-            'is_default': True,
-            'round_trips': 0
-        }
-
+        default_account = _create_default_paper_account()
         await timescale.upsert_broker_account(default_account, trading_mode='paper')
 
         # Also create initial balance for the paper account
-        initial_balance = {
-            'account_hash': default_account['account_hash'],
-            'cash_balance': 100000.0,  # Start with $100k
-            'available_funds': 100000.0,
-            'buying_power': 400000.0,  # 4x margin for day trading
-            'day_trading_buying_power': 400000.0,
-            'liquidation_value': 100000.0,
-            'portfolio_value': 100000.0,
-            'long_option_market_value': 0.0,
-            'short_option_market_value': 0.0,
-            'maintenance_requirement': 0.0,
-            'margin_balance': 0.0,
-            'daily_pnl': 0.0,
-            'total_pnl': 0.0,
-            'win_rate': None,
-            'sharpe_ratio': None
-        }
-
+        initial_balance = _create_default_paper_balance(default_account['account_hash'])
         await timescale.store_account_balance(initial_balance, trading_mode='paper')
 
         # Re-fetch accounts
@@ -191,7 +232,7 @@ async def get_account_balance(
                 schwab_dev = SchwabDevClient()
                 schwab_client = schwab_dev.client
             except Exception as e:
-                print(f"Failed to initialize Schwab client: {e}")
+                logger.warning(f"Failed to initialize Schwab client: {e}")
                 schwab_client = None
 
             if schwab_client:
@@ -233,7 +274,7 @@ async def get_account_balance(
 
         except Exception as e:
             # Fall back to database if API fails
-            print(f"Failed to fetch real-time balance: {e}")
+            logger.warning(f"Failed to fetch real-time balance: {e}")
 
     # Get latest balance from database
     balance = await timescale.fetch_account_balance(
@@ -448,7 +489,7 @@ async def refresh_accounts(
                         'round_trips': sec_acc.get('roundTrips', 0)
                     })
             except Exception as e:
-                print(f"Failed to get details for account {acc['hashValue']}: {e}")
+                logger.warning(f"Failed to get details for account {acc['hashValue']}: {e}")
 
             # Store/update in database
             await timescale.upsert_broker_account(account_data, trading_mode='real')
@@ -683,15 +724,9 @@ async def get_daily_report(
             trades = state_store.get_trades_for_date(report_date, account_hash=account_hash)
 
             import pandas as pd
-            from decimal import Decimal
 
             if trades:
-                # Convert Decimal to float for numeric fields
-                for trade in trades:
-                    for key in ['entry_cost', 'exit_value', 'pnl']:
-                        if key in trade and isinstance(trade[key], Decimal):
-                            trade[key] = float(trade[key])
-
+                trades = _convert_trades_decimals_to_float(trades)
                 trades_df = pd.DataFrame(trades)
             else:
                 trades_df = pd.DataFrame()
@@ -744,8 +779,6 @@ async def get_recent_daily_reports(
 
         state_store = StateStore(trading_mode=trading_mode)
         try:
-            from decimal import Decimal
-
             # Generate reports for last N days
             for i in range(days):
                 target_date = date.today() - timedelta(days=i)
@@ -754,12 +787,7 @@ async def get_recent_daily_reports(
                 trades = state_store.get_trades_for_date(target_date, account_hash=account_hash)
 
                 if trades:
-                    # Convert Decimal to float for numeric fields
-                    for trade in trades:
-                        for key in ['entry_cost', 'exit_value', 'pnl']:
-                            if key in trade and isinstance(trade[key], Decimal):
-                                trade[key] = float(trade[key])
-
+                    trades = _convert_trades_decimals_to_float(trades)
                     trades_df = pd.DataFrame(trades)
                 else:
                     trades_df = pd.DataFrame()
@@ -1024,7 +1052,7 @@ async def trigger_reconciliation(
             "trading_mode": trading_mode,
             "account_hash": account_hash,  # Pass specific account if provided
             "requested_by": "admin_ui",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": now_utc().isoformat()
         }
 
         # Publish to control.live_trading topic
@@ -1066,11 +1094,10 @@ async def get_trades_visualization(
     """
     try:
         import pandas as pd
-        from datetime import timedelta, timezone
         from quant_vibe.data.timescale_store import TimescaleStore
 
         # Calculate date range (timezone-aware UTC)
-        end_date = datetime.now(timezone.utc)
+        end_date = now_utc()
         start_date = end_date - timedelta(days=days)
 
         # Load trades from state store
@@ -1088,8 +1115,7 @@ async def get_trades_visualization(
                 if exit_time:
                     exit_dt = exit_time if isinstance(exit_time, datetime) else datetime.fromisoformat(str(exit_time))
                     # Ensure timezone-aware comparison
-                    if exit_dt.tzinfo is None:
-                        exit_dt = exit_dt.replace(tzinfo=timezone.utc)
+                    exit_dt = to_utc(exit_dt)
                     if start_date <= exit_dt <= end_date:
                         # Parse legs JSON if needed
                         legs = pos.get('legs', [])
@@ -1102,9 +1128,9 @@ async def get_trades_visualization(
                             'strategy': pos.get('strategy', pos.get('strategy_name', 'unknown')),
                             'entry_time': pos.get('entry_time'),
                             'exit_time': exit_time,
-                            'entry_cost': float(pos.get('entry_cost', 0)) if pos.get('entry_cost') else 0,
-                            'exit_value': float(pos.get('exit_value', 0)) if pos.get('exit_value') else 0,
-                            'pnl': float(pos.get('realized_pnl', 0)) if pos.get('realized_pnl') else 0,
+                            'entry_cost': float(pos.get('entry_cost') or 0),
+                            'exit_value': float(pos.get('exit_value') or 0),
+                            'pnl': float(pos.get('realized_pnl') or 0),
                             'exit_reason': pos.get('exit_reason'),
                             'spread_type': pos.get('spread_type'),
                             'legs': legs,
@@ -1112,7 +1138,7 @@ async def get_trades_visualization(
                         })
 
             # Sort trades by entry time
-            trades.sort(key=lambda t: t['entry_time'] if t['entry_time'] else datetime.min.replace(tzinfo=timezone.utc))
+            trades.sort(key=lambda t: t['entry_time'] if t['entry_time'] else to_utc(datetime.min))
 
             # Build equity curve from trades
             initial_capital = 800000.0  # TODO: Get from config
@@ -1174,7 +1200,7 @@ async def get_trades_visualization(
                         for idx, row in underlying_df.iterrows()
                     ]
             except Exception as e:
-                print(f"Warning: Failed to fetch underlying data: {e}")
+                logger.warning(f"Failed to fetch underlying data: {e}")
                 # Continue without underlying data
 
             return {
@@ -1192,6 +1218,5 @@ async def get_trades_visualization(
             ts_store.close()
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Failed to fetch trades visualization data: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to fetch trades visualization data: {str(e)}")

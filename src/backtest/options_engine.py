@@ -17,6 +17,7 @@ import pytz
 
 from quant_vibe.strategies.options_base import OptionsStrategy, OptionsPosition
 from quant_vibe.logging import get_logger
+from quant_vibe.utils.pnl_utils import PnLCalculator
 
 logger = get_logger(__name__)
 
@@ -359,11 +360,14 @@ class OptionsBacktestEngine:
         if position.exit_value is None:
             # Use entry_cost as fallback (assume position closed at break-even)
             position.exit_value = position.entry_cost
-            pnl = 0.0
-            pnl_pct = 0.0
-        else:
-            pnl = position.exit_value - position.entry_cost
-            pnl_pct = (pnl / abs(position.entry_cost)) * 100 if position.entry_cost != 0 else 0
+
+        # Use centralized PnL calculator
+        pnl_result = PnLCalculator.calculate_realized_pnl(
+            position.entry_cost,
+            position.exit_value
+        )
+        pnl = pnl_result.pnl
+        pnl_pct = pnl_result.pnl_pct if pnl_result.pnl_pct is not None else 0.0
 
         # Build leg details for trade record
         leg_details = []
@@ -465,11 +469,14 @@ class OptionsBacktestEngine:
 
     def _log_position_exit(self, position: OptionsPosition, exit_reason: str, cash_after: float) -> None:
         """Log position exit details."""
-        pnl = position.exit_value - position.entry_cost
-        pnl_pct = (pnl / abs(position.entry_cost)) * 100 if position.entry_cost != 0 else 0
+        # Use centralized PnL calculator
+        pnl_result = PnLCalculator.calculate_realized_pnl(
+            position.entry_cost,
+            position.exit_value
+        )
         duration = (position.exit_time - position.entry_time).total_seconds() / 60
 
-        emoji = "🟢" if pnl >= 0 else "🔴"
+        emoji = "🟢" if pnl_result.is_winner else "🔴"
         logger.debug(f"\n  {emoji} POSITION CLOSED")
         logger.debug(f"     Position ID: {position.position_id}")
         logger.debug(f"     Exit Time: {self._format_time_et(position.exit_time)}")
@@ -477,7 +484,7 @@ class OptionsBacktestEngine:
         logger.debug(f"     Duration: {duration:.0f} minutes")
         logger.debug(f"     Entry Cost: ${position.entry_cost:.2f}")
         logger.debug(f"     Exit Value: ${position.exit_value:.2f}")
-        logger.debug(f"     P&L: ${pnl:+.2f} ({pnl_pct:+.2f}%)")
+        logger.debug(f"     P&L: {PnLCalculator.format_pnl_display(pnl_result.pnl, pnl_result.pnl_pct)}")
         logger.debug(f"     Cash After: ${cash_after:,.2f}")
 
     def _calculate_results(self, strategy: OptionsStrategy, final_cash: float) -> None:
@@ -494,29 +501,30 @@ class OptionsBacktestEngine:
         # Calculate metrics
         total_return = ((final_cash / self.initial_capital) - 1) * 100
 
-        # Trade statistics
-        num_trades = len(self.trades)
+        # Trade statistics using centralized PnL aggregation
+        pnl_stats = PnLCalculator.aggregate_pnl(self.trades)
+
+        num_trades = pnl_stats['num_trades']
+        win_rate = pnl_stats['win_rate']
+        avg_win = pnl_stats['avg_win']
+        avg_loss = pnl_stats['avg_loss']
         winning_trades = [t for t in self.trades if t['pnl'] > 0]
         losing_trades = [t for t in self.trades if t['pnl'] < 0]
-
-        win_rate = (len(winning_trades) / num_trades * 100) if num_trades > 0 else 0
-        avg_win = np.mean([t['pnl'] for t in winning_trades]) if winning_trades else 0
-        avg_loss = np.mean([t['pnl'] for t in losing_trades]) if losing_trades else 0
 
         # Equity curve stats
         if not equity_df.empty:
             equity_df['returns'] = equity_df['portfolio_value'].pct_change()
 
-            # Drawdown calculation
-            equity_df['cummax'] = equity_df['portfolio_value'].cummax()
-            equity_df['drawdown'] = (equity_df['portfolio_value'] - equity_df['cummax']) / equity_df['cummax'] * 100
-            max_drawdown = equity_df['drawdown'].min()
+            # Drawdown calculation using centralized calculator
+            max_drawdown_value, max_drawdown = PnLCalculator.calculate_max_drawdown(
+                equity_df['portfolio_value']
+            )
 
-            # Sharpe ratio (annualized, assuming 252 trading days)
-            if equity_df['returns'].std() > 0:
-                sharpe_ratio = (equity_df['returns'].mean() / equity_df['returns'].std()) * np.sqrt(252 * 390)  # 390 minutes per day
-            else:
-                sharpe_ratio = 0
+            # Sharpe ratio using centralized calculator (390 minutes per day * 252 days)
+            sharpe_ratio = PnLCalculator.calculate_sharpe_ratio(
+                equity_df['returns'].dropna(),
+                periods_per_year=252 * 390
+            )
         else:
             max_drawdown = 0
             sharpe_ratio = 0
@@ -528,12 +536,12 @@ class OptionsBacktestEngine:
             'total_return': total_return,
             'total_return_pct': total_return,
             'num_trades': num_trades,
-            'num_winning_trades': len(winning_trades),
-            'num_losing_trades': len(losing_trades),
+            'num_winning_trades': pnl_stats['num_winners'],
+            'num_losing_trades': pnl_stats['num_losers'],
             'win_rate': win_rate,
             'avg_win': avg_win,
             'avg_loss': avg_loss,
-            'profit_factor': abs(avg_win / avg_loss) if avg_loss != 0 else 0,
+            'profit_factor': pnl_stats['profit_factor'],
             'max_drawdown': max_drawdown,
             'sharpe_ratio': sharpe_ratio,
             'equity_curve': equity_df,

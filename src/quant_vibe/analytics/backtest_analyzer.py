@@ -28,6 +28,7 @@ from quant_vibe.models.analysis import (
     TradeInsights,
 )
 from quant_vibe.utils import now_utc
+from quant_vibe.utils.pnl_utils import PnLCalculator
 
 logger = setup_normalized_logging(
     app_name="backtest_analyzer",

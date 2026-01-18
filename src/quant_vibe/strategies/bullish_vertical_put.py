@@ -517,7 +517,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             entry_time=current_time,
             entry_cost=-net_credit,  # Negative because it's a credit
             underlying_price_at_entry=current_price,
-            profit_target_pct=self.profit_target_max,  # Use max profit target
+            profit_target_pct=(self.profit_target_min + self.profit_target_max) / 2,  # Use 75% as compromise between min (50%) and max (100%)
             trailing_stop=self.trailing_stop_pct
         )
 
@@ -556,6 +556,29 @@ class BullishVerticalPutStrategy(OptionsStrategy):
 
         # Check profit target
         if self.check_profit_target(position):
+            # Log details about why profit target triggered
+            if position.pnl_percent is not None:
+                import pytz
+                et_tz = pytz.timezone('America/New_York')
+                if current_time.tzinfo is None:
+                    current_time_et = pytz.UTC.localize(current_time).astimezone(et_tz)
+                else:
+                    current_time_et = current_time.astimezone(et_tz)
+
+                duration = (current_time - position.entry_time).total_seconds() / 60 if position.entry_time else 0
+
+                print(f"\n  💰 PROFIT TARGET REACHED at {current_time_et.strftime('%H:%M:%S %Z')}")
+                print(f"     P&L: ${position.pnl:.2f} ({position.pnl_percent:.1f}%)")
+                print(f"     Target: {position.profit_target_pct * 100:.0f}%")
+                print(f"     Duration: {duration:.1f} minutes")
+                print(f"     Entry cost: ${position.entry_cost:.2f}")
+                print(f"     Current value: ${position.current_value:.2f}")
+
+                # Warn if exit is suspiciously fast
+                if duration < 5:
+                    print(f"     ⚠️  WARNING: Exit after only {duration:.1f} minutes - possible data quality issue")
+                    print(f"     Check if options prices are stale or incorrect")
+
             return True, "Profit target reached"
 
         # Check trailing stop

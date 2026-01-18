@@ -14,6 +14,8 @@ from typing import Any, Optional
 import asyncpg
 
 from admin_ui.backend.config import get_settings
+from quant_vibe.utils import now_utc
+from quant_vibe.utils.pnl_utils import PnLCalculator
 
 # Global connection pool
 _pool: Optional[asyncpg.Pool] = None
@@ -180,7 +182,6 @@ async def fetch_active_positions(
             entry_time,
             entry_cost,
             current_value,
-            (COALESCE(current_value, 0) - entry_cost) as unrealized_pnl,
             legs,
             metadata,
             account_hash
@@ -200,6 +201,14 @@ async def fetch_active_positions(
                 pos['legs'] = json.loads(pos['legs'])
             if isinstance(pos.get('metadata'), str):
                 pos['metadata'] = json.loads(pos['metadata'])
+
+            # Calculate unrealized PnL using centralized calculator
+            pnl_result = PnLCalculator.calculate_unrealized_pnl(
+                pos.get('entry_cost'),
+                pos.get('current_value')
+            )
+            pos['unrealized_pnl'] = pnl_result.pnl
+
             result.append(pos)
         return result
 
@@ -245,7 +254,6 @@ async def fetch_closed_positions(
             entry_cost,
             exit_time,
             exit_value,
-            (COALESCE(exit_value, 0) - entry_cost) as realized_pnl,
             exit_reason,
             legs,
             metadata,
@@ -266,6 +274,13 @@ async def fetch_closed_positions(
                 pos['legs'] = json.loads(pos['legs'])
             if isinstance(pos.get('metadata'), str):
                 pos['metadata'] = json.loads(pos['metadata'])
+
+            # Calculate realized PnL using centralized calculator
+            pnl_result = PnLCalculator.calculate_realized_pnl(
+                pos.get('entry_cost'),
+                pos.get('exit_value')
+            )
+            pos['realized_pnl'] = pnl_result.pnl
             result.append(pos)
         return result
 
@@ -480,36 +495,46 @@ async def fetch_trading_stats(
 
     where_sql = " AND ".join(where_clauses)
 
+    # Fetch raw trade data
     query = f"""
-        WITH pnl_calc AS (
-            SELECT
-                (COALESCE(exit_value, 0) - entry_cost) as realized_pnl
-            FROM {table_name}
-            WHERE {where_sql}
-        )
         SELECT
-            COUNT(*) as total_trades,
-            SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
-            SUM(CASE WHEN realized_pnl < 0 THEN 1 ELSE 0 END) as losing_trades,
-            SUM(realized_pnl) as total_pnl,
-            AVG(realized_pnl) as avg_pnl,
-            MAX(realized_pnl) as max_win,
-            MIN(realized_pnl) as max_loss,
-            AVG(CASE WHEN realized_pnl > 0 THEN realized_pnl END) as avg_win,
-            AVG(CASE WHEN realized_pnl < 0 THEN realized_pnl END) as avg_loss
-        FROM pnl_calc
+            entry_cost,
+            exit_value
+        FROM {table_name}
+        WHERE {where_sql}
     """
 
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(query, *params)
-        if row:
-            stats = dict(row)
-            # Calculate win rate as ratio (0-1)
-            total = stats.get("total_trades", 0)
-            winning = stats.get("winning_trades", 0)
-            stats["win_rate"] = (winning / total) if total > 0 else 0.0
-            return stats
-        return {}
+        rows = await conn.fetch(query, *params)
+
+        if not rows:
+            return {}
+
+        # Calculate PnL for each trade
+        trades = []
+        for row in rows:
+            pnl_result = PnLCalculator.calculate_realized_pnl(
+                row['entry_cost'],
+                row['exit_value']
+            )
+            trades.append({'pnl': pnl_result.pnl})
+
+        # Use centralized aggregation
+        pnl_stats = PnLCalculator.aggregate_pnl(trades)
+
+        # Map to expected format
+        return {
+            'total_trades': pnl_stats['num_trades'],
+            'winning_trades': pnl_stats['num_winners'],
+            'losing_trades': pnl_stats['num_losers'],
+            'total_pnl': pnl_stats['total_pnl'],
+            'avg_pnl': pnl_stats['avg_pnl'],
+            'max_win': pnl_stats['largest_win'],
+            'max_loss': pnl_stats['largest_loss'],
+            'avg_win': pnl_stats['avg_win'],
+            'avg_loss': pnl_stats['avg_loss'],
+            'win_rate': pnl_stats['win_rate'] / 100.0  # Convert percentage to ratio
+        }
 
 
 async def test_connection() -> bool:
@@ -801,5 +826,5 @@ async def store_order(
             order_data.get('account_hash'),
             order_data.get('status', 'UNKNOWN'),
             order_data.get('order_type', 'UNKNOWN'),
-            order_data.get('entered_time', datetime.now())
+            order_data.get('entered_time', now_utc())
         )
