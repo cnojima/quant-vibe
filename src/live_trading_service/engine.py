@@ -527,7 +527,7 @@ class LiveTradingEngine:
                             'strategy_name': 'broker_reconciliation',
                             'spread_type': 'single',  # Most broker positions are single legs
                             'entry_time': now_utc(),  # Use current time for reconciliation
-                            'entry_cost': abs(broker_pos['quantity'] * broker_pos['average_price'] * 100),  # Options are x100
+                            'entry_cost': broker_pos['quantity'] * broker_pos['average_price'] * 100,  # Options are x100 (negative for short positions)
                             'underlying_price_at_entry': 0,  # Will be updated on next market data
                             'status': 'open',
                             'current_value': broker_pos['market_value'],
