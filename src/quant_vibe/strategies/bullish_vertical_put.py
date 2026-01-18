@@ -382,6 +382,13 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             max_bid_ask_spread_pct=self.min_bid_ask_spread_pct
         )
 
+        # Calculate mark price (midpoint of bid and ask) if not present
+        if 'mark' not in liquid_options.columns:
+            # Ensure bid and ask are numeric before calculating mark
+            liquid_options['bid'] = pd.to_numeric(liquid_options['bid'], errors='coerce')
+            liquid_options['ask'] = pd.to_numeric(liquid_options['ask'], errors='coerce')
+            liquid_options['mark'] = (liquid_options['bid'] + liquid_options['ask']) / 2
+
         if liquid_options.empty:
             print(f"  ⚠️  No liquid options found (volume >= {self.min_volume}, spread <= {self.min_bid_ask_spread_pct}%)")
             return None

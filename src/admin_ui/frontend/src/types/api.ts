@@ -1,6 +1,6 @@
 // API response types for QuantVibe Admin UI
 
-// Account Management Types
+// Account Management
 export interface BrokerAccount {
   account_hash: string;
   account_number: string;  // Masked format: XXX-1234
@@ -46,6 +46,7 @@ export interface AccountBalanceResponse {
   trading_mode: 'real' | 'paper';
 }
 
+// Services
 export interface Service {
   name: string;
   status: 'running' | 'stopped' | 'error';
@@ -53,6 +54,7 @@ export interface Service {
   container_id?: string;
 }
 
+// Token Management
 export interface TokenStatus {
   has_token: boolean;
   access_token_issued?: string;
@@ -61,8 +63,8 @@ export interface TokenStatus {
   refresh_token_expires_at?: string;
   access_token_expired?: boolean;
   refresh_token_expired?: boolean;
-  is_access_token_expired?: boolean;  // From token_service
-  is_refresh_token_expired?: boolean;  // From token_service
+  is_access_token_expired?: boolean;
+  is_refresh_token_expired?: boolean;
   access_token_age_seconds?: number;
   access_token_age_minutes?: number;
   expires_in?: number;
@@ -76,6 +78,7 @@ export interface TokenStatus {
   client_init_error?: string;
 }
 
+// Live Trading
 export interface LiveEngineStatus {
   running: boolean;
   state: string;
@@ -166,6 +169,7 @@ export interface TradingStats {
   max_drawdown: number | null;
 }
 
+// Strategies
 export interface Strategy {
   name: string;
   enabled: boolean;
@@ -173,9 +177,37 @@ export interface Strategy {
   params: Record<string, any>;
 }
 
+export interface StrategyInfo extends Strategy {}
+
+export interface StrategyListResponse {
+  strategies: StrategyInfo[];
+  count: number;
+}
+
+export interface ActiveStrategyStats {
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  total_pnl: number;
+  win_rate: number;
+}
+
+export interface ActiveStrategy {
+  name: string;
+  enabled: boolean;
+  params: Record<string, any>;
+  stats: ActiveStrategyStats;
+}
+
+export interface ActiveStrategiesResponse {
+  strategies: ActiveStrategy[];
+  count: number;
+}
+
+// Backtesting
 export interface BacktestRequest {
   strategy_name: string;
-  params: Record<string, any>;
+  params?: Record<string, any>;
   parameters?: Record<string, any>;
   start_date: string;
   end_date: string;
@@ -201,7 +233,6 @@ export interface EquityPoint {
   cash: number;
 }
 
-// Matches Trade Pydantic model (src/quant_vibe/models/market_data.py)
 export interface Trade {
   trade_id: string;
   position_id: string;
@@ -209,19 +240,19 @@ export interface Trade {
   spread_type: string;
   entry_time: string;
   exit_time: string;
-  entry_premium: number;  // Renamed from entry_cost
-  exit_premium: number;   // Renamed from exit_value
+  entry_premium: number;
+  exit_premium: number;
   pnl: number;
-  pnl_pct: number;        // Renamed from pnl_percent
+  pnl_pct: number;
   entry_trigger?: string;
   exit_reason: string;
-  entry_underlying_price: number;  // Renamed from underlying_entry
-  exit_underlying_price: number;   // Renamed from underlying_exit
+  entry_underlying_price: number;
+  exit_underlying_price: number;
   max_risk: number;
   max_profit?: number;
   peak_value?: number;
   legs: OptionLeg[];
-  duration_minutes?: number;  // Optional for backward compatibility
+  duration_minutes?: number;
 }
 
 export interface UnderlyingBar {
@@ -264,12 +295,7 @@ export interface BacktestResult {
   };
 }
 
-export interface WebSocketMessage {
-  type: 'event' | 'heartbeat' | 'error';
-  data: any;
-  timestamp: string;
-}
-
+// Authentication
 export interface LoginRequest {
   username: string;
   password: string;
@@ -280,48 +306,14 @@ export interface LoginResponse {
   token_type: string;
 }
 
-export interface StrategyInfo {
-  name: string;
-  enabled: boolean;
-  description: string;
-  params: Record<string, any>;
+// WebSocket
+export interface WebSocketMessage {
+  type: 'event' | 'heartbeat' | 'error';
+  data: any;
+  timestamp: string;
 }
 
-export interface StrategyListResponse {
-  strategies: StrategyInfo[];
-  count: number;
-}
-
-export interface StrategyToggleRequest {
-  enabled: boolean;
-}
-
-export interface StrategyUpdateRequest {
-  params: Record<string, any>;
-}
-
-export interface ActiveStrategyStats {
-  total_trades: number;
-  winning_trades: number;
-  losing_trades: number;
-  total_pnl: number;
-  win_rate: number;
-}
-
-export interface ActiveStrategy {
-  name: string;
-  enabled: boolean;
-  params: Record<string, any>;
-  stats: ActiveStrategyStats;
-}
-
-export interface ActiveStrategiesResponse {
-  strategies: ActiveStrategy[];
-  count: number;
-}
-
-// ==================== Backtest Analysis Types ====================
-
+// Backtest Analysis
 export interface GreeksAnalysis {
   dominant_factor: string;
   delta_contribution: number;
@@ -383,14 +375,16 @@ export interface TradeInsight {
   key_takeaway: string;
 }
 
+export interface PatternStatistics {
+  avg_pnl: number;
+  win_rate: number;
+  count: number;
+}
+
 export interface EntryTimingPattern {
   best_hour: number;
   worst_hour: number;
-  hourly_stats: Record<number, {
-    avg_pnl: number;
-    win_rate: number;
-    count: number;
-  }>;
+  hourly_stats: Record<number, PatternStatistics>;
 }
 
 export interface ExitReasonPattern {
@@ -403,20 +397,12 @@ export interface ExitReasonPattern {
 }
 
 export interface DTEPerformance {
-  dte_buckets: Record<string, {
-    avg_pnl: number;
-    win_rate: number;
-    count: number;
-  }>;
+  dte_buckets: Record<string, PatternStatistics>;
   optimal_dte_range: string;
 }
 
 export interface StrikeSelectionPattern {
-  otm_pct_buckets: Record<string, {
-    avg_pnl: number;
-    win_rate: number;
-    count: number;
-  }>;
+  otm_pct_buckets: Record<string, PatternStatistics>;
   optimal_otm_pct: number;
 }
 

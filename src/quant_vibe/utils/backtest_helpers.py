@@ -178,22 +178,18 @@ def load_options_backtest_data(
             print(f"   Using {timeframe} aggregated data (saves ~{memory_savings.get(timeframe, '90%')} memory)")
 
     try:
-        # Load options data (returns List[OptionsBar])
-        options_bars = ts_store.get_options_for_backtest(
-            underlying_ticker=underlying_ticker,
-            start_time=start_date,
-            end_time=end_date,
+        # Load options data (returns DataFrame)
+        options_data = ts_store.get_options_for_backtest(
+            start_date,  # Pass positionally
+            end_date,    # Pass positionally
+            underlying_ticker,  # Pass positionally
             min_dte=min_dte,
             max_dte=max_dte,
             timeframe=timeframe,
         )
 
-        # Convert Pydantic models to DataFrame
-        if not options_bars:
-            options_data = pd.DataFrame()
-        else:
-            options_data = pd.DataFrame([bar.model_dump() for bar in options_bars])
-            # Convert Decimal columns to float for pandas compatibility
+        # Convert Decimal columns to float for pandas compatibility if needed
+        if not options_data.empty:
             options_data = _convert_decimals_to_float(options_data)
 
         if options_data.empty:
@@ -211,7 +207,7 @@ def load_options_backtest_data(
         if verbose:
             print(f"✅ Loaded {len(options_data):,} options bars")
             print(f"   Unique timestamps: {options_data['timestamp'].nunique():,}")
-            print(f"   Unique contracts: {options_data['contract_symbol'].nunique():,}")
+            print(f"   Unique contracts: {options_data['option_ticker'].nunique():,}")
             print(
                 f"   Date range: {options_data['timestamp'].min()} to "
                 f"{options_data['timestamp'].max()}"
@@ -226,19 +222,15 @@ def load_options_backtest_data(
                 f"underlying_bars table..."
             )
 
-        # Load underlying bars (returns List[UnderlyingBar])
-        underlying_bars = ts_store.get_underlying_bars(
+        # Load underlying bars (returns DataFrame)
+        underlying_data = ts_store.get_underlying_bars(
             ticker=underlying_ticker,
-            start_time=start_date,
-            end_time=end_date,
+            start_date=start_date,
+            end_date=end_date,
         )
 
-        # Convert Pydantic models to DataFrame
-        if not underlying_bars:
-            underlying_data = pd.DataFrame()
-        else:
-            underlying_data = pd.DataFrame([bar.model_dump() for bar in underlying_bars])
-            # Convert Decimal columns to float for pandas compatibility
+        # Convert Decimal columns to float for pandas compatibility if needed
+        if not underlying_data.empty:
             underlying_data = _convert_decimals_to_float(underlying_data)
             # Set timestamp as index for compatibility with existing code
             underlying_data = underlying_data.set_index('timestamp')

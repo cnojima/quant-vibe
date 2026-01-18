@@ -133,7 +133,7 @@ class OptionsBacktestEngine:
         print(f"Initial Capital: ${self.initial_capital:,.2f}")
         print(f"Underlying Data Points: {len(underlying_data):,}")
         print(f"Options Timestamps: {len(timestamps):,}")
-        print(f"Options Contracts: {options_data['contract_symbol'].nunique():,}")
+        print(f"Options Contracts: {options_data['option_ticker'].nunique():,}")
         print(f"{'='*70}\n")
 
         # Initialize tracking

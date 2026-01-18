@@ -1,17 +1,16 @@
 /**
  * Date utilities for handling EST (US Eastern Time) dates.
- *
- * All trading happens in EST, so we need to ensure the UI
- * uses EST dates, not the user's local timezone or UTC.
+ * All trading happens in EST, so we ensure the UI uses EST dates.
  */
+
+const EST_TIMEZONE = 'America/New_York';
 
 /**
  * Get current date/time in EST timezone.
  */
 export function getESTDate(): Date {
-  // Create date in EST using Intl.DateTimeFormat
   const estString = new Date().toLocaleString('en-US', {
-    timeZone: 'America/New_York',
+    timeZone: EST_TIMEZONE,
   });
   return new Date(estString);
 }
@@ -27,22 +26,31 @@ export function formatDateForInput(date: Date): string {
 }
 
 /**
+ * Check if a date is a weekend.
+ */
+function isWeekend(date: Date): boolean {
+  const day = date.getDay();
+  return day === 0 || day === 6;
+}
+
+/**
+ * Get the most recent trading day (skips weekends).
+ */
+function getMostRecentTradingDay(date: Date): Date {
+  const result = new Date(date);
+  while (isWeekend(result)) {
+    result.setDate(result.getDate() - 1);
+  }
+  return result;
+}
+
+/**
  * Get today's date in EST as YYYY-MM-DD string.
  * If today is a weekend, returns the most recent Friday.
  */
 export function getTodayEST(): string {
   const est = getESTDate();
-
-  // If weekend, use last Friday
-  if (est.getDay() === 0) {
-    // Sunday - use Friday
-    est.setDate(est.getDate() - 2);
-  } else if (est.getDay() === 6) {
-    // Saturday - use Friday
-    est.setDate(est.getDate() - 1);
-  }
-
-  return formatDateForInput(est);
+  return formatDateForInput(getMostRecentTradingDay(est));
 }
 
 /**
@@ -52,38 +60,21 @@ export function getTodayEST(): string {
 export function getYesterdayEST(): string {
   const est = getESTDate();
   est.setDate(est.getDate() - 1);
-
-  // If yesterday was a weekend, go back to Friday
-  while (est.getDay() === 0 || est.getDay() === 6) {
-    est.setDate(est.getDate() - 1);
-  }
-
-  return formatDateForInput(est);
+  return formatDateForInput(getMostRecentTradingDay(est));
 }
 
 /**
  * Get the start and end of this week (Monday to today or Friday) in EST.
- * Returns { start: 'YYYY-MM-DD', end: 'YYYY-MM-DD' }
  */
 export function getThisWeekEST(): { start: string; end: string } {
   const est = getESTDate();
   const dayOfWeek = est.getDay();
-
-  // Calculate days since Monday (1 = Monday, 0 = Sunday)
   const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
 
   const startOfWeek = new Date(est);
   startOfWeek.setDate(est.getDate() - daysSinceMonday);
 
-  // If today is Saturday or Sunday, use last Friday as end
-  const endOfWeek = new Date(est);
-  if (dayOfWeek === 0) {
-    // Sunday - use Friday
-    endOfWeek.setDate(est.getDate() - 2);
-  } else if (dayOfWeek === 6) {
-    // Saturday - use Friday
-    endOfWeek.setDate(est.getDate() - 1);
-  }
+  const endOfWeek = getMostRecentTradingDay(est);
 
   return {
     start: formatDateForInput(startOfWeek),
@@ -93,20 +84,15 @@ export function getThisWeekEST(): { start: string; end: string } {
 
 /**
  * Get the start and end of last week (last Monday to last Friday) in EST.
- * Returns { start: 'YYYY-MM-DD', end: 'YYYY-MM-DD' }
  */
 export function getLastWeekEST(): { start: string; end: string } {
   const est = getESTDate();
   const dayOfWeek = est.getDay();
-
-  // Calculate days to go back to get to last Monday
-  let daysToLastMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  daysToLastMonday += 7; // Go back one more week
+  const daysToLastMonday = (dayOfWeek === 0 ? 6 : dayOfWeek - 1) + 7;
 
   const lastMonday = new Date(est);
   lastMonday.setDate(est.getDate() - daysToLastMonday);
 
-  // Last Friday is 4 days after last Monday
   const lastFriday = new Date(lastMonday);
   lastFriday.setDate(lastMonday.getDate() + 4);
 
@@ -118,7 +104,6 @@ export function getLastWeekEST(): { start: string; end: string } {
 
 /**
  * Get a date range going back N days from today (EST).
- * Returns { start: 'YYYY-MM-DD', end: 'YYYY-MM-DD' }
  */
 export function getLastNDaysEST(days: number): { start: string; end: string } {
   const end = getESTDate();
@@ -133,14 +118,14 @@ export function getLastNDaysEST(days: number): { start: string; end: string } {
 
 /**
  * Get a date range going back N months from today (EST).
- * Returns { start: 'YYYY-MM-DD', end: 'YYYY-MM-DD' }
- *
  * @param months - Number of months to go back
- * @param offsetMonths - Optional offset from today (e.g., 2 = start 2 months ago from today)
+ * @param offsetMonths - Optional offset from today
  */
-export function getLastNMonthsEST(months: number, offsetMonths: number = 0): { start: string; end: string } {
+export function getLastNMonthsEST(
+  months: number,
+  offsetMonths = 0
+): { start: string; end: string } {
   const end = getESTDate();
-  // Apply offset
   end.setMonth(end.getMonth() - offsetMonths);
 
   const start = new Date(end);
@@ -154,7 +139,6 @@ export function getLastNMonthsEST(months: number, offsetMonths: number = 0): { s
 
 /**
  * Get a date range going back N years from today (EST).
- * Returns { start: 'YYYY-MM-DD', end: 'YYYY-MM-DD' }
  */
 export function getLastNYearsEST(years: number): { start: string; end: string } {
   const end = getESTDate();

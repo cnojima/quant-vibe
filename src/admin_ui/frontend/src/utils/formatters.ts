@@ -1,5 +1,6 @@
 import { formatDistanceToNow, format } from 'date-fns';
 
+// Currency and Number Formatting
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -17,13 +18,14 @@ export function formatPercent(value: number): string {
   }).format(value / 100);
 }
 
-export function formatNumber(value: number, decimals: number = 0): string {
+export function formatNumber(value: number, decimals = 0): string {
   return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   }).format(value);
 }
 
+// Date and Time Formatting
 export function formatDateTime(date: string | Date): string {
   return format(new Date(date), 'MMM d, yyyy HH:mm:ss');
 }
@@ -58,47 +60,46 @@ export function formatTimeRemaining(seconds: number): string {
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);
 
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  } else if (minutes > 0) {
-    return `${minutes}m ${secs}s`;
-  } else {
-    return `${secs}s`;
-  }
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${secs}s`;
+  return `${secs}s`;
 }
 
+// Color Helpers
 export function getPnlColor(pnl: number): string {
   if (pnl > 0) return 'text-green-600';
   if (pnl < 0) return 'text-red-600';
   return 'text-gray-600';
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  running: 'text-green-600',
+  stopped: 'text-gray-600',
+  error: 'text-red-600',
+  open: 'text-blue-600',
+  closed: 'text-gray-600',
+  pending: 'text-yellow-600',
+  filled: 'text-green-600',
+  cancelled: 'text-gray-600',
+  rejected: 'text-red-600',
+};
+
+const STATUS_BADGE_COLORS: Record<string, string> = {
+  running: 'bg-green-100 text-green-800',
+  stopped: 'bg-gray-100 text-gray-800',
+  error: 'bg-red-100 text-red-800',
+  open: 'bg-blue-100 text-blue-800',
+  closed: 'bg-gray-100 text-gray-800',
+  pending: 'bg-yellow-100 text-yellow-800',
+  filled: 'bg-green-100 text-green-800',
+  cancelled: 'bg-gray-100 text-gray-800',
+  rejected: 'bg-red-100 text-red-800',
+};
+
 export function getStatusColor(status: string): string {
-  const statusColors: Record<string, string> = {
-    running: 'text-green-600',
-    stopped: 'text-gray-600',
-    error: 'text-red-600',
-    open: 'text-blue-600',
-    closed: 'text-gray-600',
-    pending: 'text-yellow-600',
-    filled: 'text-green-600',
-    cancelled: 'text-gray-600',
-    rejected: 'text-red-600',
-  };
-  return statusColors[status] || 'text-gray-600';
+  return STATUS_COLORS[status] || 'text-gray-600';
 }
 
 export function getStatusBadgeColor(status: string): string {
-  const statusColors: Record<string, string> = {
-    running: 'bg-green-100 text-green-800',
-    stopped: 'bg-gray-100 text-gray-800',
-    error: 'bg-red-100 text-red-800',
-    open: 'bg-blue-100 text-blue-800',
-    closed: 'bg-gray-100 text-gray-800',
-    pending: 'bg-yellow-100 text-yellow-800',
-    filled: 'bg-green-100 text-green-800',
-    cancelled: 'bg-gray-100 text-gray-800',
-    rejected: 'bg-red-100 text-red-800',
-  };
-  return statusColors[status] || 'bg-gray-100 text-gray-800';
+  return STATUS_BADGE_COLORS[status] || 'bg-gray-100 text-gray-800';
 }

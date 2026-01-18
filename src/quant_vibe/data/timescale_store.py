@@ -289,7 +289,7 @@ class TimescaleStore:
         if limit:
             query += f" LIMIT {limit}"
 
-        return pd.read_sql(query, self.engine, params=params, parse_dates=["timestamp"])
+        return pd.read_sql(query, self.engine, params=tuple(params), parse_dates=["timestamp"])
 
     def get_options_chain_bars(
         self,
@@ -332,7 +332,7 @@ class TimescaleStore:
 
         query += " ORDER BY strike_price, contract_type"
 
-        return pd.read_sql(query, self.engine, params=params, parse_dates=["timestamp"])
+        return pd.read_sql(query, self.engine, params=tuple(params), parse_dates=["timestamp"])
 
     def get_options_for_backtest(
         self,
@@ -388,8 +388,9 @@ class TimescaleStore:
                 ob.rho
             """
         else:
+            # Aggregated tables have simpler column names
             columns = """
-                ob.timestamp,
+                ob.bucket as timestamp,
                 ob.option_ticker,
                 ob.underlying_ticker,
                 ob.open,
@@ -397,37 +398,40 @@ class TimescaleStore:
                 ob.low,
                 ob.close,
                 ob.volume,
-                ob.bid_close as bid,
-                ob.ask_close as ask,
-                ob.bid_size_close as bid_size,
-                ob.ask_size_close as ask_size,
+                ob.bid,
+                ob.ask,
+                ob.bid_size,
+                ob.ask_size,
                 ob.strike_price,
                 ob.contract_type,
                 ob.expiration_date,
-                ob.iv_close as implied_volatility,
-                ob.delta_close as delta,
-                ob.gamma_close as gamma,
-                ob.theta_close as theta,
-                ob.vega_close as vega,
-                ob.rho_close as rho
+                ob.implied_volatility,
+                ob.delta,
+                ob.gamma,
+                ob.theta,
+                ob.vega,
+                ob.rho
             """
+
+        # Use appropriate timestamp column name based on timeframe
+        timestamp_col = "timestamp" if timeframe == "1min" else "bucket"
 
         query = f"""
         WITH filtered_options AS (
             SELECT DISTINCT
                 {columns},
-                (ob.expiration_date::date - ob.timestamp::date) as dte,
+                (ob.expiration_date::date - ob.{timestamp_col}::date) as dte,
                 ub.close as underlying_price,
                 ABS(ob.strike_price - ub.close) as strike_distance
             FROM {table_name} ob
-            JOIN underlying_bars_{timeframe if timeframe != '1min' else 'minute'} ub
-                ON ob.timestamp = ub.timestamp
+            JOIN underlying_bars ub
+                ON date_trunc('minute', ob.{timestamp_col}) = date_trunc('minute', ub.timestamp)
                 AND ob.underlying_ticker = ub.ticker
-            WHERE ob.timestamp >= %s
-                AND ob.timestamp <= %s
+            WHERE ob.{timestamp_col} >= %s
+                AND ob.{timestamp_col} <= %s
                 AND ob.underlying_ticker = %s
-                AND (ob.expiration_date::date - ob.timestamp::date) >= %s
-                AND (ob.expiration_date::date - ob.timestamp::date) <= %s
+                AND (ob.expiration_date::date - ob.{timestamp_col}::date) >= %s
+                AND (ob.expiration_date::date - ob.{timestamp_col}::date) <= %s
         """
 
         params = [start_date, end_date, underlying_ticker, min_dte, max_dte]
@@ -442,8 +446,8 @@ class TimescaleStore:
             params.append(min_volume)
 
         if min_bid > 0:
-            bid_col = "ob.bid_close" if timeframe != "1min" else "ob.bid"
-            query += f" AND {bid_col} >= %s"
+            # All tables now use "bid" column name
+            query += " AND ob.bid >= %s"
             params.append(min_bid)
 
         if strike_delta > 0:
@@ -462,7 +466,7 @@ class TimescaleStore:
         df = pd.read_sql(
             query,
             self.engine,
-            params=params,
+            params=tuple(params),
             parse_dates=["timestamp", "expiration_date"]
         )
 
@@ -723,16 +727,8 @@ class TimescaleStore:
         columns: Optional[List[str]] = None,
     ) -> pd.DataFrame:
         """Get underlying bars from database."""
-        table_map = {
-            "1min": "underlying_bars_minute",
-            "5min": "underlying_bars_5min",
-            "15min": "underlying_bars_15min",
-            "1hour": "underlying_bars_1hour",
-            "daily": "underlying_bars_daily",
-        }
-
-        if timeframe not in table_map:
-            raise ValueError(f"Invalid timeframe: {timeframe}")
+        # For now, we only have one underlying_bars table
+        # TODO: Add support for aggregated underlying tables when they exist
 
         if columns:
             cols = ", ".join(columns)
@@ -741,7 +737,7 @@ class TimescaleStore:
 
         query = f"""
         SELECT {cols}
-        FROM {table_map[timeframe]}
+        FROM underlying_bars
         WHERE ticker = %s
             AND timestamp >= %s
             AND timestamp <= %s
@@ -751,7 +747,7 @@ class TimescaleStore:
         return pd.read_sql(
             query,
             self.engine,
-            params=[ticker, start_date, end_date],
+            params=(ticker, start_date, end_date),
             parse_dates=["timestamp"]
         )
 
@@ -1006,7 +1002,7 @@ class TimescaleStore:
         ORDER BY trade_number
         """
 
-        df = pd.read_sql(query, self.engine, params=[backtest_id])
+        df = pd.read_sql(query, self.engine, params=(backtest_id,))
 
         # Parse metadata JSON if present
         if "metadata" in df.columns and not df.empty:
@@ -1027,7 +1023,7 @@ class TimescaleStore:
         return pd.read_sql(
             query,
             self.engine,
-            params=[backtest_id],
+            params=(backtest_id,),
             parse_dates=["timestamp"]
         )
 
@@ -1058,7 +1054,7 @@ class TimescaleStore:
         return pd.read_sql(
             query,
             self.engine,
-            params=params,
+            params=tuple(params),
             parse_dates=["start_date", "end_date", "created_at", "updated_at"]
         )
 

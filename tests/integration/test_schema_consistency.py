@@ -264,9 +264,9 @@ class TestEndToEndSchemaConsistency:
 
         # Load sample data
         options_data = store.get_options_for_backtest(
-            underlying_ticker='SPX',
-            start_time=to_utc(datetime(2025, 12, 1)),
-            end_time=to_utc(datetime(2025, 12, 2)),
+            to_utc(datetime(2025, 12, 1)),  # Pass positionally as start_date
+            to_utc(datetime(2025, 12, 2)),   # Pass positionally as end_date
+            'SPX',  # Pass positionally as underlying_ticker
             min_dte=0,
             max_dte=45,
         )

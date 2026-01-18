@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const baseURL = (import.meta as any).env?.VITE_API_URL || '/api';
+const baseURL = import.meta.env.VITE_API_URL || '/api';
 
 console.log('[API Client] Base URL:', baseURL);
 
@@ -22,9 +22,7 @@ apiClient.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 // Response interceptor: Handle 401 errors (token expired)
@@ -32,7 +30,6 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Token expired or invalid
       localStorage.removeItem('auth_token');
       window.location.href = '/login';
     }

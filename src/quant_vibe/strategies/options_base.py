@@ -237,15 +237,16 @@ class OptionsStrategy(ABC):
         target_date = current_time + timedelta(days=min_dte)
         max_date = current_time + timedelta(days=max_dte)
 
-        # Convert to date objects for comparison (expiration_date column contains date objects)
-        # This prevents "Cannot compare Timestamp with datetime.date" pandas errors
-        target_date = target_date.date()
-        max_date = max_date.date()
+        # Convert to pandas datetime for proper comparison
+        # Use pd.to_datetime to ensure compatibility with datetime64[ns] columns
+        import pandas as pd
+        target_date_dt = pd.to_datetime(target_date).tz_localize(None)
+        max_date_dt = pd.to_datetime(max_date).tz_localize(None)
 
         # Filter by DTE range
         return options_data[
-            (options_data["expiration_date"] >= target_date) &
-            (options_data["expiration_date"] <= max_date)
+            (options_data["expiration_date"] >= target_date_dt) &
+            (options_data["expiration_date"] <= max_date_dt)
         ].copy()
 
     def _filter_by_liquidity(

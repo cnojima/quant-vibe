@@ -22,14 +22,26 @@ import type {
   AccountBalanceResponse,
 } from '../types/api';
 
+// Helper function to create mutation with query invalidation
+function createMutationWithInvalidation<TData = any, TVariables = void>(
+  mutationFn: (variables: TVariables) => Promise<TData>,
+  queryKeys: string[][] = []
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      queryKeys.forEach(key => queryClient.invalidateQueries({ queryKey: key }));
+    },
+  });
+}
+
 // Auth queries
 export function useLogin() {
   return useMutation({
     mutationFn: async (data: LoginRequest) => {
-      const response = await apiClient.post<LoginResponse>('/auth/login', {
-        username: data.username,
-        password: data.password,
-      });
+      const response = await apiClient.post<LoginResponse>('/auth/login', data);
       return response.data;
     },
     onSuccess: (data) => {
@@ -51,33 +63,28 @@ export function useServices() {
   return useQuery({
     queryKey: ['services'],
     queryFn: async () => {
-      const response = await apiClient.get<{ success: boolean; services: Service[]; count: number }>('/services/');
+      const response = await apiClient.get<{ services: Service[]; count: number }>('/services/');
       return response.data.services;
     },
-    refetchInterval: 5000, // Poll every 5 seconds
+    refetchInterval: 5000,
   });
 }
 
 export function useServiceAction() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ serviceName, action }: { serviceName: string; action: 'start' | 'stop' | 'restart' }) => {
+  return createMutationWithInvalidation(
+    async ({ serviceName, action }: { serviceName: string; action: 'start' | 'stop' | 'restart' }) => {
       const response = await apiClient.post(`/services/${serviceName}/${action}`);
       return response.data;
     },
-    onSuccess: () => {
-      // Invalidate services query to refresh the list
-      queryClient.invalidateQueries({ queryKey: ['services'] });
-    },
-  });
+    [['services']]
+  );
 }
 
-export function useServiceLogs(serviceName: string, tail: number = 100) {
+export function useServiceLogs(serviceName: string, tail = 100) {
   return useQuery({
     queryKey: ['service-logs', serviceName, tail],
     queryFn: async () => {
-      const response = await apiClient.get<{ success: boolean; logs: string; lines: number }>(`/services/${serviceName}/logs`, {
+      const response = await apiClient.get<{ logs: string; lines: number }>(`/services/${serviceName}/logs`, {
         params: { tail },
       });
       return response.data;
@@ -94,22 +101,18 @@ export function useTokenStatus() {
       const response = await apiClient.get<TokenStatus>('/tokens/status');
       return response.data;
     },
-    refetchInterval: 60000, // Refresh every minute
+    refetchInterval: 60000,
   });
 }
 
 export function useRefreshToken() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async () => {
+  return createMutationWithInvalidation(
+    async () => {
       const response = await apiClient.post('/tokens/refresh');
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['token-status'] });
-    },
-  });
+    [['token-status']]
+  );
 }
 
 export function useOAuthUrl() {
@@ -117,14 +120,13 @@ export function useOAuthUrl() {
     queryKey: ['oauth-url'],
     queryFn: async () => {
       const response = await apiClient.get<{
-        success: boolean;
         oauth_url: string;
         callback_url: string;
         instructions: string[];
       }>('/tokens/oauth-url');
       return response.data;
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 5 * 60 * 1000,
   });
 }
 
@@ -152,11 +154,15 @@ export function useBrokerAccounts(tradingMode: 'real' | 'paper' = 'real') {
       });
       return response.data;
     },
-    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchInterval: 30000,
   });
 }
 
-export function useAccountBalance(accountHash: string, tradingMode: 'real' | 'paper' = 'real', realtime: boolean = false) {
+export function useAccountBalance(
+  accountHash: string,
+  tradingMode: 'real' | 'paper' = 'real',
+  realtime = false
+) {
   return useQuery({
     queryKey: ['account-balance', accountHash, tradingMode, realtime],
     queryFn: async () => {
@@ -165,8 +171,8 @@ export function useAccountBalance(accountHash: string, tradingMode: 'real' | 'pa
       });
       return response.data;
     },
-    refetchInterval: realtime ? 30000 : 60000, // Refresh every 30s for realtime, 60s otherwise
-    enabled: !!accountHash, // Only run if accountHash is provided
+    refetchInterval: realtime ? 30000 : 60000,
+    enabled: !!accountHash,
   });
 }
 
@@ -181,7 +187,6 @@ export function useSetDefaultAccount() {
       return response.data;
     },
     onSuccess: (_, variables) => {
-      // Invalidate accounts query to refresh the list
       queryClient.invalidateQueries({ queryKey: ['broker-accounts', variables.tradingMode] });
     },
   });
@@ -198,7 +203,6 @@ export function useRefreshAccounts() {
       return response.data;
     },
     onSuccess: (_, tradingMode) => {
-      // Invalidate accounts query to refresh the list
       queryClient.invalidateQueries({ queryKey: ['broker-accounts', tradingMode] });
     },
   });
@@ -206,10 +210,14 @@ export function useRefreshAccounts() {
 
 export function useSyncAccountOrders() {
   return useMutation({
-    mutationFn: async ({ accountHash, daysBack = 30, tradingMode = 'real' }: {
+    mutationFn: async ({
+      accountHash,
+      daysBack = 30,
+      tradingMode = 'real'
+    }: {
       accountHash: string;
       daysBack?: number;
-      tradingMode?: 'real' | 'paper'
+      tradingMode?: 'real' | 'paper';
     }) => {
       const response = await apiClient.post(`/live/accounts/${accountHash}/sync-orders`, null, {
         params: { days_back: daysBack, trading_mode: tradingMode },
@@ -219,19 +227,32 @@ export function useSyncAccountOrders() {
   });
 }
 
+// Helper to build query params
+function buildQueryParams(params: Record<string, any>): Record<string, any> {
+  const result: Record<string, any> = {};
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined) result[key] = value;
+  });
+  return result;
+}
+
 export function useLivePositions(
   status: 'open' | 'closed' | 'all' = 'open',
-  limit: number = 100,
+  limit = 100,
   tradingMode: 'real' | 'paper' | 'replay' = 'paper',
   accountHash?: string
 ) {
   return useQuery({
     queryKey: ['live-positions', status, limit, tradingMode, accountHash],
     queryFn: async () => {
-      const params: any = { status, limit, trading_mode: tradingMode };
-      if (accountHash) params.account_hash = accountHash;
+      const params = buildQueryParams({
+        status,
+        limit,
+        trading_mode: tradingMode,
+        account_hash: accountHash,
+      });
 
-      const response = await apiClient.get<{ positions: Position[]; count: number; filter: string }>('/live/positions', {
+      const response = await apiClient.get<{ positions: Position[]; count: number }>('/live/positions', {
         params,
       });
       return response.data.positions;
@@ -241,7 +262,7 @@ export function useLivePositions(
 }
 
 export function useLiveOrders(
-  limit: number = 100,
+  limit = 100,
   status: 'open' | 'filled' | 'rejected' | 'cancelled' | 'all' = 'all',
   tradingMode: 'real' | 'paper' | 'replay' = 'paper',
   accountHash?: string
@@ -249,10 +270,14 @@ export function useLiveOrders(
   return useQuery({
     queryKey: ['live-orders', limit, status, tradingMode, accountHash],
     queryFn: async () => {
-      const params: any = { limit, status, trading_mode: tradingMode };
-      if (accountHash) params.account_hash = accountHash;
+      const params = buildQueryParams({
+        limit,
+        status,
+        trading_mode: tradingMode,
+        account_hash: accountHash,
+      });
 
-      const response = await apiClient.get<{ orders: Order[]; count: number; filter: string }>('/live/orders', {
+      const response = await apiClient.get<{ orders: Order[]; count: number }>('/live/orders', {
         params,
       });
       return response.data.orders;
@@ -261,12 +286,24 @@ export function useLiveOrders(
   });
 }
 
-export function useLiveEvents(limit: number = 100, eventType?: string, severity?: string, tradingMode: 'real' | 'paper' | 'replay' = 'paper') {
+export function useLiveEvents(
+  limit = 100,
+  eventType?: string,
+  severity?: string,
+  tradingMode: 'real' | 'paper' | 'replay' = 'paper'
+) {
   return useQuery({
     queryKey: ['live-events', limit, eventType, severity, tradingMode],
     queryFn: async () => {
-      const response = await apiClient.get<{ events: Event[]; count: number; filters: any }>('/live/events', {
-        params: { limit, event_type: eventType, severity, trading_mode: tradingMode },
+      const params = buildQueryParams({
+        limit,
+        event_type: eventType,
+        severity,
+        trading_mode: tradingMode,
+      });
+
+      const response = await apiClient.get<{ events: Event[]; count: number }>('/live/events', {
+        params,
       });
       return response.data.events;
     },
@@ -275,27 +312,19 @@ export function useLiveEvents(limit: number = 100, eventType?: string, severity?
 }
 
 export function useClearEvents() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async () => {
-      const response = await apiClient.delete<{ success: boolean; deleted_count: number; message: string }>('/live/events');
+  return createMutationWithInvalidation(
+    async () => {
+      const response = await apiClient.delete<{ deleted_count: number; message: string }>('/live/events');
       return response.data;
     },
-    onSuccess: () => {
-      // Invalidate and refetch events query
-      queryClient.invalidateQueries({ queryKey: ['live-events'] });
-    },
-  });
+    [['live-events']]
+  );
 }
 
 export function useToggleDataFeedMode() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (tradingMode: 'real' | 'paper' = 'paper') => {
+  return createMutationWithInvalidation(
+    async (tradingMode: 'real' | 'paper' = 'paper') => {
       const response = await apiClient.post<{
-        success: boolean;
         message: string;
         previous_mode: string;
         new_mode: string;
@@ -303,36 +332,48 @@ export function useToggleDataFeedMode() {
       }>(`/live/data-feed/toggle-mode?trading_mode=${tradingMode}`);
       return response.data;
     },
-    onSuccess: () => {
-      // Refresh status to get updated mode
-      queryClient.invalidateQueries({ queryKey: ['live-status'] });
-      queryClient.invalidateQueries({ queryKey: ['config-live'] });
-    },
-  });
+    [['live-status'], ['config-live']]
+  );
 }
 
-export function useLiveStats(startTime?: string, endTime?: string, tradingMode: 'real' | 'paper' | 'replay' = 'paper') {
+export function useLiveStats(
+  startTime?: string,
+  endTime?: string,
+  tradingMode: 'real' | 'paper' | 'replay' = 'paper'
+) {
   return useQuery({
     queryKey: ['live-stats', startTime, endTime, tradingMode],
     queryFn: async () => {
-      const response = await apiClient.get<{stats: TradingStats; time_range: {start: string | null; end: string | null}}>('/live/stats', {
-        params: { start_time: startTime, end_time: endTime, trading_mode: tradingMode },
+      const params = buildQueryParams({
+        start_time: startTime,
+        end_time: endTime,
+        trading_mode: tradingMode,
+      });
+
+      const response = await apiClient.get<{ stats: TradingStats }>('/live/stats', {
+        params,
       });
       return response.data.stats;
     },
-    refetchInterval: 5000, // Poll every 5 seconds
+    refetchInterval: 5000,
   });
 }
 
-export function useDailyReport(reportDate?: string, accountHash?: string, tradingMode: 'real' | 'paper' = 'paper') {
+export function useDailyReport(
+  reportDate?: string,
+  accountHash?: string,
+  tradingMode: 'real' | 'paper' = 'paper'
+) {
   return useQuery({
     queryKey: ['daily-report', reportDate, accountHash, tradingMode],
     queryFn: async () => {
-      const params: any = { trading_mode: tradingMode };
-      if (reportDate) params.report_date = reportDate;
-      if (accountHash) params.account_hash = accountHash;
+      const params = buildQueryParams({
+        report_date: reportDate,
+        account_hash: accountHash,
+        trading_mode: tradingMode,
+      });
 
-      const response = await apiClient.get<{report: any; generated_at: string}>('/live/daily-report', {
+      const response = await apiClient.get<{ report: any }>('/live/daily-report', {
         params,
       });
       return response.data.report;
@@ -340,14 +381,21 @@ export function useDailyReport(reportDate?: string, accountHash?: string, tradin
   });
 }
 
-export function useRecentDailyReports(days: number = 7, accountHash?: string, tradingMode: 'real' | 'paper' = 'paper') {
+export function useRecentDailyReports(
+  days = 7,
+  accountHash?: string,
+  tradingMode: 'real' | 'paper' = 'paper'
+) {
   return useQuery({
     queryKey: ['daily-reports-recent', days, accountHash, tradingMode],
     queryFn: async () => {
-      const params: any = { days, trading_mode: tradingMode };
-      if (accountHash) params.account_hash = accountHash;
+      const params = buildQueryParams({
+        days,
+        account_hash: accountHash,
+        trading_mode: tradingMode,
+      });
 
-      const response = await apiClient.get<{reports: any[]; count: number; days: number}>('/live/daily-reports/recent', {
+      const response = await apiClient.get<{ reports: any[]; count: number }>('/live/daily-reports/recent', {
         params,
       });
       return response.data.reports;
@@ -362,11 +410,11 @@ export function useActiveStrategies() {
       const response = await apiClient.get<ActiveStrategiesResponse>('/live/strategies/active');
       return response.data;
     },
-    refetchInterval: 10000, // Refresh every 10 seconds
+    refetchInterval: 10000,
   });
 }
 
-export function useLiveTradesVisualization(days: number = 7) {
+export function useLiveTradesVisualization(days = 7) {
   return useQuery({
     queryKey: ['live-trades-visualization', days],
     queryFn: async () => {
@@ -383,7 +431,7 @@ export function useLiveTradesVisualization(days: number = 7) {
       });
       return response.data;
     },
-    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchInterval: 30000,
   });
 }
 
@@ -417,12 +465,9 @@ export function useBacktestStatus(backtestId: string | null) {
     },
     enabled: !!backtestId,
     refetchInterval: (query) => {
-      // Stop polling when completed or failed
       const data = query.state.data;
-      if (data?.status === 'completed' || data?.status === 'failed') {
-        return false;
-      }
-      return 2000; // Poll every 2 seconds while running
+      const isComplete = data?.status === 'completed' || data?.status === 'failed';
+      return isComplete ? false : 2000;
     },
   });
 }
@@ -439,7 +484,7 @@ export function useBacktestResults(backtestId: string | null, status?: string) {
   });
 }
 
-export function useBacktestHistory(limit: number = 50) {
+export function useBacktestHistory(limit = 50) {
   return useQuery({
     queryKey: ['backtest-history', limit],
     queryFn: async () => {
@@ -452,33 +497,23 @@ export function useBacktestHistory(limit: number = 50) {
 }
 
 export function useDeleteBacktest() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (backtestId: string) => {
+  return createMutationWithInvalidation(
+    async (backtestId: string) => {
       const response = await apiClient.delete(`/backtests/${backtestId}`);
       return response.data;
     },
-    onSuccess: () => {
-      // Invalidate backtest history to refresh the list
-      queryClient.invalidateQueries({ queryKey: ['backtest-history'] });
-    },
-  });
+    [['backtest-history']]
+  );
 }
 
 export function useDeleteAllBacktests() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async () => {
+  return createMutationWithInvalidation(
+    async () => {
       const response = await apiClient.delete('/backtests/all/confirm');
       return response.data;
     },
-    onSuccess: () => {
-      // Invalidate backtest history to refresh the list
-      queryClient.invalidateQueries({ queryKey: ['backtest-history'] });
-    },
-  });
+    [['backtest-history']]
+  );
 }
 
 // Backtest Analysis queries
@@ -493,7 +528,6 @@ export function useAnalyzeBacktest() {
       return response.data;
     },
     onSuccess: (_data, variables) => {
-      // Invalidate analysis query to refresh results
       queryClient.invalidateQueries({ queryKey: ['backtest-analysis', variables.backtestId] });
     },
   });
@@ -508,7 +542,7 @@ export function useBacktestAnalysis(backtestId: string | null) {
       return response.data;
     },
     enabled: !!backtestId,
-    retry: false, // Don't retry if analysis doesn't exist (404)
+    retry: false,
   });
 }
 
@@ -521,7 +555,6 @@ export function useDeleteBacktestAnalysis() {
       return response.data;
     },
     onSuccess: (_data, backtestId) => {
-      // Invalidate analysis query
       queryClient.invalidateQueries({ queryKey: ['backtest-analysis', backtestId] });
     },
   });
@@ -559,31 +592,23 @@ export function useLiveConfig() {
 }
 
 export function useUpdateBacktestConfig() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (config: any) => {
+  return createMutationWithInvalidation(
+    async (config: any) => {
       const response = await apiClient.put('/config/backtest', { config });
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['config-backtest'] });
-    },
-  });
+    [['config-backtest']]
+  );
 }
 
 export function useUpdateLiveConfig() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (config: any) => {
+  return createMutationWithInvalidation(
+    async (config: any) => {
       const response = await apiClient.put('/config/live', { config });
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['config-live'] });
-    },
-  });
+    [['config-live']]
+  );
 }
 
 export function useBacktestSchema() {
@@ -593,7 +618,7 @@ export function useBacktestSchema() {
       const response = await apiClient.get<{ schema: any }>('/config/schema/backtest');
       return response.data.schema;
     },
-    staleTime: Infinity, // Schema doesn't change often
+    staleTime: Infinity,
   });
 }
 
@@ -604,11 +629,12 @@ export function useLiveSchema() {
       const response = await apiClient.get<{ schema: any }>('/config/schema/live');
       return response.data.schema;
     },
-    staleTime: Infinity, // Schema doesn't change often
+    staleTime: Infinity,
   });
 }
+
 // Live trading strategy management queries
-export function useLiveStrategies(tradingMode: string = 'paper') {
+export function useLiveStrategies(tradingMode = 'paper') {
   return useQuery({
     queryKey: ['live-strategies', tradingMode],
     queryFn: async () => {
@@ -617,11 +643,11 @@ export function useLiveStrategies(tradingMode: string = 'paper') {
       });
       return response.data;
     },
-    refetchInterval: 5000, // Refresh every 5 seconds
+    refetchInterval: 5000,
   });
 }
 
-export function useLiveStrategy(strategyName: string, tradingMode: string = 'paper') {
+export function useLiveStrategy(strategyName: string, tradingMode = 'paper') {
   return useQuery({
     queryKey: ['live-strategy', strategyName, tradingMode],
     queryFn: async () => {
@@ -638,15 +664,25 @@ export function useToggleLiveStrategy() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ strategyName, enabled, tradingMode = 'paper' }: { strategyName: string; enabled: boolean; tradingMode?: string }) => {
-      const response = await apiClient.post(`/strategies/${strategyName}/toggle`,
+    mutationFn: async ({
+      strategyName,
+      enabled,
+      tradingMode = 'paper'
+    }: {
+      strategyName: string;
+      enabled: boolean;
+      tradingMode?: string;
+    }) => {
+      const response = await apiClient.post(
+        `/strategies/${strategyName}/toggle`,
         { enabled },
         { params: { trading_mode: tradingMode } }
       );
       return response.data;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['live-strategies', variables.tradingMode || 'paper'] });
+      const mode = variables.tradingMode || 'paper';
+      queryClient.invalidateQueries({ queryKey: ['live-strategies', mode] });
       queryClient.invalidateQueries({ queryKey: ['config-live'] });
     },
   });
@@ -656,17 +692,26 @@ export function useUpdateLiveStrategyParams() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ strategyName, params, tradingMode = 'paper' }: { strategyName: string; params: Record<string, any>; tradingMode?: string }) => {
-      const response = await apiClient.put(`/strategies/${strategyName}/params`,
+    mutationFn: async ({
+      strategyName,
+      params,
+      tradingMode = 'paper'
+    }: {
+      strategyName: string;
+      params: Record<string, any>;
+      tradingMode?: string;
+    }) => {
+      const response = await apiClient.put(
+        `/strategies/${strategyName}/params`,
         { params },
         { params: { trading_mode: tradingMode } }
       );
       return response.data;
     },
     onSuccess: (_, variables) => {
-      const tradingMode = variables.tradingMode || 'paper';
-      queryClient.invalidateQueries({ queryKey: ['live-strategies', tradingMode] });
-      queryClient.invalidateQueries({ queryKey: ['live-strategy', variables.strategyName, tradingMode] });
+      const mode = variables.tradingMode || 'paper';
+      queryClient.invalidateQueries({ queryKey: ['live-strategies', mode] });
+      queryClient.invalidateQueries({ queryKey: ['live-strategy', variables.strategyName, mode] });
       queryClient.invalidateQueries({ queryKey: ['config-live'] });
     },
   });
@@ -674,17 +719,13 @@ export function useUpdateLiveStrategyParams() {
 
 // Optimization queries
 export function useRunOptimization() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (request: any) => {
+  return createMutationWithInvalidation(
+    async (request: any) => {
       const response = await apiClient.post('/optimization/run', request);
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['optimization-history'] });
-    },
-  });
+    [['optimization-history']]
+  );
 }
 
 export function useOptimizationStatus(optimizationId: string | null) {
@@ -696,8 +737,9 @@ export function useOptimizationStatus(optimizationId: string | null) {
     },
     enabled: !!optimizationId,
     refetchInterval: (query) => {
-      // Poll every 2 seconds if running, otherwise don't poll
-      return query.state.data?.status === 'running' || query.state.data?.status === 'pending' ? 2000 : false;
+      const status = query.state.data?.status;
+      const isActive = status === 'running' || status === 'pending';
+      return isActive ? 2000 : false;
     },
   });
 }
@@ -713,7 +755,7 @@ export function useOptimizationResults(optimizationId: string | null, status?: s
   });
 }
 
-export function useOptimizationHistory(limit: number = 50) {
+export function useOptimizationHistory(limit = 50) {
   return useQuery({
     queryKey: ['optimization-history', limit],
     queryFn: async () => {
@@ -726,35 +768,26 @@ export function useOptimizationHistory(limit: number = 50) {
 }
 
 export function useDeleteOptimization() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (optimizationId: string) => {
+  return createMutationWithInvalidation(
+    async (optimizationId: string) => {
       const response = await apiClient.delete(`/optimization/${optimizationId}`);
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['optimization-history'] });
-    },
-  });
+    [['optimization-history']]
+  );
 }
 
 export function useDeleteAllOptimizations() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async () => {
+  return createMutationWithInvalidation(
+    async () => {
       const response = await apiClient.delete('/optimization/');
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['optimization-history'] });
-    },
-  });
+    [['optimization-history']]
+  );
 }
 
-// New optimization v2 API hooks (using OptimizationService)
-
+// New optimization v2 API hooks
 export function useParamGrid(strategyName: string | null) {
   return useQuery({
     queryKey: ['param-grid', strategyName],
@@ -830,17 +863,15 @@ export function useClearOptimizationCache() {
 
 // Reconciliation
 export function useReconcilePositions() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ tradingMode = 'real', accountHash }: {
+  return createMutationWithInvalidation(
+    async ({
+      tradingMode = 'real',
+      accountHash
+    }: {
       tradingMode?: 'real' | 'paper';
       accountHash?: string;
     }) => {
-      let url = `/live/reconcile?trading_mode=${tradingMode}`;
-      if (accountHash) {
-        url += `&account_hash=${accountHash}`;
-      }
+      const url = `/live/reconcile?trading_mode=${tradingMode}${accountHash ? `&account_hash=${accountHash}` : ''}`;
       const response = await apiClient.post<{
         success: boolean;
         message: string;
@@ -848,11 +879,6 @@ export function useReconcilePositions() {
       }>(url);
       return response.data;
     },
-    onSuccess: () => {
-      // Invalidate position queries to refresh
-      queryClient.invalidateQueries({ queryKey: ['live-positions'] });
-      queryClient.invalidateQueries({ queryKey: ['live-events'] });
-      queryClient.invalidateQueries({ queryKey: ['accounts'] });
-    },
-  });
+    [['live-positions'], ['live-events'], ['accounts']]
+  );
 }

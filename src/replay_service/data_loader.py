@@ -40,9 +40,9 @@ class ReplayDataLoader:
 
         # Load options bars - always use 1-minute for replay
         options_bars = self.ts_store.get_options_for_backtest(
-            underlying_ticker=underlying_ticker,
-            start_time=start_time,
-            end_time=end_time,
+            start_time,  # Pass positionally as start_date
+            end_time,    # Pass positionally as end_date
+            underlying_ticker,  # Pass positionally
             min_dte=min_dte,
             max_dte=max_dte,
             timeframe="1min",

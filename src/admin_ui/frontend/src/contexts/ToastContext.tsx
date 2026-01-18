@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -18,20 +18,21 @@ interface ToastContextValue {
 
 const ToastContext = createContext<ToastContextValue | undefined>(undefined);
 
-export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const DEFAULT_TOAST_DURATION = 5000;
+
+export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
     const id = Date.now().toString();
     const newToast: Toast = {
       id,
-      duration: 5000, // Default duration of 5 seconds
+      duration: DEFAULT_TOAST_DURATION,
       ...toast,
     };
 
     setToasts((prev) => [...prev, newToast]);
 
-    // Auto-remove toast after duration
     if (newToast.duration && newToast.duration > 0) {
       setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -48,12 +49,12 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       {children}
     </ToastContext.Provider>
   );
-};
+}
 
-export const useToast = () => {
+export function useToast(): ToastContextValue {
   const context = useContext(ToastContext);
   if (!context) {
     throw new Error('useToast must be used within a ToastProvider');
   }
   return context;
-};
+}
