@@ -163,9 +163,9 @@ class WalkForwardAnalysis:
             )
 
             # Skip if insufficient training trades
-            if train_metrics.get("num_trades", 0) < min_train_trades:
+            if train_metrics.get("total_trades", 0) < min_train_trades:
                 logger.warning(
-                    f"Skipping period - only {train_metrics.get('num_trades', 0)} trades in training",
+                    f"Skipping period - only {train_metrics.get('total_trades', 0)} trades in training",
                     extra={"period": period, "min_trades": min_train_trades},
                 )
                 return None
@@ -262,7 +262,7 @@ class WalkForwardAnalysis:
             "total_return": best["total_return"],
             "win_rate": best["win_rate"],
             "max_drawdown": best["max_drawdown"],
-            "num_trades": best["num_trades"],
+            "total_trades": best["total_trades"],
             "profit_factor": best["profit_factor"],
         }
 
@@ -270,7 +270,7 @@ class WalkForwardAnalysis:
             logger.info(
                 f"  Training: Sharpe={metrics['sharpe_ratio']:.2f}, "
                 f"Return={metrics['total_return']:.2f}%, "
-                f"Trades={metrics['num_trades']}",
+                f"Trades={metrics['total_trades']}",
                 extra={"phase": "training", **metrics},
             )
 
@@ -309,7 +309,7 @@ class WalkForwardAnalysis:
             "total_return": results.get("total_return_pct", 0),
             "win_rate": results.get("win_rate", 0),
             "max_drawdown": results.get("max_drawdown", 0),
-            "num_trades": results.get("num_trades", 0),
+            "total_trades": results.get("total_trades", 0),
             "profit_factor": results.get("profit_factor", 0),
         }
 
@@ -317,7 +317,7 @@ class WalkForwardAnalysis:
             logger.info(
                 f"  Testing:  Sharpe={metrics['sharpe_ratio']:.2f}, "
                 f"Return={metrics['total_return']:.2f}%, "
-                f"Trades={metrics['num_trades']}",
+                f"Trades={metrics['total_trades']}",
                 extra={"phase": "testing", **metrics},
             )
 
@@ -376,7 +376,7 @@ class WalkForwardAnalysis:
 
         # Average performance
         print("\nAVERAGE PERFORMANCE:")
-        metrics = ["sharpe_ratio", "total_return", "win_rate", "num_trades"]
+        metrics = ["sharpe_ratio", "total_return", "win_rate", "total_trades"]
 
         for metric in metrics:
             in_sample = self.results[f"in_sample_{metric}"].mean()

@@ -1023,14 +1023,14 @@ class OptimizationService:
                     INSERT INTO optimization_results (
                         optimization_id, params, param_hash,
                         sharpe_ratio, total_return, total_return_pct,
-                        num_trades, num_winning_trades, num_losing_trades,
+                        total_trades, num_winning_trades, num_losing_trades,
                         win_rate, avg_win, avg_loss, profit_factor,
                         max_drawdown, final_capital
                     )
                     VALUES (
                         :opt_id, :params, :param_hash,
                         :sharpe, :total_return, :total_return_pct,
-                        :num_trades, :num_winning, :num_losing,
+                        :total_trades, :num_winning, :num_losing,
                         :win_rate, :avg_win, :avg_loss, :profit_factor,
                         :max_drawdown, :final_capital
                     )
@@ -1038,7 +1038,7 @@ class OptimizationService:
                         sharpe_ratio = EXCLUDED.sharpe_ratio,
                         total_return = EXCLUDED.total_return,
                         total_return_pct = EXCLUDED.total_return_pct,
-                        num_trades = EXCLUDED.num_trades
+                        total_trades = EXCLUDED.total_trades
                 """)
 
                 with self.engine.connect() as conn:
@@ -1049,7 +1049,7 @@ class OptimizationService:
                         "sharpe": float(row["sharpe_ratio"]) if pd.notna(row["sharpe_ratio"]) else None,
                         "total_return": float(row["total_return"]) if pd.notna(row["total_return"]) else None,
                         "total_return_pct": float(row["total_return"]) if pd.notna(row["total_return"]) else None,
-                        "num_trades": int(row["num_trades"]) if pd.notna(row["num_trades"]) else 0,
+                        "total_trades": int(row["total_trades"]) if pd.notna(row["total_trades"]) else 0,
                         "num_winning": None,  # Not in results_df
                         "num_losing": None,  # Not in results_df
                         "win_rate": float(row["win_rate"]) if pd.notna(row["win_rate"]) else None,
@@ -1244,7 +1244,7 @@ class OptimizationService:
         try:
             query = text(f"""
                 SELECT params, sharpe_ratio, total_return, win_rate,
-                       num_trades, max_drawdown, profit_factor,
+                       total_trades, max_drawdown, profit_factor,
                        rank_by_sharpe, rank_by_return, rank_by_win_rate
                 FROM optimization_results
                 WHERE optimization_id = :opt_id
@@ -1266,7 +1266,7 @@ class OptimizationService:
                     "sharpe_ratio": float(row[1]) if row[1] else None,
                     "total_return": float(row[2]) if row[2] else None,
                     "win_rate": float(row[3]) if row[3] else None,
-                    "num_trades": int(row[4]) if row[4] else 0,
+                    "total_trades": int(row[4]) if row[4] else 0,
                     "max_drawdown": float(row[5]) if row[5] else None,
                     "profit_factor": float(row[6]) if row[6] else None,
                     "rank_by_sharpe": int(row[7]) if row[7] else None,

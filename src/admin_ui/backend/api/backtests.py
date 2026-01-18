@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from quant_vibe.utils import now_utc
+from quant_vibe.utils.json_utils import sanitize_for_json
 import pandas as pd
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -535,9 +536,7 @@ async def get_backtest_results(
                 trades_data = trades_df.to_dict('records') if not trades_df.empty else []
                 equity_data = equity_df.to_dict('records') if not equity_df.empty else []
 
-                # Convert timestamps to ISO strings for JSON serialization
-                import math
-
+                # Convert timestamps to ISO strings and parse JSON fields
                 for trade in trades_data:
                     # Parse legs JSON
                     if 'legs' in trade and isinstance(trade['legs'], str):
@@ -547,33 +546,23 @@ async def get_backtest_results(
                         if field in trade and trade[field] is not None:
                             if hasattr(trade[field], 'isoformat'):
                                 trade[field] = trade[field].isoformat()
-                    # Convert NaN/Inf to None for JSON serialization
-                    for key, value in list(trade.items()):
-                        if isinstance(value, float):
-                            if math.isnan(value) or math.isinf(value):
-                                trade[key] = None
 
                 for point in equity_data:
                     # Convert timestamp to ISO string
                     if 'timestamp' in point and point['timestamp'] is not None:
                         if hasattr(point['timestamp'], 'isoformat'):
                             point['timestamp'] = point['timestamp'].isoformat()
-                    # Convert NaN/Inf to None for JSON serialization
-                    for key, value in list(point.items()):
-                        if isinstance(value, float):
-                            if math.isnan(value) or math.isinf(value):
-                                point[key] = None
 
                 for bar in underlying_data:
                     # Convert timestamp to ISO string
                     if 'timestamp' in bar and bar['timestamp'] is not None:
                         if hasattr(bar['timestamp'], 'isoformat'):
                             bar['timestamp'] = bar['timestamp'].isoformat()
-                    # Convert NaN/Inf to None for JSON serialization
-                    for key, value in list(bar.items()):
-                        if isinstance(value, float):
-                            if math.isnan(value) or math.isinf(value):
-                                bar[key] = None
+
+                # Sanitize all data for JSON serialization (handles NaN/Inf -> None)
+                trades_data = sanitize_for_json(trades_data)
+                equity_data = sanitize_for_json(equity_data)
+                underlying_data = sanitize_for_json(underlying_data)
 
                 # Build metrics from database (handle None values)
                 def safe_float(value, default=0.0):
@@ -590,7 +579,7 @@ async def get_backtest_results(
                     "max_drawdown": safe_float(backtest_run.get('max_drawdown')),
                     "win_rate": safe_float(backtest_run.get('win_rate')) / 100.0,  # Convert 100.0 → 1.0
                     "sharpe_ratio": safe_float(backtest_run.get('sharpe_ratio')),
-                    "total_trades": safe_int(backtest_run.get('num_trades')),
+                    "total_trades": safe_int(backtest_run.get('total_trades')),
                     "num_winning_trades": safe_int(backtest_run.get('num_winning_trades')),
                     "num_losing_trades": safe_int(backtest_run.get('num_losing_trades')),
                     "avg_win": safe_float(backtest_run.get('avg_win')),
@@ -721,12 +710,15 @@ async def get_backtest_history(
 
                 # Convert numeric types to native Python types for JSON
                 for key in ['total_return_pct', 'win_rate', 'sharpe_ratio', 'max_drawdown',
-                           'num_trades', 'final_capital', 'initial_capital']:
+                           'total_trades', 'final_capital', 'initial_capital']:
                     if key in backtest and backtest[key] is not None:
                         if hasattr(backtest[key], 'item'):
                             backtest[key] = backtest[key].item()
                         elif isinstance(backtest[key], (int, float)):
                             backtest[key] = float(backtest[key]) if '.' in str(backtest[key]) or isinstance(backtest[key], float) else int(backtest[key])
+
+            # Sanitize NaN and Infinity values for JSON serialization
+            history = sanitize_for_json(history)
 
             return {
                 "backtests": history,
@@ -756,8 +748,11 @@ async def get_backtest_history(
 
         history.sort(key=get_sort_key, reverse=True)
 
+        # Sanitize NaN and Infinity values for JSON serialization
+        history = sanitize_for_json(history[:limit])
+
         return {
-            "backtests": history[:limit],
+            "backtests": history,
             "total": len(history),
             "source": "memory",
         }
@@ -1000,7 +995,7 @@ def calculate_metrics(trades: list[dict], equity_curve: list[dict]) -> dict[str,
         "max_drawdown": max_dd_pct,
         "win_rate": pnl_stats['win_rate'],
         "sharpe_ratio": sharpe_ratio,
-        "total_trades": pnl_stats['num_trades'],
+        "total_trades": pnl_stats['total_trades'],
     }
 
 
@@ -1126,7 +1121,8 @@ async def get_backtest_analysis(
                 detail=f"No analysis found for backtest {backtest_id}. Run analysis first."
             )
 
-        return analysis
+        # Sanitize NaN and Infinity values for JSON serialization
+        return sanitize_for_json(analysis)
 
     except HTTPException:
         raise

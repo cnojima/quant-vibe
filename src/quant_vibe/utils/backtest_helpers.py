@@ -450,7 +450,7 @@ def save_backtest_to_db(
             "final_capital": final_capital,
             "total_return": total_return,
             "total_return_pct": to_python_type(results.get("total_return_pct")),
-            "num_trades": to_python_type(results.get("num_trades")),
+            "total_trades": to_python_type(results.get("total_trades")),
             "num_winning_trades": to_python_type(results.get("num_winning_trades")),
             "num_losing_trades": to_python_type(results.get("num_losing_trades")),
             "win_rate": to_python_type(results.get("win_rate")),

@@ -496,11 +496,11 @@ export function StrategyOptimizer() {
                                     </span>
                                   </div>
                                 )}
-                                {optimizationStatus.current_metrics.num_trades !== undefined && (
+                                {optimizationStatus.current_metrics.total_trades !== undefined && (
                                   <div>
                                     <span className="text-blue-700">Trades:</span>{' '}
                                     <span className="font-semibold text-blue-900">
-                                      {optimizationStatus.current_metrics.num_trades}
+                                      {optimizationStatus.current_metrics.total_trades}
                                     </span>
                                   </div>
                                 )}
@@ -646,7 +646,7 @@ export function StrategyOptimizer() {
                               {formatPercent(result.max_drawdown)}
                             </td>
                             <td className="px-4 py-3 text-sm">
-                              {result.num_trades}
+                              {result.total_trades}
                             </td>
                           </tr>
                         ))}

@@ -216,7 +216,7 @@ class PnLCalculator:
 
         return {
             'total_pnl': round(sum(pnls), cls.DOLLAR_PRECISION),
-            'num_trades': len(trades),
+            'total_trades': len(trades),
             'num_winners': len(winners),
             'num_losers': len(losers),
             'win_rate': round(len(winners) / len(trades) * 100, cls.PERCENT_PRECISION) if trades else 0.0,
@@ -419,7 +419,7 @@ class PnLCalculator:
         """Return empty statistics dictionary."""
         return {
             'total_pnl': 0.0,
-            'num_trades': 0,
+            'total_trades': 0,
             'num_winners': 0,
             'num_losers': 0,
             'win_rate': 0.0,

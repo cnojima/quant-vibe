@@ -504,7 +504,7 @@ class OptionsBacktestEngine:
         # Trade statistics using centralized PnL aggregation
         pnl_stats = PnLCalculator.aggregate_pnl(self.trades)
 
-        num_trades = pnl_stats['num_trades']
+        total_trades = pnl_stats['total_trades']
         win_rate = pnl_stats['win_rate']
         avg_win = pnl_stats['avg_win']
         avg_loss = pnl_stats['avg_loss']
@@ -535,7 +535,7 @@ class OptionsBacktestEngine:
             'final_capital': final_cash,
             'total_return': total_return,
             'total_return_pct': total_return,
-            'num_trades': num_trades,
+            'total_trades': total_trades,
             'num_winning_trades': pnl_stats['num_winners'],
             'num_losing_trades': pnl_stats['num_losers'],
             'win_rate': win_rate,
@@ -558,7 +558,7 @@ class OptionsBacktestEngine:
         print(f"Final Capital: ${final_cash:,.2f}")
         print(f"Total Return: ${final_cash - self.initial_capital:+,.2f} ({total_return:+.2f}%)")
         print("\nTrade Statistics:")
-        print(f"  Total Trades: {num_trades}")
+        print(f"  Total Trades: {total_trades}")
         print(f"  Winning Trades: {len(winning_trades)} ({win_rate:.1f}%)")
         print(f"  Losing Trades: {len(losing_trades)}")
         print(f"  Average Win: ${avg_win:,.2f}")

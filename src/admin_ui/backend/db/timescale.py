@@ -493,7 +493,7 @@ async def fetch_trading_stats(
 
         # Map to expected format
         return {
-            'total_trades': stats['num_trades'],
+            'total_trades': stats['total_trades'],
             'winning_trades': stats['num_winners'],
             'losing_trades': stats['num_losers'],
             'total_pnl': stats['total_pnl'],

@@ -483,9 +483,9 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
     final_capital NUMERIC(15, 2),
     total_return NUMERIC(10, 4),
     total_return_pct NUMERIC(10, 4),
-    num_trades INTEGER,
-    num_winning_trades INTEGER,
-    num_losing_trades INTEGER,
+    total_trades INTEGER,
+    winning_trades INTEGER,
+    losing_trades INTEGER,
     win_rate NUMERIC(10, 4),
     avg_win NUMERIC(15, 2),
     avg_loss NUMERIC(15, 2),
@@ -495,6 +495,7 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
 
     -- Metadata
     created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     created_by TEXT
 );
 
@@ -632,7 +633,7 @@ $$ LANGUAGE plpgsql;
 -- Function to get backtest summary statistics
 CREATE OR REPLACE FUNCTION get_backtest_summary(bid TEXT)
 RETURNS TABLE (
-    num_trades INTEGER,
+    total_trades INTEGER,
     win_rate NUMERIC,
     profit_factor NUMERIC,
     max_drawdown NUMERIC,
@@ -642,7 +643,7 @@ RETURNS TABLE (
 BEGIN
     RETURN QUERY
     SELECT
-        br.num_trades,
+        br.total_trades,
         br.win_rate,
         br.profit_factor,
         br.max_drawdown,
@@ -651,7 +652,7 @@ BEGIN
     FROM backtest_runs br
     LEFT JOIN backtest_trades bt ON br.backtest_id = bt.backtest_id
     WHERE br.backtest_id = bid
-    GROUP BY br.backtest_id, br.num_trades, br.win_rate, br.profit_factor, br.max_drawdown, br.sharpe_ratio;
+    GROUP BY br.backtest_id, br.total_trades, br.win_rate, br.profit_factor, br.max_drawdown, br.sharpe_ratio;
 END;
 $$ LANGUAGE plpgsql;
 

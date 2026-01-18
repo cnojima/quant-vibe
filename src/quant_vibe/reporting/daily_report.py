@@ -99,7 +99,7 @@ class DailyPerformanceReport:
             # Use centralized PnL aggregator
             pnl_stats = PnLCalculator.aggregate_pnl(day_trades.to_dict('records'))
 
-            total_trades = pnl_stats['num_trades']
+            total_trades = pnl_stats['total_trades']
             actual_pnl = pnl_stats['total_pnl']
             winning_trades = pnl_stats['num_winners']
             losing_trades = pnl_stats['num_losers']

@@ -77,9 +77,9 @@ CREATE TABLE IF NOT EXISTS optimization_results (
     sharpe_ratio NUMERIC(10, 4),
     total_return NUMERIC(15, 2),
     total_return_pct NUMERIC(10, 4),
-    num_trades INTEGER,
-    num_winning_trades INTEGER,
-    num_losing_trades INTEGER,
+    total_trades INTEGER,
+    winning_trades INTEGER,
+    losing_trades INTEGER,
     win_rate NUMERIC(10, 4),
     avg_win NUMERIC(15, 2),
     avg_loss NUMERIC(15, 2),
@@ -204,7 +204,7 @@ RETURNS TABLE (
     sharpe_ratio NUMERIC,
     total_return NUMERIC,
     win_rate NUMERIC,
-    num_trades INTEGER,
+    total_trades INTEGER,
     max_drawdown NUMERIC
 ) AS $$
 BEGIN
@@ -215,7 +215,7 @@ BEGIN
             r.sharpe_ratio,
             r.total_return,
             r.win_rate,
-            r.num_trades,
+            r.total_trades,
             r.max_drawdown
         FROM optimization_results r
         WHERE r.optimization_id = $1

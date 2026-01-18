@@ -747,7 +747,7 @@ class PushoverNotifier:
         backtest_id: str,
         total_return: Optional[float] = None,
         sharpe_ratio: Optional[float] = None,
-        num_trades: Optional[int] = None,
+        total_trades: Optional[int] = None,
         **kwargs
     ) -> bool:
         """Send notification for completed backtest.
@@ -757,7 +757,7 @@ class PushoverNotifier:
             backtest_id: Unique backtest ID
             total_return: Total return percentage
             sharpe_ratio: Sharpe ratio
-            num_trades: Number of trades
+            total_trades: Number of trades
             **kwargs: Additional parameters for send()
 
         Returns:
@@ -768,8 +768,8 @@ class PushoverNotifier:
             msg += f"\nReturn: {total_return:+.2f}%"
         if sharpe_ratio is not None:
             msg += f"\nSharpe: {sharpe_ratio:.2f}"
-        if num_trades is not None:
-            msg += f"\nTrades: {num_trades}"
+        if total_trades is not None:
+            msg += f"\nTrades: {total_trades}"
 
         return self.send(
             title=f"✅ Backtest Complete: {strategy_name}",
@@ -782,7 +782,7 @@ class PushoverNotifier:
                 "backtest_id": backtest_id,
                 "total_return": total_return,
                 "sharpe_ratio": sharpe_ratio,
-                "num_trades": num_trades,
+                "total_trades": total_trades,
             },
             **kwargs
         )

@@ -125,7 +125,7 @@ class ParameterOptimizer:
             "sharpe_ratio": metrics["sharpe_ratio"],
             "max_drawdown": metrics["max_drawdown"],
             "win_rate": metrics["win_rate"],
-            "num_trades": metrics["num_trades"],
+            "total_trades": metrics["total_trades"],
             "profit_factor": metrics["profit_factor"],
             "avg_trade_pnl": metrics["avg_trade_pnl"],
             "total_pnl": metrics["total_pnl"],
@@ -143,7 +143,7 @@ class ParameterOptimizer:
             f"  → Sharpe: {metrics['sharpe_ratio']:.2f}, "
             f"Return: {metrics['total_return']:.2f}%, "
             f"Win Rate: {metrics['win_rate']:.2f}%, "
-            f"Trades: {metrics['num_trades']}, "
+            f"Trades: {metrics['total_trades']}, "
             f"Time: {elapsed_time:.1f}s",
             extra=metrics,
         )
@@ -178,7 +178,7 @@ class ParameterOptimizer:
             return self._empty_metrics()
 
         total_pnl = trades_df["pnl"].sum()
-        num_trades = len(trades_df)
+        total_trades = len(trades_df)
         winning_trades = trades_df[trades_df["pnl"] > 0]
         losing_trades = trades_df[trades_df["pnl"] < 0]
 
@@ -187,9 +187,9 @@ class ParameterOptimizer:
             "sharpe_ratio": results.get("sharpe_ratio", 0),
             "max_drawdown": results.get("max_drawdown", 0),
             "win_rate": results.get("win_rate", 0),
-            "num_trades": num_trades,
+            "total_trades": total_trades,
             "profit_factor": results.get("profit_factor", 0),
-            "avg_trade_pnl": total_pnl / num_trades if num_trades > 0 else 0,
+            "avg_trade_pnl": total_pnl / total_trades if total_trades > 0 else 0,
             "total_pnl": total_pnl,
             "avg_win": winning_trades["pnl"].mean() if not winning_trades.empty else 0,
             "avg_loss": losing_trades["pnl"].mean() if not losing_trades.empty else 0,
@@ -202,7 +202,7 @@ class ParameterOptimizer:
             "sharpe_ratio": 0,
             "max_drawdown": 0,
             "win_rate": 0,
-            "num_trades": 0,
+            "total_trades": 0,
             "profit_factor": 0,
             "avg_trade_pnl": 0,
             "total_pnl": 0,
@@ -300,7 +300,7 @@ class ParameterOptimizer:
         print(f"  Total Return: {best['total_return']:.2f}%")
         print(f"  Win Rate: {best['win_rate']:.2f}%")
         print(f"  Max Drawdown: {best['max_drawdown']:.2f}%")
-        print(f"  Num Trades: {best['num_trades']}")
+        print(f"  Num Trades: {best['total_trades']}")
         print(f"  Profit Factor: {best['profit_factor']:.2f}")
 
         # Parameter sensitivity

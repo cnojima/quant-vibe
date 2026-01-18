@@ -22,6 +22,7 @@ from sqlalchemy.pool import NullPool
 
 from quant_vibe.logging.unified_logging import get_logger
 from quant_vibe.utils.timestamp_utils import now_utc
+from quant_vibe.utils.json_utils import sanitize_for_json
 
 if TYPE_CHECKING:
     from quant_vibe.models import OptionsBar, UnderlyingBar
@@ -769,7 +770,7 @@ class TimescaleStore:
         total_trades: Optional[int] = None,
         winning_trades: Optional[int] = None,
         losing_trades: Optional[int] = None,
-        avg_profit: Optional[float] = None,
+        avg_win: Optional[float] = None,
         avg_loss: Optional[float] = None,
         profit_factor: Optional[float] = None,
         win_rate: Optional[float] = None,
@@ -783,11 +784,11 @@ class TimescaleStore:
             backtest_id, strategy_name, ticker, start_date, end_date,
             initial_capital, parameters, final_capital, total_return,
             max_drawdown, sharpe_ratio, total_trades, winning_trades,
-            losing_trades, avg_profit, avg_loss, profit_factor, win_rate,
-            status, error_message, max_positions, created_at
+            losing_trades, avg_win, avg_loss, profit_factor, win_rate,
+            status, error_message, max_positions, created_at, updated_at
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s
         )
         ON CONFLICT (backtest_id) DO UPDATE SET
             final_capital = EXCLUDED.final_capital,
@@ -797,7 +798,7 @@ class TimescaleStore:
             total_trades = EXCLUDED.total_trades,
             winning_trades = EXCLUDED.winning_trades,
             losing_trades = EXCLUDED.losing_trades,
-            avg_profit = EXCLUDED.avg_profit,
+            avg_win = EXCLUDED.avg_win,
             avg_loss = EXCLUDED.avg_loss,
             profit_factor = EXCLUDED.profit_factor,
             win_rate = EXCLUDED.win_rate,
@@ -815,8 +816,8 @@ class TimescaleStore:
                         backtest_id, strategy_name, ticker, start_date, end_date,
                         initial_capital, json.dumps(parameters), final_capital,
                         total_return, max_drawdown, sharpe_ratio, total_trades,
-                        winning_trades, losing_trades, avg_profit, avg_loss,
-                        profit_factor, win_rate, status, error_message, max_positions, now_utc()
+                        winning_trades, losing_trades, avg_win, avg_loss,
+                        profit_factor, win_rate, status, error_message, max_positions, now_utc(), now_utc()
                     ),
                 )
             conn.commit()
@@ -853,7 +854,7 @@ class TimescaleStore:
         """Update backtest metrics after completion."""
         allowed_fields = [
             "final_capital", "total_return", "max_drawdown", "sharpe_ratio",
-            "total_trades", "winning_trades", "losing_trades", "avg_profit",
+            "total_trades", "winning_trades", "losing_trades", "avg_win",
             "avg_loss", "profit_factor", "win_rate"
         ]
 
@@ -883,106 +884,168 @@ class TimescaleStore:
         logger.info(f"Updated metrics for backtest {backtest_id}")
 
     def save_backtest_trades(
-        self, backtest_id: str, trades: pd.DataFrame
+        self,
+        backtest_id: str,
+        trades_df: pd.DataFrame,
     ) -> None:
-        """Save backtest trade history."""
-        if trades.empty:
-            return
+        """
+        Save trade records to database.
 
-        def convert_to_serializable(obj):
-            """Convert non-serializable objects for JSON storage."""
-            if pd.isna(obj):
-                return None
-            if isinstance(obj, (pd.Timestamp, datetime)):
-                return obj.isoformat()
-            if hasattr(obj, "tolist"):
-                return obj.tolist()
-            if hasattr(obj, "to_dict"):
-                return obj.to_dict()
-            return str(obj)
+        Args:
+            backtest_id: Backtest identifier
+            trades_df: DataFrame with trade records (matches Trade Pydantic model)
+
+        Expected columns (matching Trade model in src/quant_vibe/models/market_data.py):
+            - position_id, strategy_name, spread_type
+            - entry_time, exit_time, duration_minutes (optional)
+            - entry_premium, exit_premium, pnl, pnl_pct
+            - entry_trigger, exit_reason
+            - entry_underlying_price, exit_underlying_price
+            - max_risk, max_profit, peak_value
+            - legs (as list of dicts or JSON string)
+        """
+        import json
+
+        if trades_df.empty:
+            return
 
         query = """
         INSERT INTO backtest_trades (
-            backtest_id, trade_number, timestamp, action, quantity,
-            price, trade_value, commission, position_after,
-            portfolio_value, metadata
-        ) VALUES %s
+            backtest_id, position_id, strategy_name, spread_type, entry_time, exit_time,
+            duration_minutes, entry_premium, exit_premium, pnl, pnl_pct,
+            entry_trigger, exit_reason, entry_underlying_price, exit_underlying_price,
+            max_risk, max_profit, peak_value, legs
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        )
         """
 
-        values = []
-        for idx, row in trades.iterrows():
-            trade_number = idx + 1 if isinstance(idx, int) else idx
+        def convert_to_serializable(obj):
+            """
+            Convert pandas/numpy/datetime types to JSON-serializable types.
 
-            metadata = {}
-            for col in trades.columns:
-                if col not in ["timestamp", "action", "quantity", "price", "commission"]:
-                    value = row[col]
-                    if not pd.isna(value):
-                        metadata[col] = convert_to_serializable(value)
+            This follows the Pydantic pattern for handling complex types at data boundaries.
+            See: docs/SIMPLIFICATION_PLAN.md for the long-term Pydantic migration plan.
+            """
+            from datetime import datetime, date
+            from decimal import Decimal
 
-            values.append((
+            if obj is None:
+                return None
+
+            # Handle datetime types (timestamp normalization)
+            if isinstance(obj, pd.Timestamp):
+                return obj.isoformat()
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            if isinstance(obj, date):
+                return obj.isoformat()
+
+            # Handle numeric types
+            if isinstance(obj, Decimal):
+                return float(obj)
+            if hasattr(obj, 'item'):  # NumPy scalar
+                return obj.item()
+
+            # Recursively handle collections
+            if isinstance(obj, dict):
+                return {k: convert_to_serializable(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple)):
+                return [convert_to_serializable(item) for item in obj]
+
+            return obj
+
+        # Prepare records for batch insert
+        records = []
+        for _, row in trades_df.iterrows():
+            # Convert legs to JSON if it's a list of dicts
+            legs_json = row.get('legs', [])
+            if isinstance(legs_json, str):
+                legs_json = json.loads(legs_json)
+
+            # Convert all pandas/numpy types to serializable types
+            legs_json = convert_to_serializable(legs_json)
+
+            records.append((
                 backtest_id,
-                trade_number,
-                row.get("timestamp", row.get("entry_timestamp")),
-                row.get("action", "trade"),
-                row.get("quantity", row.get("contracts", 1)),
-                float(row.get("price", row.get("entry_price", 0))),
-                float(row.get("trade_value", row.get("cost", 0))),
-                float(row.get("commission", 0)),
-                row.get("position_after", 0),
-                float(row.get("portfolio_value", row.get("capital", 0))),
-                json.dumps(metadata) if metadata else None,
+                row.get('position_id'),
+                row.get('strategy_name'),
+                row.get('spread_type'),
+                row.get('entry_time'),
+                row.get('exit_time'),
+                row.get('duration_minutes'),
+                row.get('entry_premium'),
+                row.get('exit_premium'),
+                row.get('pnl'),
+                row.get('pnl_pct'),
+                row.get('entry_trigger'),
+                row.get('exit_reason'),
+                row.get('entry_underlying_price'),
+                row.get('exit_underlying_price'),
+                row.get('max_risk'),
+                row.get('max_profit'),
+                row.get('peak_value'),
+                json.dumps(legs_json),
             ))
 
         with self.get_connection() as conn:
-            with conn.cursor() as cur:
-                execute_batch(
-                    cur,
-                    query.replace("%s", "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"),
-                    values,
-                    page_size=100
-                )
+            with conn.cursor() as cursor:
+                execute_batch(cursor, query, records, page_size=100)
             conn.commit()
 
-        logger.info(f"Saved {len(values)} trades for backtest {backtest_id}")
 
     def save_backtest_equity_curve(
-        self, backtest_id: str, equity_curve: pd.DataFrame
+        self,
+        backtest_id: str,
+        equity_df: pd.DataFrame,
     ) -> None:
-        """Save backtest equity curve data."""
-        if equity_curve.empty:
+        """
+        Save equity curve data to database.
+
+        Args:
+            backtest_id: Backtest identifier
+            equity_df: DataFrame with equity curve snapshots
+
+        Expected columns or index:
+            - timestamp (as index or column), cash, portfolio_value, active_position
+            - returns, cummax, drawdown (optional)
+        """
+        if equity_df.empty:
             return
+
+        # Reset index to get timestamp as a column if it's the index
+        df = equity_df.copy()
+        if df.index.name == 'timestamp' or 'timestamp' not in df.columns:
+            df = df.reset_index()
 
         query = """
         INSERT INTO backtest_equity_curve (
-            backtest_id, timestamp, portfolio_value, cash,
-            positions_value, daily_return, drawdown
-        ) VALUES %s
+            backtest_id, timestamp, cash, portfolio_value, active_position,
+            returns, cummax, drawdown
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s
+        )
         """
 
-        values = []
-        for _, row in equity_curve.iterrows():
-            values.append((
+        # Prepare records for batch insert
+        records = []
+        for _, row in df.iterrows():
+            records.append((
                 backtest_id,
-                row["timestamp"] if "timestamp" in row else row.name,
-                float(row.get("portfolio_value", row.get("total", 0))),
-                float(row.get("cash", 0)),
-                float(row.get("positions_value", 0)),
-                float(row.get("daily_return", 0)),
-                float(row.get("drawdown", 0)),
+                row.get('timestamp'),
+                row.get('cash'),
+                row.get('portfolio_value'),
+                row.get('active_position', False),
+                row.get('returns'),
+                row.get('cummax'),
+                row.get('drawdown'),
             ))
 
         with self.get_connection() as conn:
-            with conn.cursor() as cur:
-                execute_batch(
-                    cur,
-                    query.replace("%s", "(%s, %s, %s, %s, %s, %s, %s)"),
-                    values,
-                    page_size=100
-                )
+            with conn.cursor() as cursor:
+                execute_batch(cursor, query, records, page_size=1000)
             conn.commit()
 
-        logger.info(f"Saved equity curve with {len(values)} points for backtest {backtest_id}")
 
     def get_backtest_run(self, backtest_id: str) -> Optional[Dict[str, Any]]:
         """Get backtest run details."""
