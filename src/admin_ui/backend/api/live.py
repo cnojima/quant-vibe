@@ -419,7 +419,7 @@ async def refresh_accounts(
                 'account_hash': acc['hashValue'],
                 'account_number': acc['accountNumber'][-4:] if 'accountNumber' in acc else 'XXXX',
                 'nickname': acc.get('nickname', f"Account {acc['accountNumber'][-4:]}"),
-                'account_type': acc.get('accountType', 'UNKNOWN'),
+                'account_type': acc.get('accountType', 'CASH'),  # Default to CASH if not specified
                 'is_day_trader': False,  # Will be updated from account details
                 'is_closing_only_restricted': False,
                 'round_trips': 0
@@ -433,8 +433,16 @@ async def refresh_accounts(
 
                 if details and 'securitiesAccount' in details:
                     sec_acc = details['securitiesAccount']
+
+                    # Map Schwab account types to our database values
+                    schwab_type = sec_acc.get('type', '').upper()
+                    if schwab_type in ('MARGIN', 'MARGIN_DAYTRADING'):
+                        account_type = 'MARGIN'
+                    else:
+                        account_type = 'CASH'  # Default to CASH for any other type
+
                     account_data.update({
-                        'account_type': sec_acc.get('type', 'UNKNOWN'),
+                        'account_type': account_type,
                         'is_day_trader': sec_acc.get('isDayTrader', False),
                         'is_closing_only_restricted': sec_acc.get('isClosingOnlyRestricted', False),
                         'round_trips': sec_acc.get('roundTrips', 0)
