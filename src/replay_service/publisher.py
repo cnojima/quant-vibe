@@ -1,4 +1,5 @@
 """Publisher for replay service - publishes bars to Redis with timing control."""
+
 import os
 import time
 from datetime import datetime
@@ -8,12 +9,9 @@ from dotenv import load_dotenv
 from quant_vibe.messaging import RedisMessageBroker, Topic
 from quant_vibe.models import OptionsBar, UnderlyingBar
 from quant_vibe.logging import setup_normalized_logging
+
 load_dotenv()
-log_level = os.getenv("LOG_LEVEL", "INFO")
-logger = setup_normalized_logging(
-    app_name="replay",
-    log_dir="logs/replay",
-)
+logger = setup_normalized_logging(app_name="replay", log_dir="logs/replay")
 
 
 class ReplayPublisher:
@@ -29,8 +27,8 @@ class ReplayPublisher:
 
         Args:
             message_broker: Redis message broker
-            speed: Speed multiplier (1.0 = real-time, 10.0 = 10x faster, 0 = instant)
-            preserve_timestamps: If True, keeps original timestamps; if False, shifts to "now"
+            speed: Speed multiplier (1.0 = real-time, 10.0 = 10x, 0 = instant)
+            preserve_timestamps: Keep original timestamps if True
         """
         self.message_broker = message_broker
         self.speed = speed
@@ -44,25 +42,16 @@ class ReplayPublisher:
         options_bars: List[OptionsBar],
         underlying_bars: List[UnderlyingBar],
     ) -> int:
-        """Publish all bars for a given timestamp.
-
-        Args:
-            timestamp: The timestamp for these bars
-            options_bars: Options bars at this timestamp
-            underlying_bars: Underlying bars at this timestamp
-
-        Returns:
-            Number of bars published
-        """
+        """Publish all bars for a given timestamp."""
         count = 0
 
-        # Publish options bars
+        # Publish matching options bars
         for bar in options_bars:
             if bar.timestamp == timestamp:
                 self.message_broker.publish(Topic.REPLAY_OPTIONS_BARS, bar.model_dump())
                 count += 1
 
-        # Publish underlying bars
+        # Publish matching underlying bars
         for bar in underlying_bars:
             if bar.timestamp == timestamp:
                 self.message_broker.publish(Topic.REPLAY_UNDERLYING_BARS, bar.model_dump())
@@ -77,86 +66,99 @@ class ReplayPublisher:
         options_bars_by_time: Dict[datetime, List[OptionsBar]],
         underlying_bars_by_time: Dict[datetime, List[UnderlyingBar]],
     ):
-        """Replay bars with timing control.
-
-        Args:
-            timestamps: Sorted list of unique timestamps
-            options_bars_by_time: Dictionary mapping timestamp -> list of options bars
-            underlying_bars_by_time: Dictionary mapping timestamp -> list of underlying bars
-        """
+        """Replay bars with timing control."""
         if not timestamps:
             logger.warning("No timestamps to replay")
             return
 
         self.start_time = time.time()
-        logger.info(f"Starting replay with {len(timestamps)} timestamps at {self.speed}x speed...")
+        total_timestamps = len(timestamps)
+
+        logger.info(f"Starting replay: {total_timestamps} timestamps at {self.speed}x speed")
 
         if self.speed == 0:
-            # Instant mode - publish all as fast as possible
-            logger.info("  Mode: INSTANT (no delays)")
-            for i, timestamp in enumerate(timestamps):
-                options_bars = options_bars_by_time.get(timestamp, [])
-                underlying_bars = underlying_bars_by_time.get(timestamp, [])
-
-                count = self.publish_bars_at_timestamp(
-                    timestamp, options_bars, underlying_bars
-                )
-
-                if (i + 1) % 100 == 0:
-                    logger.info(
-                        f"  [{i+1}/{len(timestamps)}] Published {self.published_count:,} bars"
-                    )
-
+            self._replay_instant(timestamps, options_bars_by_time, underlying_bars_by_time)
         else:
-            # Timed replay
-            logger.info(f"  Mode: {self.speed}x real-time")
+            self._replay_timed(timestamps, options_bars_by_time, underlying_bars_by_time)
 
-            # Track when we should be in the replay timeline
-            first_timestamp = timestamps[0]
-            replay_start = time.time()
+        self._log_completion()
 
-            for i, timestamp in enumerate(timestamps):
-                # Calculate how long we should have waited (in replay time)
-                time_since_start = (timestamp - first_timestamp).total_seconds()
-                adjusted_wait = time_since_start / self.speed
+    def _replay_instant(
+        self,
+        timestamps: List[datetime],
+        options_bars_by_time: Dict[datetime, List[OptionsBar]],
+        underlying_bars_by_time: Dict[datetime, List[UnderlyingBar]],
+    ):
+        """Replay all bars instantly without timing delays."""
+        logger.info("Mode: INSTANT")
 
-                # Calculate actual elapsed time
-                actual_elapsed = time.time() - replay_start
+        for i, timestamp in enumerate(timestamps):
+            options_bars = options_bars_by_time.get(timestamp, [])
+            underlying_bars = underlying_bars_by_time.get(timestamp, [])
 
-                # Sleep if we're ahead of schedule
-                sleep_time = adjusted_wait - actual_elapsed
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
+            self.publish_bars_at_timestamp(timestamp, options_bars, underlying_bars)
 
-                # Publish bars for this timestamp
-                options_bars = options_bars_by_time.get(timestamp, [])
-                underlying_bars = underlying_bars_by_time.get(timestamp, [])
+            if (i + 1) % 100 == 0:
+                self._log_progress(i + 1, len(timestamps))
 
-                count = self.publish_bars_at_timestamp(
-                    timestamp, options_bars, underlying_bars
-                )
+    def _replay_timed(
+        self,
+        timestamps: List[datetime],
+        options_bars_by_time: Dict[datetime, List[OptionsBar]],
+        underlying_bars_by_time: Dict[datetime, List[UnderlyingBar]],
+    ):
+        """Replay bars with realistic timing based on speed multiplier."""
+        logger.info(f"Mode: {self.speed}x real-time")
 
-                # Log progress (more verbose for first few to debug timing)
-                if i < 10 or (i + 1) % 10 == 0 or count > 0:
-                    elapsed = time.time() - self.start_time
-                    logger.info(
-                        f"  [{i+1}/{len(timestamps)}] {timestamp} | "
-                        f"Published {count} bars | "
-                        f"Total: {self.published_count:,} | "
-                        f"Elapsed: {elapsed:.1f}s"
-                    )
+        first_timestamp = timestamps[0]
+        replay_start = time.time()
 
+        for i, timestamp in enumerate(timestamps):
+            # Calculate timing
+            elapsed_in_data = (timestamp - first_timestamp).total_seconds()
+            target_elapsed = elapsed_in_data / self.speed
+            actual_elapsed = time.time() - replay_start
+
+            # Sleep if ahead of schedule
+            if target_elapsed > actual_elapsed:
+                time.sleep(target_elapsed - actual_elapsed)
+
+            # Publish bars
+            options_bars = options_bars_by_time.get(timestamp, [])
+            underlying_bars = underlying_bars_by_time.get(timestamp, [])
+
+            count = self.publish_bars_at_timestamp(timestamp, options_bars, underlying_bars)
+
+            # Log progress for debugging and monitoring
+            if i < 10 or (i + 1) % 10 == 0 or count > 0:
+                self._log_detailed_progress(i + 1, len(timestamps), timestamp, count)
+
+    def _log_progress(self, current: int, total: int):
+        """Log simple progress update."""
+        logger.info(
+            f"[{current}/{total}] Published {self.published_count:,} bars"
+        )
+
+    def _log_detailed_progress(
+        self, current: int, total: int, timestamp: datetime, count: int
+    ):
+        """Log detailed progress with timing information."""
         elapsed = time.time() - self.start_time
         logger.info(
-            f"\n✅ Replay complete! Published {self.published_count:,} bars in {elapsed:.1f}s"
+            f"[{current}/{total}] {timestamp} | "
+            f"Published {count} bars | Total: {self.published_count:,} | "
+            f"Elapsed: {elapsed:.1f}s"
+        )
+
+    def _log_completion(self):
+        """Log completion statistics."""
+        elapsed = time.time() - self.start_time
+        logger.info(
+            f"\nReplay complete: {self.published_count:,} bars in {elapsed:.1f}s"
         )
 
     def get_stats(self) -> Dict[str, any]:
-        """Get publisher statistics.
-
-        Returns:
-            Dictionary with stats (published_count, elapsed_time, etc.)
-        """
+        """Get publisher statistics."""
         elapsed = time.time() - self.start_time if self.start_time else 0
 
         return {

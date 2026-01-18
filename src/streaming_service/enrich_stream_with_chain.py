@@ -6,19 +6,19 @@ This script periodically fetches the option chain and caches contract details
 to enrich streaming data.
 """
 
+import os
 import sys
-from pathlib import Path
+import traceback
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Optional
-
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import schwabdev
 from dotenv import load_dotenv
-import os
 
-from quant_vibe.utils import normalize_option_ticker
-from quant_vibe.utils import now_utc
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from quant_vibe.utils import normalize_option_ticker, now_utc
 
 load_dotenv()
 
@@ -27,8 +27,7 @@ class OptionContractEnricher:
     """Fetch and cache option contract details from Schwab API."""
 
     def __init__(self, schwab_client):
-        """
-        Initialize enricher.
+        """Initialize enricher.
 
         Args:
             schwab_client: Initialized schwabdev.Client instance
@@ -36,7 +35,7 @@ class OptionContractEnricher:
         self.client = schwab_client
         self.contract_cache: Dict[str, Dict] = {}
         self.last_refresh = None
-        self.refresh_interval_minutes = 15  # Refresh every 15 minutes
+        self.refresh_interval_minutes = 15
 
     def refresh_contract_details(
         self,
@@ -44,8 +43,7 @@ class OptionContractEnricher:
         strike_count: int = 50,
         auto_retry: bool = True
     ) -> int:
-        """
-        Fetch option chain and update contract cache.
+        """Fetch option chain and update contract cache.
 
         Args:
             underlying: Underlying symbol (e.g., "$SPX")
@@ -55,109 +53,111 @@ class OptionContractEnricher:
         Returns:
             Number of contracts cached
         """
-        print("\n📥 Refreshing option chain from Schwab API...")
+        print(f"\nRefreshing option chain from Schwab API...")
         print(f"   Underlying: {underlying}")
         print(f"   Strike count: {strike_count}")
 
         try:
             response = self.client.option_chains(underlying, strikeCount=strike_count)
 
-            # Debug response before attempting JSON parse
             if response.status_code != 200:
-                print(f"   ❌ API returned status {response.status_code}")
+                print(f"   API returned status {response.status_code}")
 
-                # Check for specific buffer overflow error
                 if response.status_code == 502 and "Body buffer overflow" in response.text:
-                    print(f"   ⚠️  API gateway buffer overflow - too many strikes requested")
+                    print(f"   API gateway buffer overflow - too many strikes requested")
                     print(f"   Response: {response.text[:200]}")
 
-                    # Auto-retry with fewer strikes
                     if auto_retry and strike_count > 5:
-                        reduced_strikes = min(20, strike_count // 2)  # Half it, but cap at 20
-                        print(f"   🔄 Auto-retrying with {reduced_strikes} strikes...")
+                        reduced_strikes = min(20, strike_count // 2)
+                        print(f"   Auto-retrying with {reduced_strikes} strikes...")
                         return self.refresh_contract_details(underlying, reduced_strikes, auto_retry=False)
-                    else:
-                        print(f"   💡 Reduce strike_count parameter (current: {strike_count})")
+
+                    print(f"   Reduce strike_count parameter (current: {strike_count})")
                 else:
                     print(f"   Response text: {response.text[:500]}")
 
                 return 0
 
             if not response.text or response.text.strip() == "":
-                print("   ❌ API returned empty response")
+                print("   API returned empty response")
                 return 0
 
             chain_data = response.json()
-
-            contracts_added = 0
-
-            # Process calls and puts
-            for option_type in ['callExpDateMap', 'putExpDateMap']:
-                if option_type not in chain_data:
-                    continue
-
-                exp_map = chain_data[option_type]
-
-                for exp_date_str, strikes in exp_map.items():
-                    for strike_str, contract_list in strikes.items():
-                        for contract in contract_list:
-                            symbol = contract.get('symbol', '')
-
-                            if not symbol:
-                                continue
-
-                            # Normalize symbol before caching
-                            normalized_symbol = normalize_option_ticker(symbol)
-
-                            # Cache contract details (use normalized symbol as key)
-                            self.contract_cache[normalized_symbol] = {
-                                'symbol': normalized_symbol,
-                                'strike_price': contract.get('strikePrice'),
-                                'expiration_date': contract.get('expirationDate'),
-                                'contract_type': 'call' if option_type == 'callExpDateMap' else 'put',
-                                'delta': contract.get('delta'),
-                                'gamma': contract.get('gamma'),
-                                'theta': contract.get('theta'),
-                                'vega': contract.get('vega'),
-                                'rho': contract.get('rho'),
-                                'implied_volatility': contract.get('volatility'),
-                                'bid': contract.get('bid'),
-                                'ask': contract.get('ask'),
-                                'last': contract.get('last'),
-                                'open_interest': contract.get('openInterest'),
-                                'cached_at': now_utc()
-                            }
-                            contracts_added += 1
+            contracts_added = self._process_chain_data(chain_data)
 
             self.last_refresh = now_utc()
-            print(f"   ✅ Cached {contracts_added} contracts")
+            print(f"   Cached {contracts_added} contracts")
             print(f"   Last refresh: {self.last_refresh}")
 
             return contracts_added
 
         except Exception as e:
-            print(f"   ❌ Error refreshing chain: {e}")
+            print(f"   Error refreshing chain: {e}")
             print(f"   Response status code: {response.status_code if 'response' in locals() else 'N/A'}")
             print(f"   Response text (first 500 chars): {response.text[:500] if 'response' in locals() and hasattr(response, 'text') else 'N/A'}")
-            import traceback
             traceback.print_exc()
             return 0
 
-    def get_contract_details(self, symbol: str) -> Optional[Dict]:
-        """
-        Get cached contract details for a symbol.
+    def _process_chain_data(self, chain_data: dict) -> int:
+        """Process chain data and populate cache.
 
         Args:
-            symbol: Option symbol (e.g., "SPXW  251219C06100000" or "SPXW251219C06100000")
+            chain_data: Option chain data from API
+
+        Returns:
+            Number of contracts added
+        """
+        contracts_added = 0
+
+        for option_type in ['callExpDateMap', 'putExpDateMap']:
+            if option_type not in chain_data:
+                continue
+
+            exp_map = chain_data[option_type]
+            contract_type = 'call' if option_type == 'callExpDateMap' else 'put'
+
+            for exp_date_str, strikes in exp_map.items():
+                for strike_str, contract_list in strikes.items():
+                    for contract in contract_list:
+                        symbol = contract.get('symbol', '')
+                        if not symbol:
+                            continue
+
+                        normalized_symbol = normalize_option_ticker(symbol)
+
+                        self.contract_cache[normalized_symbol] = {
+                            'symbol': normalized_symbol,
+                            'strike_price': contract.get('strikePrice'),
+                            'expiration_date': contract.get('expirationDate'),
+                            'contract_type': contract_type,
+                            'delta': contract.get('delta'),
+                            'gamma': contract.get('gamma'),
+                            'theta': contract.get('theta'),
+                            'vega': contract.get('vega'),
+                            'rho': contract.get('rho'),
+                            'implied_volatility': contract.get('volatility'),
+                            'bid': contract.get('bid'),
+                            'ask': contract.get('ask'),
+                            'last': contract.get('last'),
+                            'open_interest': contract.get('openInterest'),
+                            'cached_at': now_utc()
+                        }
+                        contracts_added += 1
+
+        return contracts_added
+
+    def get_contract_details(self, symbol: str) -> Optional[Dict]:
+        """Get cached contract details for a symbol.
+
+        Args:
+            symbol: Option symbol
 
         Returns:
             Dict with contract details or None if not cached
         """
-        # Auto-refresh if cache is stale
         if self.should_refresh():
             self.refresh_contract_details()
 
-        # Normalize symbol for lookup
         normalized_symbol = normalize_option_ticker(symbol)
         return self.contract_cache.get(normalized_symbol)
 
@@ -170,8 +170,7 @@ class OptionContractEnricher:
         return elapsed >= self.refresh_interval_minutes
 
     def enrich_quote(self, quote: Dict) -> Dict:
-        """
-        Enrich a streaming quote with cached contract details.
+        """Enrich a streaming quote with cached contract details.
 
         Args:
             quote: Quote dict from streaming data
@@ -184,45 +183,33 @@ class OptionContractEnricher:
             return quote
 
         cached = self.get_contract_details(symbol)
+        if not cached:
+            return quote
 
-        if cached:
-            # Merge cached details (don't override existing streaming data)
-            enriched = quote.copy()
+        enriched = quote.copy()
 
-            # Add contract details if missing
-            if enriched.get('strike') is None:
-                enriched['strike'] = cached.get('strike_price')
+        fields_to_enrich = [
+            ('strike', 'strike_price'),
+            ('iv', 'implied_volatility'),
+            ('delta', 'delta'),
+            ('gamma', 'gamma'),
+            ('theta', 'theta'),
+            ('vega', 'vega'),
+            ('rho', 'rho')
+        ]
 
-            if enriched.get('iv') is None:
-                enriched['iv'] = cached.get('implied_volatility')
+        for quote_field, cache_field in fields_to_enrich:
+            if enriched.get(quote_field) is None:
+                enriched[quote_field] = cached.get(cache_field)
 
-            if enriched.get('delta') is None:
-                enriched['delta'] = cached.get('delta')
+        if enriched.get('exp_year') is None and cached.get('expiration_date'):
+            exp_date_str = cached['expiration_date']
+            exp_date = datetime.strptime(exp_date_str.split('T')[0], '%Y-%m-%d')
+            enriched['exp_year'] = exp_date.year
+            enriched['exp_month'] = exp_date.month
+            enriched['exp_day'] = exp_date.day
 
-            if enriched.get('gamma') is None:
-                enriched['gamma'] = cached.get('gamma')
-
-            if enriched.get('theta') is None:
-                enriched['theta'] = cached.get('theta')
-
-            if enriched.get('vega') is None:
-                enriched['vega'] = cached.get('vega')
-
-            if enriched.get('rho') is None:
-                enriched['rho'] = cached.get('rho')
-
-            # Parse expiration date if missing
-            if enriched.get('exp_year') is None and cached.get('expiration_date'):
-                exp_date_str = cached['expiration_date']
-                # Format: "2025-12-19:0" or "2025-12-19T21:00:00:0" (date with optional timestamp)
-                exp_date = datetime.strptime(exp_date_str.split('T')[0], '%Y-%m-%d')
-                enriched['exp_year'] = exp_date.year
-                enriched['exp_month'] = exp_date.month
-                enriched['exp_day'] = exp_date.day
-
-            return enriched
-
-        return quote
+        return enriched
 
     def get_cache_stats(self) -> Dict:
         """Get cache statistics."""
@@ -239,7 +226,6 @@ def test_enricher():
     print("TESTING OPTION CONTRACT ENRICHER")
     print("="*70)
 
-    # Initialize Schwab client
     tokens_db = "tokens/schwabdev_tokens.db"
 
     client = schwabdev.Client(
@@ -249,31 +235,25 @@ def test_enricher():
         tokens_db=tokens_db,
     )
 
-    # Create enricher
     enricher = OptionContractEnricher(client)
-
-    # Refresh chain
     contracts = enricher.refresh_contract_details("$SPX", strike_count=20)
 
-    print("\n📊 Cache Stats:")
+    print("\nCache Stats:")
     stats = enricher.get_cache_stats()
     print(f"   Contracts cached: {stats['contracts_cached']}")
     print(f"   Last refresh: {stats['last_refresh']}")
     print(f"   Cache age: {stats['cache_age_minutes']:.1f} minutes")
 
-    # Test enrichment
     if enricher.contract_cache:
         sample_symbol = list(enricher.contract_cache.keys())[0]
-        print(f"\n🔍 Sample contract: {sample_symbol}")
+        print(f"\nSample contract: {sample_symbol}")
 
-        # Create mock streaming quote (without Greeks)
         mock_quote = {
             'symbol': sample_symbol,
             'bid': 10.50,
             'ask': 11.00,
             'last': 10.75,
             'volume': 150,
-            # Greeks missing from stream
             'strike': None,
             'iv': None,
             'delta': None,
@@ -288,7 +268,6 @@ def test_enricher():
         print(f"     IV: {mock_quote['iv']}")
         print(f"     Delta: {mock_quote['delta']}")
 
-        # Enrich
         enriched = enricher.enrich_quote(mock_quote)
 
         print("\n   After enrichment:")
@@ -301,7 +280,7 @@ def test_enricher():
         print(f"     Rho: {enriched['rho']}")
 
     print("\n" + "="*70)
-    print("✅ TEST COMPLETE")
+    print("TEST COMPLETE")
     print("="*70)
 
 

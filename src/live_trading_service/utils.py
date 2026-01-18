@@ -1,9 +1,12 @@
 """Utilities for live trading engine."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, time
 from typing import Optional
+import pytz
+
 from quant_vibe.utils import now_utc
+
 
 def format_currency(value: float) -> str:
     """Format a value as currency."""
@@ -15,29 +18,13 @@ def format_percentage(value: float) -> str:
     return f"{value:.2f}%"
 
 
-def get_market_hours(timezone: str = "America/New_York"):
-    """
-    Get market open and close times.
-
-    Returns:
-        Tuple of (market_open, market_close) as time objects
-    """
-    from datetime import time
+def get_market_hours(timezone: str = "America/New_York") -> tuple[time, time]:
+    """Get market open and close times."""
     return time(9, 30), time(16, 0)
 
 
 def is_market_open(current_time: Optional[datetime] = None) -> bool:
-    """
-    Check if market is currently open.
-
-    Args:
-        current_time: Time to check (defaults to now)
-
-    Returns:
-        True if market is open
-    """
-    import pytz
-
+    """Check if market is currently open."""
     if current_time is None:
         current_time = now_utc()
 
@@ -64,39 +51,27 @@ def generate_position_id(
     counter: Optional[int] = None,
     include_uuid: bool = False
 ) -> str:
-    """
-    Generate a unique position ID.
+    """Generate a unique position ID.
 
-    This function creates a globally unique position ID using a combination of:
+    Creates a globally unique position ID using:
     - Strategy prefix (e.g., "BVP", "COIN", "BB")
     - Timestamp (YYYYMMDD_HHMMSS)
     - Optional counter (for strategies that track daily trades)
     - Optional UUID suffix (for guaranteed uniqueness)
 
     Args:
-        strategy_prefix: Short strategy identifier (e.g., "BVP", "COIN", "BB")
+        strategy_prefix: Short strategy identifier
         current_time: Current datetime
-        counter: Optional trade counter for the day (1-based)
-        include_uuid: If True, append a short UUID for guaranteed uniqueness
+        counter: Optional trade counter for the day
+        include_uuid: If True, append a short UUID
 
     Returns:
         Unique position ID string
 
     Examples:
-        >>> from datetime import datetime
         >>> dt = datetime(2026, 1, 2, 15, 30, 45)
         >>> generate_position_id("BVP", dt)
         'BVP_20260102_153045'
-        >>> generate_position_id("COIN", dt, counter=3)
-        'COIN_20260102_153045_3'
-        >>> generate_position_id("BB", dt, include_uuid=True)
-        'BB_20260102_153045_a1b2c3d4'
-
-    Note:
-        - Timestamp format ensures chronological sorting
-        - Counter is optional and should only be used if strategy tracks daily trades
-        - UUID suffix provides guaranteed uniqueness if needed (e.g., for testing)
-        - Maximum ID length: ~50 characters with UUID, ~25 without
     """
     # Base format: PREFIX_YYYYMMDD_HHMMSS
     timestamp_str = current_time.strftime("%Y%m%d_%H%M%S")
@@ -115,7 +90,7 @@ def generate_position_id(
 
 
 class TradingState:
-    """Enumeration of trading engine states."""
+    """Trading engine states."""
     STOPPED = "stopped"
     STARTING = "starting"
     RUNNING = "running"
@@ -125,7 +100,7 @@ class TradingState:
 
 
 class EventType:
-    """Types of events in the trading system."""
+    """Trading system event types."""
     # Engine events
     ENGINE_STARTED = "engine_started"
     ENGINE_STOPPED = "engine_stopped"

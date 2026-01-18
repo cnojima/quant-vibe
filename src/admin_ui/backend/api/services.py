@@ -4,7 +4,6 @@ Service control API endpoints.
 Provides endpoints to manage service lifecycle via Docker API.
 """
 
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
@@ -22,15 +21,7 @@ class ServiceAction(BaseModel):
 
 @router.get("/")
 async def list_services(current_user: User = Depends(get_current_user)):
-    """
-    List all quant-vibe services with their status.
-
-    Args:
-        current_user: Authenticated user
-
-    Returns:
-        List of services with status information
-    """
+    """List all quant-vibe services with their status."""
     manager = get_docker_manager()
     services = manager.list_services()
 
@@ -45,20 +36,9 @@ async def get_service_status(
     service_name: str,
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Get the status of a specific service.
-
-    Args:
-        service_name: Name of the service
-        current_user: Authenticated user
-
-    Returns:
-        Service status information
-    """
+    """Get the status of a specific service."""
     manager = get_docker_manager()
-    status = manager.get_service_status(service_name)
-
-    return status
+    return manager.get_service_status(service_name)
 
 
 @router.post("/{service_name}/start")
@@ -66,16 +46,7 @@ async def start_service(
     service_name: str,
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Start a service.
-
-    Args:
-        service_name: Name of the service to start
-        current_user: Authenticated user
-
-    Returns:
-        Operation result
-    """
+    """Start a service."""
     manager = get_docker_manager()
     result = await manager.start_service(service_name)
 
@@ -91,17 +62,7 @@ async def stop_service(
     action: ServiceAction = ServiceAction(),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Stop a service.
-
-    Args:
-        service_name: Name of the service to stop
-        action: Action parameters (timeout)
-        current_user: Authenticated user
-
-    Returns:
-        Operation result
-    """
+    """Stop a service."""
     manager = get_docker_manager()
     result = await manager.stop_service(service_name, timeout=action.timeout)
 
@@ -117,17 +78,7 @@ async def restart_service(
     action: ServiceAction = ServiceAction(),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Restart a service.
-
-    Args:
-        service_name: Name of the service to restart
-        action: Action parameters (timeout)
-        current_user: Authenticated user
-
-    Returns:
-        Operation result
-    """
+    """Restart a service."""
     manager = get_docker_manager()
     result = await manager.restart_service(service_name, timeout=action.timeout)
 
@@ -143,17 +94,7 @@ async def get_service_logs(
     tail: int = Query(100, ge=1, le=1000, description="Number of lines to retrieve"),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Get logs from a service.
-
-    Args:
-        service_name: Name of the service
-        tail: Number of lines from the end of the logs
-        current_user: Authenticated user
-
-    Returns:
-        Service logs
-    """
+    """Get logs from a service."""
     manager = get_docker_manager()
     result = manager.get_logs(service_name, tail=tail)
 

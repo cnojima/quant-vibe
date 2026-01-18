@@ -119,11 +119,7 @@ class SchwabClient:
         Returns:
             Dictionary with quote data including bid, ask, last price, volume, etc.
             
-        Example:
-            >>> client = SchwabClient()
-            >>> quote = client.get_quote("AAPL")
-            >>> print(f"Last: ${quote['quote']['lastPrice']}")
-        """
+                """
         endpoint = f"/marketdata/v1/{symbol}/quotes"
         response = self._make_request("GET", endpoint)
         response.raise_for_status()
@@ -170,13 +166,7 @@ class SchwabClient:
         Returns:
             DataFrame with OHLCV data
             
-        Example:
-            >>> client = SchwabClient()
-            >>> # Get 1 year of daily data
-            >>> data = client.get_price_history("AAPL", period_type="year", period=1)
-            >>> # Or use specific dates
-            >>> data = client.get_price_history(
-            ...     "AAPL",
+                    ...     "AAPL",
             ...     start_date=datetime(2024, 1, 1),
             ...     end_date=datetime(2024, 12, 31)
             ... )
@@ -300,13 +290,7 @@ class SchwabClient:
         Warning:
             This places REAL orders! Test with paper trading account first.
             
-        Example:
-            >>> client = SchwabClient()
-            >>> # Market buy order
-            >>> order = client.place_order("AAPL", 10, "BUY", "MARKET")
-            >>> # Limit sell order
-            >>> order = client.place_order("AAPL", 10, "SELL", "LIMIT", price=150.00)
-        """
+                """
         if not self.account_number:
             raise ValueError("SCHWAB_ACCOUNT_NUMBER not set in .env")
         
@@ -383,7 +367,6 @@ if __name__ == "__main__":
         sys.exit(1)
     
     try:
-        # Initialize client
         client = SchwabClient()
         print("\n✓ Client initialized with bearer token")
         

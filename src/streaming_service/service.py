@@ -1,34 +1,39 @@
 """Main streaming service orchestrator."""
 
+import json
 import os
 import sys
-import json
 import time as dt_time
-from pathlib import Path
-from datetime import datetime, time
-from typing import List, Optional, Dict
+import traceback
 import zoneinfo
+from datetime import datetime, time
+from decimal import Decimal
+from pathlib import Path
+from typing import Dict, List, Optional
 
 import schwabdev
 from dotenv import load_dotenv
 
-# Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from quant_vibe.data.timescale_store import TimescaleStore
 from quant_vibe.logging import setup_normalized_logging
 from quant_vibe.messaging import RedisMessageBroker, Topic
+from quant_vibe.models import OptionsBar, UnderlyingBar
+from quant_vibe.utils import normalize_option_ticker, now_utc, safe_decimal
 from quant_vibe.utils.retry import retry_with_backoff
-from streaming_service.config import StreamingConfig
 from streaming_service.aggregator import BarAggregator
-from streaming_service.underlying_aggregator import UnderlyingBarAggregator
+from streaming_service.config import StreamingConfig
 from streaming_service.enrich_stream_with_chain import OptionContractEnricher
-from quant_vibe.utils import now_utc
+from streaming_service.underlying_aggregator import UnderlyingBarAggregator
 
-# Import token service client
 try:
-    from token_service.client import TokenServiceClient, TokenNotFoundError, TokenExpiredError
+    from token_service.client import (
+        TokenExpiredError,
+        TokenNotFoundError,
+        TokenServiceClient,
+    )
     TOKEN_SERVICE_AVAILABLE = True
 except ImportError:
     TOKEN_SERVICE_AVAILABLE = False
@@ -59,12 +64,17 @@ class StreamingService:
         self.config = config or StreamingConfig()
         self.message_count = 0
         self.contracts_subscribed = []
-        self.redis_publish_count = 0  # Track Redis publishes
-        self.start_time = None  # Service start time for uptime tracking
-        self.last_heartbeat_time = None  # Last heartbeat publish time
+        self.redis_publish_count = 0
+        self.start_time = None
+        self.last_heartbeat_time = None
 
-        # Setup normalized logging
-        # Read log level from env: STREAMING_LOG_LEVEL or fallback to LOG_LEVEL (default: INFO)
+        self._setup_logging()
+        self._validate_dependencies()
+        self._initialize_token_service()
+        self._initialize_components()
+
+    def _setup_logging(self):
+        """Setup normalized logging."""
         log_level = os.getenv("STREAMING_LOG_LEVEL", os.getenv("LOG_LEVEL", "INFO")).upper()
         self.logger = setup_normalized_logging(
             app_name="streaming",
@@ -77,37 +87,40 @@ class StreamingService:
         self.logger.info(f"  Aggregate Interval: {self.config.aggregate_interval_seconds}s")
         self.logger.info(f"  Token Refresh: Every {self.config.token_refresh_minutes} minutes")
 
-        # Initialize token service client
-        self.token_service_client: Optional[TokenServiceClient] = None
-
+    def _validate_dependencies(self):
+        """Validate required dependencies are available."""
         if not TOKEN_SERVICE_AVAILABLE:
-            self.logger.error("  ✗ Token service client not available")
+            self.logger.error("  Token service client not available")
             self.logger.error("  Please ensure token_service package is installed")
             raise RuntimeError("Token service client not available")
 
         if not self.config.token_service_url:
-            self.logger.error("  ✗ Token service URL not configured")
+            self.logger.error("  Token service URL not configured")
             self.logger.error("  Set TOKEN_SERVICE_URL environment variable")
             raise RuntimeError("Token service URL not configured")
 
-        # Use centralized token service
+    def _initialize_token_service(self):
+        """Initialize token service client."""
         self.logger.info(f"  Token Mode: Centralized (via {self.config.token_service_url})")
+
         try:
             self.token_service_client = TokenServiceClient(
                 base_url=self.config.token_service_url
             )
-            # Test connection
+
             health = self.token_service_client.health_check()
             if health.get("status") == "healthy":
-                self.logger.info("  ✓ Token service connected")
+                self.logger.info("  Token service connected")
             else:
-                self.logger.error(f"  ✗ Token service unhealthy: {health}")
+                self.logger.error(f"  Token service unhealthy: {health}")
                 raise RuntimeError(f"Token service unhealthy: {health}")
+
         except Exception as e:
-            self.logger.error(f"  ✗ Failed to connect to token service: {e}")
+            self.logger.error(f"  Failed to connect to token service: {e}")
             raise RuntimeError(f"Failed to connect to token service: {e}")
 
-        # Initialize Schwab client
+    def _initialize_components(self):
+        """Initialize service components."""
         self.schwab_client = schwabdev.Client(
             os.getenv("SCHWAB_API_KEY"),
             os.getenv("SCHWAB_API_SECRET"),
@@ -115,7 +128,7 @@ class StreamingService:
             tokens_db=self.config.tokens_db_path,
         )
         self.streamer = schwabdev.Stream(self.schwab_client)
-        self.logger.info("  ✓ Schwabdev client initialized")
+        self.logger.info("  Schwabdev client initialized")
 
         self.aggregator = BarAggregator(
             aggregate_interval_seconds=self.config.aggregate_interval_seconds
@@ -126,33 +139,37 @@ class StreamingService:
         self.ts_store = TimescaleStore()
         self.enricher = OptionContractEnricher(self.schwab_client)
 
-        # Initialize message broker (Redis) if enabled
+        self._initialize_redis()
+
+        self.logger.info("  Token service client initialized")
+        self.logger.info("  Bar aggregator initialized")
+        self.logger.info("  Underlying bar aggregator initialized")
+        self.logger.info("  TimescaleDB connected")
+        self.logger.info("  Contract enricher initialized")
+
+    def _initialize_redis(self):
+        """Initialize Redis message broker if enabled."""
         self.message_broker: Optional[RedisMessageBroker] = None
-        if self.config.enable_redis:
-            try:
-                self.message_broker = RedisMessageBroker(
-                    host=self.config.redis_host,
-                    port=self.config.redis_port,
-                    db=self.config.redis_db,
-                )
 
-                # Register Pydantic models for automatic deserialization
-                from quant_vibe.models import OptionsBar, UnderlyingBar
-                RedisMessageBroker.register_topic_model(Topic.OPTIONS_BARS, OptionsBar)
-                RedisMessageBroker.register_topic_model(Topic.UNDERLYING_BARS, UnderlyingBar)
+        if not self.config.enable_redis:
+            return
 
-                self.logger.info("  ✓ Redis message broker connected")
-                self.logger.info("  ✓ Registered Pydantic models for topics")
-            except Exception as e:
-                self.logger.warning(f"  ⚠️  Redis connection failed: {e}")
-                self.logger.warning("  ⚠️  Continuing without Redis pub/sub")
-                self.message_broker = None
+        try:
+            self.message_broker = RedisMessageBroker(
+                host=self.config.redis_host,
+                port=self.config.redis_port,
+                db=self.config.redis_db,
+            )
 
-        self.logger.info("  ✓ Token service client initialized")
-        self.logger.info("  ✓ Bar aggregator initialized")
-        self.logger.info("  ✓ Underlying bar aggregator initialized")
-        self.logger.info("  ✓ TimescaleDB connected")
-        self.logger.info("  ✓ Contract enricher initialized")
+            RedisMessageBroker.register_topic_model(Topic.OPTIONS_BARS, OptionsBar)
+            RedisMessageBroker.register_topic_model(Topic.UNDERLYING_BARS, UnderlyingBar)
+
+            self.logger.info("  Redis message broker connected")
+            self.logger.info("  Registered Pydantic models for topics")
+        except Exception as e:
+            self.logger.warning(f"  Redis connection failed: {e}")
+            self.logger.warning("  Continuing without Redis pub/sub")
+            self.message_broker = None
 
     def get_spxw_contracts(self) -> List[str]:
         """Get list of SPXW option contracts to stream.
@@ -162,87 +179,396 @@ class StreamingService:
         """
         self.logger.info(f"Fetching SPXW contracts (DTE: {self.config.min_dte}-{self.config.max_dte}, Strike range: ±{self.config.strike_range_pct*100}%)...")
 
-        # Get SPX price to filter strikes
         spx_price = self._get_spx_price()
-
-        # Calculate strike range
         strike_min = spx_price * (1 - self.config.strike_range_pct)
         strike_max = spx_price * (1 + self.config.strike_range_pct)
         self.logger.info(f"  Strike range: ${strike_min:.0f} - ${strike_max:.0f}")
 
-        # Get option chain
         contracts = []
 
         try:
             response = self.schwab_client.option_chains("$SPX", strikeCount=50)
 
-            # Check response status
             if response.status_code != 200:
-                self.logger.error(f"  ✗ API Error: HTTP {response.status_code}")
+                self.logger.error(f"  API Error: HTTP {response.status_code}")
                 self.logger.error(f"  Response: {response.text[:500]}")
                 return []
 
-            # Parse JSON
             try:
                 chain_data = response.json()
             except Exception as json_err:
-                self.logger.error(f"  ✗ JSON Parse Error: {json_err}")
+                self.logger.error(f"  JSON Parse Error: {json_err}")
                 self.logger.error(f"  Response status: {response.status_code}")
                 self.logger.error(f"  Response text: {response.text[:500]}")
                 return []
 
-            # Parse chain to get SPXW contracts
-            today = now_utc().date()
-
-            for option_type in ['callExpDateMap', 'putExpDateMap']:
-                if option_type not in chain_data:
-                    continue
-
-                exp_map = chain_data[option_type]
-
-                for exp_date_str, strikes in exp_map.items():
-                    # Parse expiration date (format: "2025-12-20:45")
-                    exp_date = datetime.strptime(exp_date_str.split(':')[0], '%Y-%m-%d').date()
-                    dte = (exp_date - today).days
-
-                    # Filter by DTE
-                    if dte < self.config.min_dte or dte > self.config.max_dte:
-                        continue
-
-                    # Check each strike
-                    for strike_str, contract_list in strikes.items():
-                        strike = float(strike_str)
-
-                        # Filter by strike range
-                        if strike < strike_min or strike > strike_max:
-                            continue
-
-                        # Get contract symbol
-                        for contract in contract_list:
-                            symbol = contract.get('symbol', '')
-
-                            # Only include SPXW (weekly)
-                            if 'SPXW' in symbol:
-                                contracts.append(symbol)
+            contracts = self._extract_contracts_from_chain(
+                chain_data, strike_min, strike_max
+            )
 
             self.logger.info(f"  Found {len(contracts)} SPXW contracts")
-
-            # Show sample
-            if contracts:
-                self.logger.info("  Sample contracts:")
-                for contract in contracts[:5]:
-                    self.logger.info(f"    {contract}")
-                if len(contracts) > 5:
-                    self.logger.info(f"    ... and {len(contracts) - 5} more")
+            self._log_sample_contracts(contracts)
 
         except Exception as e:
-            self.logger.error(f"  ✗ Error fetching contracts: {e}", exc_info=True)
-            import traceback
+            self.logger.error(f"  Error fetching contracts: {e}", exc_info=True)
             traceback.print_exc()
 
         return contracts
 
-    def _parse_expiration_date_from_quote(self, quote: Dict, symbol: str) -> Optional[datetime]:
+    def _extract_contracts_from_chain(
+        self, chain_data: Dict, strike_min: float, strike_max: float
+    ) -> List[str]:
+        """Extract SPXW contracts from chain data within strike range.
+
+        Args:
+            chain_data: Option chain data from API
+            strike_min: Minimum strike price
+            strike_max: Maximum strike price
+
+        Returns:
+            List of contract symbols
+        """
+        contracts = []
+        today = now_utc().date()
+
+        for option_type in ['callExpDateMap', 'putExpDateMap']:
+            if option_type not in chain_data:
+                continue
+
+            exp_map = chain_data[option_type]
+
+            for exp_date_str, strikes in exp_map.items():
+                exp_date = datetime.strptime(exp_date_str.split(':')[0], '%Y-%m-%d').date()
+                dte = (exp_date - today).days
+
+                if dte < self.config.min_dte or dte > self.config.max_dte:
+                    continue
+
+                for strike_str, contract_list in strikes.items():
+                    strike = float(strike_str)
+
+                    if strike < strike_min or strike > strike_max:
+                        continue
+
+                    for contract in contract_list:
+                        symbol = contract.get('symbol', '')
+                        if 'SPXW' in symbol:
+                            contracts.append(symbol)
+
+        return contracts
+
+    def _log_sample_contracts(self, contracts: List[str]):
+        """Log sample of contracts found.
+
+        Args:
+            contracts: List of contract symbols
+        """
+        if not contracts:
+            return
+
+        self.logger.info("  Sample contracts:")
+        for contract in contracts[:5]:
+            self.logger.info(f"    {contract}")
+        if len(contracts) > 5:
+            self.logger.info(f"    ... and {len(contracts) - 5} more")
+
+    @retry_with_backoff(max_retries=3, backoff_base=2.0, exceptions=(Exception,))
+    def _get_spx_price(self) -> float:
+        """Get current SPX price with retry logic.
+
+        Returns:
+            SPX price (or default 6000.0 if fetch fails)
+        """
+        try:
+            response = self.schwab_client.quote("$SPX")
+
+            if response.status_code != 200:
+                self.logger.warning(f"  SPX quote API error: HTTP {response.status_code}")
+                self.logger.warning(f"  Response: {response.text[:200]}")
+                return 6000.0
+
+            spx_data = response.json()
+
+            if "$SPX" in spx_data:
+                spx_price = spx_data["$SPX"]["quote"]["lastPrice"]
+                self.logger.info(f"  SPX price: ${spx_price:.2f}")
+                return spx_price
+
+            self.logger.warning("  Could not get SPX price, using default")
+            return 6000.0
+
+        except Exception as e:
+            self.logger.warning(f"  Error getting SPX price: {e}")
+            return 6000.0
+
+    def handle_message(self, message: str):
+        """Handle incoming stream message.
+
+        Args:
+            message: JSON string from stream
+        """
+        self.message_count += 1
+
+        try:
+            msg_data = json.loads(message) if isinstance(message, str) else message
+
+            if isinstance(msg_data, dict) and 'data' in msg_data:
+                for data_item in msg_data['data']:
+                    service = data_item.get('service', '')
+                    content = data_item.get('content', [])
+
+                    if service == 'LEVELONE_OPTIONS' and content:
+                        self._process_options_data(content)
+                    elif service == 'ACCT_ACTIVITY' and content:
+                        self._process_account_activity(content)
+                    elif service == 'LEVELONE_EQUITIES' and content:
+                        self._process_underlying_data(content)
+
+            if self.aggregator.should_flush():
+                self._flush_bars()
+
+            if self.underlying_aggregator.should_flush():
+                self._flush_underlying_bars()
+
+        except Exception as e:
+            self.logger.error(f"Error handling message: {e}", exc_info=True)
+            traceback.print_exc()
+
+        if self.message_count % 10 == 0:
+            self._log_periodic_status()
+
+    def _process_options_data(self, content: List[Dict]):
+        """Process level one options data.
+
+        Args:
+            content: List of option data items
+        """
+        timestamp = now_utc()
+
+        for item in content:
+            symbol = item.get('key', '')
+            if not symbol:
+                continue
+
+            quote = self._create_options_quote(item, timestamp, symbol)
+            enriched_quote = self.enricher.enrich_quote(quote)
+            self.aggregator.add_quote(enriched_quote)
+
+            if self.message_broker:
+                self._publish_options_bar(enriched_quote, timestamp)
+
+    def _create_options_quote(self, item: Dict, timestamp: datetime, symbol: str) -> Dict:
+        """Create options quote from streaming data.
+
+        Args:
+            item: Raw streaming data item
+            timestamp: Current timestamp
+            symbol: Option symbol
+
+        Returns:
+            Quote dictionary
+        """
+        return {
+            'timestamp': timestamp,
+            'symbol': symbol,
+            'bid': item.get('2'),
+            'ask': item.get('3'),
+            'last': item.get('4'),
+            'high': item.get('5'),
+            'low': item.get('6'),
+            'close': item.get('7'),
+            'volume': item.get('8'),
+            'open': item.get('15'),
+            'bid_size': item.get('16'),
+            'ask_size': item.get('17'),
+            'strike': item.get('20'),
+            'contract_type': item.get('21'),
+            'exp_year': item.get('12'),
+            'exp_month': item.get('23'),
+            'exp_day': item.get('26'),
+            'iv': item.get('10'),
+            'delta': item.get('28'),
+            'gamma': item.get('29'),
+            'theta': item.get('30'),
+            'vega': item.get('31'),
+            'rho': item.get('32'),
+        }
+
+    def _publish_options_bar(self, quote: Dict, timestamp: datetime):
+        """Publish options bar to Redis.
+
+        Args:
+            quote: Enriched quote dictionary
+            timestamp: Bar timestamp
+        """
+        exp_date = self._parse_expiration_date(quote, quote['symbol'])
+        contract_type = self._parse_contract_type(quote)
+        strike_price = quote.get('strike')
+
+        if strike_price is None:
+            return
+
+        normalized_symbol = normalize_option_ticker(quote['symbol'])
+
+        bid = quote.get('bid')
+        ask = quote.get('ask')
+        mark = (bid + ask) / 2.0 if bid is not None and ask is not None else None
+
+        current_price = self._determine_current_price(quote, mark, bid, ask)
+        if current_price is None:
+            return
+
+        current_price_decimal = Decimal(str(current_price))
+
+        try:
+            options_bar = OptionsBar(
+                timestamp=timestamp,
+                contract_symbol=normalized_symbol,
+                underlying_ticker='SPX',
+                strike_price=Decimal(str(strike_price)),
+                contract_type=contract_type,
+                expiration_date=exp_date,
+                open=safe_decimal(quote.get('open'), current_price_decimal),
+                high=safe_decimal(quote.get('high'), current_price_decimal),
+                low=safe_decimal(quote.get('low'), current_price_decimal),
+                close=safe_decimal(quote.get('close'), current_price_decimal),
+                volume=quote.get('volume') or 0,
+                bid=safe_decimal(bid),
+                ask=safe_decimal(ask),
+                mark=safe_decimal(mark),
+                bid_size=quote.get('bid_size'),
+                ask_size=quote.get('ask_size'),
+                implied_volatility=safe_decimal(quote.get('iv')),
+                delta=safe_decimal(quote.get('delta')),
+                gamma=safe_decimal(quote.get('gamma')),
+                theta=safe_decimal(quote.get('theta')),
+                vega=safe_decimal(quote.get('vega')),
+                rho=safe_decimal(quote.get('rho')),
+                data_source='schwabdev_stream',
+            )
+            if self.message_broker.publish(Topic.OPTIONS_BARS, options_bar):
+                self.redis_publish_count += 1
+        except Exception as model_err:
+            self.logger.warning(f"Failed to create OptionsBar model: {model_err}")
+
+    def _determine_current_price(self, quote: Dict, mark: float, bid: float, ask: float) -> Optional[float]:
+        """Determine current price from available data.
+
+        Args:
+            quote: Quote dictionary
+            mark: Calculated mark price
+            bid: Bid price
+            ask: Ask price
+
+        Returns:
+            Current price or None
+        """
+        current_price = quote.get('last')
+        if current_price is None:
+            current_price = mark
+        if current_price is None:
+            current_price = quote.get('close')
+        if current_price is None:
+            current_price = bid or ask
+        return current_price
+
+    def _process_account_activity(self, content: List[Dict]):
+        """Process account activity messages.
+
+        Args:
+            content: List of account activity items
+        """
+        if not self.message_broker:
+            return
+
+        timestamp = now_utc()
+
+        for item in content:
+            account = item.get('0', '')
+            if not account:
+                continue
+
+            activity_msg = {
+                'timestamp': timestamp,
+                'account': account,
+                'message_type': item.get('1', ''),
+                'message_data': item.get('2', ''),
+                'activity_timestamp': item.get('3', ''),
+            }
+
+            try:
+                if self.message_broker.publish(Topic.ACCOUNT_ACTIVITY, activity_msg):
+                    self.redis_publish_count += 1
+                    self.logger.info(f"  Account activity: {activity_msg['message_type']} for account {account[:8]}...")
+            except Exception as pub_err:
+                self.logger.warning(f"Failed to publish account activity: {pub_err}")
+
+    def _process_underlying_data(self, content: List[Dict]):
+        """Process underlying asset quotes.
+
+        Args:
+            content: List of underlying quote items
+        """
+        timestamp = now_utc()
+
+        for item in content:
+            symbol = item.get('key', '')
+            if not symbol:
+                continue
+
+            quote = {
+                'timestamp': timestamp,
+                'symbol': symbol,
+                'bid': item.get('2'),
+                'ask': item.get('3'),
+                'last': item.get('4'),
+                'high': item.get('9'),
+                'low': item.get('10'),
+                'close': item.get('50'),
+                'volume': item.get('8'),
+                'open': item.get('28'),
+            }
+
+            self.underlying_aggregator.add_quote(quote)
+
+            if self.message_broker:
+                self._publish_underlying_bar(quote, timestamp)
+
+    def _publish_underlying_bar(self, quote: Dict, timestamp: datetime):
+        """Publish underlying bar to Redis.
+
+        Args:
+            quote: Quote dictionary
+            timestamp: Bar timestamp
+        """
+        normalized_symbol = quote['symbol'].replace('$', '').replace('.X', '')
+
+        last = quote.get('last')
+        if last is None and quote.get('bid') and quote.get('ask'):
+            last = (quote['bid'] + quote['ask']) / 2.0
+        if last is None:
+            last = quote.get('bid') or quote.get('ask')
+
+        if last is None:
+            return
+
+        try:
+            underlying_bar = UnderlyingBar(
+                timestamp=timestamp,
+                ticker=normalized_symbol,
+                open=safe_decimal(quote.get('open'), last),
+                high=safe_decimal(quote.get('high'), last),
+                low=safe_decimal(quote.get('low'), last),
+                close=safe_decimal(quote.get('close'), last),
+                volume=quote.get('volume') or 0,
+                data_source='schwabdev_stream',
+            )
+            if self.message_broker.publish(Topic.UNDERLYING_BARS, underlying_bar):
+                self.redis_publish_count += 1
+        except Exception as model_err:
+            self.logger.warning(f"Failed to create UnderlyingBar model: {model_err}")
+
+    def _parse_expiration_date(self, quote: Dict, symbol: str) -> Optional[datetime]:
         """Parse expiration date from quote or symbol.
 
         Args:
@@ -262,317 +588,63 @@ class StreamingService:
         except (ValueError, TypeError):
             pass
 
-        # Fallback: parse from ticker symbol
         from quant_vibe.utils import parse_expiration_from_ticker
         return parse_expiration_from_ticker(symbol)
 
-    @retry_with_backoff(max_retries=3, backoff_base=2.0, exceptions=(Exception,))
-    def _get_spx_price(self) -> float:
-        """Get current SPX price with retry logic.
-
-        Returns:
-            SPX price (or default 6000.0 if fetch fails)
-        """
-        try:
-            response = self.schwab_client.quote("$SPX")
-
-            if response.status_code != 200:
-                self.logger.warning(f"  ⚠️  SPX quote API error: HTTP {response.status_code}")
-                self.logger.warning(f"  Response: {response.text[:200]}")
-                return 6000.0
-
-            spx_data = response.json()
-
-            if "$SPX" in spx_data:
-                spx_price = spx_data["$SPX"]["quote"]["lastPrice"]
-                self.logger.info(f"  SPX price: ${spx_price:.2f}")
-                return spx_price
-            else:
-                self.logger.warning("  ⚠️  Could not get SPX price, using default")
-                return 6000.0
-
-        except Exception as e:
-            self.logger.warning(f"  ⚠️  Error getting SPX price: {e}")
-            return 6000.0
-
-    def handle_message(self, message: str):
-        """Handle incoming stream message.
+    def _parse_contract_type(self, quote: Dict) -> str:
+        """Parse contract type from quote.
 
         Args:
-            message: JSON string from stream
+            quote: Quote dictionary
+
+        Returns:
+            'call' or 'put'
         """
-        self.message_count += 1
+        contract_type_raw = quote.get('contract_type')
+        if contract_type_raw:
+            return 'call' if str(contract_type_raw).upper().startswith('C') else 'put'
+        return 'put'
 
-        try:
-            # Parse message
-            msg_data = json.loads(message) if isinstance(message, str) else message
-
-            # Process level one options data
-            if isinstance(msg_data, dict):
-                if 'data' in msg_data:
-                    for data_item in msg_data['data']:
-                        service = data_item.get('service', '')
-                        content = data_item.get('content', [])
-
-                        if service == 'LEVELONE_OPTIONS' and content:
-                            timestamp = now_utc()
-
-                            for item in content:
-                                symbol = item.get('key', '')
-                                if not symbol:
-                                    continue
-
-                                # Create quote record
-                                quote = {
-                                    'timestamp': timestamp,
-                                    'symbol': symbol,
-                                    'bid': item.get('2'),
-                                    'ask': item.get('3'),
-                                    'last': item.get('4'),
-                                    'high': item.get('5'),
-                                    'low': item.get('6'),
-                                    'close': item.get('7'),
-                                    'volume': item.get('8'),
-                                    'open': item.get('15'),
-                                    'bid_size': item.get('16'),
-                                    'ask_size': item.get('17'),
-                                    'strike': item.get('20'),
-                                    'contract_type': item.get('21'),
-                                    'exp_year': item.get('12'),
-                                    'exp_month': item.get('23'),
-                                    'exp_day': item.get('26'),
-                                    'iv': item.get('10'),
-                                    'delta': item.get('28'),
-                                    'gamma': item.get('29'),
-                                    'theta': item.get('30'),
-                                    'vega': item.get('31'),
-                                    'rho': item.get('32'),
-                                }
-
-                                # Enrich with contract details if needed
-                                enriched_quote = self.enricher.enrich_quote(quote)
-
-                                # Add to aggregator
-                                self.aggregator.add_quote(enriched_quote)
-
-                                # Publish to Redis immediately for real-time consumers (as Pydantic model)
-                                if self.message_broker:
-                                    from quant_vibe.models import OptionsBar
-                                    from quant_vibe.utils import normalize_option_ticker
-                                    from decimal import Decimal
-
-                                    # Parse expiration date
-                                    exp_date = self._parse_expiration_date_from_quote(enriched_quote, enriched_quote['symbol'])
-                                    # Parse contract type
-                                    contract_type_raw = enriched_quote.get('contract_type')
-                                    contract_type = 'call' if str(contract_type_raw).upper().startswith('C') else 'put'
-
-                                    # Get strike price
-                                    strike_price = enriched_quote.get('strike')
-                                    if strike_price is not None:
-                                        # Normalize symbol
-                                        normalized_symbol = normalize_option_ticker(enriched_quote['symbol'])
-
-                                        # Calculate mark and determine current price
-                                        bid = enriched_quote.get('bid')
-                                        ask = enriched_quote.get('ask')
-                                        mark = None
-                                        if bid is not None and ask is not None:
-                                            mark = (bid + ask) / 2.0
-
-                                        # For real-time quotes, use available price for OHLC if not provided
-                                        # Priority: last > mark > close > bid > ask
-                                        current_price = enriched_quote.get('last')
-                                        if current_price is None:
-                                            current_price = mark
-                                        if current_price is None:
-                                            current_price = enriched_quote.get('close')
-                                        if current_price is None:
-                                            current_price = bid or ask
-
-                                        if current_price is None:
-                                            continue  # Skip if no price available
-
-                                        current_price_decimal = Decimal(str(current_price))
-
-                                        # Create OptionsBar Pydantic model
-                                        try:
-                                            options_bar = OptionsBar(
-                                                timestamp=timestamp,
-                                                contract_symbol=normalized_symbol,
-                                                underlying_ticker='SPX',
-                                                strike_price=Decimal(str(strike_price)),
-                                                contract_type=contract_type,
-                                                expiration_date=exp_date,
-                                                open=Decimal(str(enriched_quote.get('open'))) if enriched_quote.get('open') is not None else current_price_decimal,
-                                                high=Decimal(str(enriched_quote.get('high'))) if enriched_quote.get('high') is not None else current_price_decimal,
-                                                low=Decimal(str(enriched_quote.get('low'))) if enriched_quote.get('low') is not None else current_price_decimal,
-                                                close=Decimal(str(enriched_quote.get('close'))) if enriched_quote.get('close') is not None else current_price_decimal,
-                                                volume=enriched_quote.get('volume') or 0,
-                                                bid=Decimal(str(bid)) if bid is not None else None,
-                                                ask=Decimal(str(ask)) if ask is not None else None,
-                                                mark=Decimal(str(mark)) if mark is not None else None,
-                                                bid_size=enriched_quote.get('bid_size'),
-                                                ask_size=enriched_quote.get('ask_size'),
-                                                implied_volatility=Decimal(str(enriched_quote.get('iv'))) if enriched_quote.get('iv') is not None else None,
-                                                delta=Decimal(str(enriched_quote.get('delta'))) if enriched_quote.get('delta') is not None else None,
-                                                gamma=Decimal(str(enriched_quote.get('gamma'))) if enriched_quote.get('gamma') is not None else None,
-                                                theta=Decimal(str(enriched_quote.get('theta'))) if enriched_quote.get('theta') is not None else None,
-                                                vega=Decimal(str(enriched_quote.get('vega'))) if enriched_quote.get('vega') is not None else None,
-                                                rho=Decimal(str(enriched_quote.get('rho'))) if enriched_quote.get('rho') is not None else None,
-                                                data_source='schwabdev_stream',
-                                            )
-                                            if self.message_broker.publish(Topic.OPTIONS_BARS, options_bar):
-                                                self.redis_publish_count += 1
-                                        except Exception as model_err:
-                                            self.logger.warning(f"Failed to create OptionsBar model: {model_err}")
-
-                        # Handle account activity messages
-                        elif service == 'ACCT_ACTIVITY' and content:
-                            timestamp = now_utc()
-
-                            for item in content:
-                                # Account activity fields:
-                                # 0=Account, 1=Message Type, 2=Message Data, 3=Timestamp
-                                account = item.get('0', '')
-                                message_type = item.get('1', '')
-                                message_data = item.get('2', '')
-                                activity_timestamp = item.get('3', '')
-
-                                if not account:
-                                    continue
-
-                                # Create account activity message
-                                activity_msg = {
-                                    'timestamp': timestamp,
-                                    'account': account,
-                                    'message_type': message_type,
-                                    'message_data': message_data,
-                                    'activity_timestamp': activity_timestamp,
-                                }
-
-                                # Publish to Redis for live_trading_service to consume
-                                if self.message_broker:
-                                    try:
-                                        if self.message_broker.publish(Topic.ACCOUNT_ACTIVITY, activity_msg):
-                                            self.redis_publish_count += 1
-                                            self.logger.info(f"  📊 Account activity: {message_type} for account {account[:8]}...")
-                                    except Exception as pub_err:
-                                        self.logger.warning(f"Failed to publish account activity: {pub_err}")
-
-                        # Handle underlying asset quotes (SPX, etc.)
-                        elif service == 'LEVELONE_EQUITIES' and content:
-                            timestamp = now_utc()
-
-                            for item in content:
-                                symbol = item.get('key', '')
-                                if not symbol:
-                                    continue
-
-                                # Create underlying quote record
-                                quote = {
-                                    'timestamp': timestamp,
-                                    'symbol': symbol,
-                                    'bid': item.get('2'),
-                                    'ask': item.get('3'),
-                                    'last': item.get('4'),
-                                    'high': item.get('9'),
-                                    'low': item.get('10'),
-                                    'close': item.get('50'),
-                                    'volume': item.get('8'),
-                                    'open': item.get('28'),
-                                }
-
-                                # Add to underlying aggregator
-                                self.underlying_aggregator.add_quote(quote)
-
-                                # Publish to Redis immediately for real-time consumers (as Pydantic model)
-                                if self.message_broker:
-                                    from quant_vibe.models import UnderlyingBar
-                                    from decimal import Decimal
-
-                                    # Normalize symbol
-                                    normalized_symbol = quote['symbol'].replace('$', '').replace('.X', '')
-
-                                    # Get price (fallback to bid/ask if last not available)
-                                    last = quote.get('last')
-                                    if last is None and quote.get('bid') and quote.get('ask'):
-                                        last = (quote['bid'] + quote['ask']) / 2.0
-                                    if last is None:
-                                        last = quote.get('bid') or quote.get('ask')
-
-                                    if last is not None:
-                                        try:
-                                            from quant_vibe.utils import safe_decimal
-
-                                            underlying_bar = UnderlyingBar(
-                                                timestamp=timestamp,
-                                                ticker=normalized_symbol,
-                                                open=safe_decimal(quote.get('open'), last),
-                                                high=safe_decimal(quote.get('high'), last),
-                                                low=safe_decimal(quote.get('low'), last),
-                                                close=safe_decimal(quote.get('close'), last),
-                                                volume=quote.get('volume') or 0,
-                                                data_source='schwabdev_stream',
-                                            )
-                                            if self.message_broker.publish(Topic.UNDERLYING_BARS, underlying_bar):
-                                                self.redis_publish_count += 1
-                                        except Exception as model_err:
-                                            self.logger.warning(f"Failed to create UnderlyingBar model: {model_err}")
-
-            # Check if we should flush (create 1-min bars)
-            if self.aggregator.should_flush():
-                self._flush_bars()
-
-            # Also check underlying aggregator
-            if self.underlying_aggregator.should_flush():
-                self._flush_underlying_bars()
-
-        except Exception as e:
-            self.logger.error(f"Error handling message: {e}", exc_info=True)
-            import traceback
-            traceback.print_exc()
-
-        # Periodic status update
-        if self.message_count % 10 == 0:
-            now = now_utc()
-            self.logger.info(f"  📊 [{now.strftime('%H:%M:%S')}] Messages: {self.message_count} | Redis publishes: {self.redis_publish_count} | Buffered symbols: {self.aggregator.get_buffered_symbol_count()}")
+    def _log_periodic_status(self):
+        """Log periodic status update."""
+        now = now_utc()
+        self.logger.info(f"  [{now.strftime('%H:%M:%S')}] Messages: {self.message_count} | Redis publishes: {self.redis_publish_count} | Buffered symbols: {self.aggregator.get_buffered_symbol_count()}")
 
     def _flush_bars(self):
         """Flush aggregated option bars to database and publish to Redis."""
         bars = self.aggregator.flush()
 
-        if bars:
-            try:
-                # Save to TimescaleDB
-                inserted = self.ts_store.bulk_insert_option_bars(bars)
-                self.logger.info(f"  ✓ Inserted {inserted} option bars")
+        if not bars:
+            return
 
-                # Publish to Redis for real-time consumers
-                if self.message_broker:
-                    for bar in bars:
-                        self.message_broker.publish(Topic.OPTIONS_BARS, bar)
+        try:
+            inserted = self.ts_store.bulk_insert_option_bars(bars)
+            self.logger.info(f"  Inserted {inserted} option bars")
 
-            except Exception as e:
-                self.logger.error(f"  ✗ Database error (options): {e}", exc_info=True)
+            if self.message_broker:
+                for bar in bars:
+                    self.message_broker.publish(Topic.OPTIONS_BARS, bar)
+
+        except Exception as e:
+            self.logger.error(f"  Database error (options): {e}", exc_info=True)
 
     def _flush_underlying_bars(self):
         """Flush aggregated underlying bars to database and publish to Redis."""
         bars = self.underlying_aggregator.flush()
 
-        if bars:
-            try:
-                # Save to TimescaleDB
-                inserted = self.ts_store.bulk_insert_underlying_bars(bars)
-                self.logger.info(f"  ✓ Inserted {inserted} underlying bars")
+        if not bars:
+            return
 
-                # Publish to Redis for real-time consumers
-                if self.message_broker:
-                    for bar in bars:
-                        self.message_broker.publish(Topic.UNDERLYING_BARS, bar)
+        try:
+            inserted = self.ts_store.bulk_insert_underlying_bars(bars)
+            self.logger.info(f"  Inserted {inserted} underlying bars")
 
-            except Exception as e:
-                self.logger.error(f"  ✗ Database error (underlying): {e}", exc_info=True)
+            if self.message_broker:
+                for bar in bars:
+                    self.message_broker.publish(Topic.UNDERLYING_BARS, bar)
+
+        except Exception as e:
+            self.logger.error(f"  Database error (underlying): {e}", exc_info=True)
 
     def _publish_heartbeat(self):
         """Publish heartbeat to Redis."""
@@ -580,23 +652,19 @@ class StreamingService:
             return
 
         try:
-            # Calculate uptime
             uptime_seconds = 0
             if self.start_time:
                 uptime_seconds = (now_utc() - self.start_time).total_seconds()
 
-            # Determine status
             status = "healthy"
             last_error = None
 
-            # Check if we're receiving messages
             if self.last_heartbeat_time:
                 time_since_heartbeat = (now_utc() - self.last_heartbeat_time).total_seconds()
-                if time_since_heartbeat > 120:  # No heartbeat for 2 minutes
+                if time_since_heartbeat > 120:
                     status = "degraded"
                     last_error = f"No heartbeat for {time_since_heartbeat:.0f}s"
 
-            # Publish heartbeat
             self.message_broker.publish(
                 "heartbeat.streaming",
                 {
@@ -624,6 +692,24 @@ class StreamingService:
         self.start_time = now_utc()
         self.last_heartbeat_time = now_utc()
 
+        self._log_startup_info()
+
+        if not self._verify_token():
+            return
+
+        contracts = self.get_spxw_contracts()
+        if not contracts:
+            self.logger.error("No contracts found to stream!")
+            return
+
+        self.contracts_subscribed = contracts
+        self._setup_enricher()
+        self._start_stream()
+        self._subscribe_all(contracts)
+        self._run_main_loop()
+
+    def _log_startup_info(self):
+        """Log service startup information."""
         self.logger.info("="*70)
         self.logger.info("SPXW OPTIONS STREAMING SERVICE")
         self.logger.info("="*70)
@@ -633,39 +719,39 @@ class StreamingService:
         self.logger.info(f"Aggregate Interval: {self.config.aggregate_interval_seconds}s")
         self.logger.info("="*70)
 
-        # Verify token availability (token service handles refresh)
+    def _verify_token(self) -> bool:
+        """Verify token availability.
+
+        Returns:
+            True if token is available, False otherwise
+        """
         self.logger.info("Verifying authentication token...")
 
         try:
             status = self.token_service_client.get_token_status()
             if status.get("has_token"):
-                self.logger.info("✓ Token service has valid token")
-            else:
-                self.logger.error("❌ Token service has no token!")
-                self.logger.error("Please authenticate using: python scripts/schwab_auth.py")
-                self.logger.error("Then restart the token service: docker-compose restart token_service")
-                return
+                self.logger.info("Token service has valid token")
+                return True
+
+            self.logger.error("Token service has no token!")
+            self.logger.error("Please authenticate using: python scripts/schwab_auth.py")
+            self.logger.error("Then restart the token service: docker-compose restart token_service")
+            return False
+
         except Exception as e:
-            self.logger.error(f"❌ Failed to check token service status: {e}")
+            self.logger.error(f"Failed to check token service status: {e}")
             self.logger.error("Please ensure token service is running: docker-compose up -d token_service")
-            return
+            return False
 
-        # Get contracts to stream
-        contracts = self.get_spxw_contracts()
-
-        if not contracts:
-            self.logger.error("❌ No contracts found to stream!")
-            return
-
-        self.contracts_subscribed = contracts
-
-        # Refresh enricher cache
+    def _setup_enricher(self):
+        """Setup contract enricher cache."""
         self.logger.info("Populating contract details cache...")
         self.enricher.refresh_contract_details("$SPX", strike_count=50)
         stats = self.enricher.get_cache_stats()
-        self.logger.info(f"✓ Cached {stats['contracts_cached']} contracts for enrichment")
+        self.logger.info(f"Cached {stats['contracts_cached']} contracts for enrichment")
 
-        # Start stream
+    def _start_stream(self):
+        """Start the streaming connection."""
         self.logger.info("Starting stream...")
         self.streamer.start_auto(
             self.handle_message,
@@ -675,22 +761,19 @@ class StreamingService:
             now_timezone=zoneinfo.ZoneInfo("America/New_York"),
             daemon=True
         )
-        self.logger.info("✓ Stream started")
+        self.logger.info("Stream started")
 
-        # Subscribe to options
+    def _subscribe_all(self, contracts: List[str]):
+        """Subscribe to all data streams.
+
+        Args:
+            contracts: List of option contracts to subscribe to
+        """
         self._subscribe_to_contracts(contracts)
-
-        # Subscribe to underlying asset ($SPX)
         self._subscribe_to_underlying()
-
-        # Subscribe to account activity
         self._subscribe_to_account_activity()
-
-        self.logger.info("✅ All subscriptions active")
+        self.logger.info("All subscriptions active")
         self.logger.info("Streaming data... (Press Ctrl+C to stop)")
-
-        # Main loop
-        self._run_main_loop()
 
     def _subscribe_to_contracts(self, contracts: List[str]):
         """Subscribe to option contracts.
@@ -699,49 +782,41 @@ class StreamingService:
             contracts: List of contract symbols
         """
         MAX_PER_SUB = self.config.max_symbols_per_subscription
-
         self.logger.info(f"Subscribing to {len(contracts)} contracts...")
+
+        fields = "0,2,3,4,5,6,7,8,9,10,12,15,16,17,20,21,23,26,28,29,30,31,32,37,38,39"
 
         for i in range(0, len(contracts), MAX_PER_SUB):
             batch = contracts[i:i+MAX_PER_SUB]
             symbols_str = ",".join(batch)
 
-            # Subscribe with all fields
-            fields = "0,2,3,4,5,6,7,8,9,10,12,15,16,17,20,21,23,26,28,29,30,31,32,37,38,39"
-
             self.streamer.send(
                 self.streamer.level_one_options(symbols_str, fields)
             )
 
-            self.logger.info(f"  ✓ Subscribed to batch {i//MAX_PER_SUB + 1} ({len(batch)} contracts)")
+            self.logger.info(f"  Subscribed to batch {i//MAX_PER_SUB + 1} ({len(batch)} contracts)")
             dt_time.sleep(0.5)
 
     def _subscribe_to_underlying(self):
         """Subscribe to underlying asset quotes ($SPX)."""
         self.logger.info("Subscribing to underlying asset ($SPX)...")
 
-        # Subscribe to $SPX with equity level one data
-        # Fields: https://developer.schwabapi.com/products/trader-api--individual/details/documentation/Market-Data
-        # 0=Symbol, 2=Bid, 3=Ask, 4=Last, 8=Volume, 9=High, 10=Low, 28=Open, 50=Close
         fields = "0,2,3,4,8,9,10,28,50"
-
         self.streamer.send(
             self.streamer.level_one_equities("$SPX", fields)
         )
 
-        self.logger.info("  ✓ Subscribed to $SPX equity quotes")
+        self.logger.info("  Subscribed to $SPX equity quotes")
 
     def _subscribe_to_account_activity(self):
         """Subscribe to account activity updates."""
         self.logger.info("Subscribing to account activity...")
 
-        # Subscribe to account activity
-        # Fields: 0=Account, 1=Message Type, 2=Message Data, 3=Timestamp
         self.streamer.send(
             self.streamer.account_activity()
         )
 
-        self.logger.info("  ✓ Subscribed to account activity")
+        self.logger.info("  Subscribed to account activity")
 
     def _run_main_loop(self):
         """Run main service loop."""
@@ -749,44 +824,47 @@ class StreamingService:
             heartbeat_counter = 0
 
             while True:
-                dt_time.sleep(30)  # Changed to 30s for heartbeat alignment
-
-                now = now_utc()
+                dt_time.sleep(30)
                 heartbeat_counter += 1
 
-                # Publish heartbeat every 30 seconds
                 self._publish_heartbeat()
 
-                # Status update and token check every 60 seconds (every 2 heartbeats)
-                if heartbeat_counter % 2 != 0:
-                    continue
-
-                # Check token service status
-                token_age = 0.0
-                try:
-                    status = self.token_service_client.get_token_status()
-                    if status.get("has_token"):
-                        token_age = status.get("access_token_age_seconds", 0) / 60.0
-                        # Token service handles auto-refresh, so we don't need to manually refresh
-                except Exception as e:
-                    self.logger.warning(f"Failed to get token status from service: {e}")
-
-                # Status update
-                enricher_stats = self.enricher.get_cache_stats()
-
-                self.logger.info(f"📊 Status Update [{now.strftime('%Y-%m-%d %H:%M:%S')}]:")
-                self.logger.info(f"   Messages received: {self.message_count}")
-                self.logger.info(f"   Redis publishes: {self.redis_publish_count}")
-                self.logger.info(f"   Contracts streaming: {len(self.contracts_subscribed)}")
-                self.logger.info(f"   Buffered option symbols: {self.aggregator.get_buffered_symbol_count()}")
-                self.logger.info(f"   Buffered underlying symbols: {self.underlying_aggregator.get_buffered_symbol_count()}")
-                self.logger.info(f"   Contract cache: {enricher_stats['contracts_cached']} contracts")
-                self.logger.info(f"   Cache age: {enricher_stats['cache_age_minutes']:.1f} minutes")
-                self.logger.info(f"   Token age: {token_age:.1f} minutes")
+                if heartbeat_counter % 2 == 0:
+                    self._log_status_update()
 
         except KeyboardInterrupt:
-            self.logger.info("\n⚠️  Stopping service...")
+            self.logger.info("\nStopping service...")
             self.stop()
+
+    def _log_status_update(self):
+        """Log periodic status update."""
+        token_age = self._get_token_age()
+        enricher_stats = self.enricher.get_cache_stats()
+        now = now_utc()
+
+        self.logger.info(f"Status Update [{now.strftime('%Y-%m-%d %H:%M:%S')}]:")
+        self.logger.info(f"   Messages received: {self.message_count}")
+        self.logger.info(f"   Redis publishes: {self.redis_publish_count}")
+        self.logger.info(f"   Contracts streaming: {len(self.contracts_subscribed)}")
+        self.logger.info(f"   Buffered option symbols: {self.aggregator.get_buffered_symbol_count()}")
+        self.logger.info(f"   Buffered underlying symbols: {self.underlying_aggregator.get_buffered_symbol_count()}")
+        self.logger.info(f"   Contract cache: {enricher_stats['contracts_cached']} contracts")
+        self.logger.info(f"   Cache age: {enricher_stats['cache_age_minutes']:.1f} minutes")
+        self.logger.info(f"   Token age: {token_age:.1f} minutes")
+
+    def _get_token_age(self) -> float:
+        """Get token age in minutes.
+
+        Returns:
+            Token age in minutes
+        """
+        try:
+            status = self.token_service_client.get_token_status()
+            if status.get("has_token"):
+                return status.get("access_token_age_seconds", 0) / 60.0
+        except Exception as e:
+            self.logger.warning(f"Failed to get token status from service: {e}")
+        return 0.0
 
     def stop(self):
         """Stop the streaming service."""
@@ -804,4 +882,4 @@ class StreamingService:
             self.logger.info("Closing message broker...")
             self.message_broker.close()
 
-        self.logger.info("✅ Service stopped")
+        self.logger.info("Service stopped")

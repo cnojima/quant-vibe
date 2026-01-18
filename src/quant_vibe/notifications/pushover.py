@@ -82,10 +82,7 @@ class PushoverNotifier:
         PUSHOVER_DEVICE: (Optional) Specific device name to send to
         PUSHOVER_ENABLED: (Optional) Enable/disable notifications (default: true)
 
-    Example:
-        >>> notifier = PushoverNotifier()
-        >>> notifier.send(
-        ...     title="Order Filled",
+            ...     title="Order Filled",
         ...     message="BPS 6200/6180 filled @ $2.50",
         ...     priority=NotificationPriority.HIGH
         ... )
@@ -843,9 +840,6 @@ def send_notification(
     Returns:
         True if sent successfully
 
-    Example:
-        >>> from quant_vibe.notifications import send_notification, NotificationPriority
-        >>> send_notification("Test message", "Test", NotificationPriority.HIGH)
-    """
+        """
     notifier = PushoverNotifier()
     return notifier.send(message, title=title, priority=priority, **kwargs)

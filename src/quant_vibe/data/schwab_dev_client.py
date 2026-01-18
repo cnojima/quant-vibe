@@ -28,7 +28,6 @@ from datetime import datetime, timedelta
 import pandas as pd
 from dotenv import load_dotenv
 
-# Import schwabdev
 import schwabdev
 from quant_vibe.utils.timestamp_utils import now_utc
 
@@ -69,7 +68,6 @@ class SchwabDevClient:
         # Ensure token directory exists
         Path(self.tokens_db).parent.mkdir(parents=True, exist_ok=True)
 
-        # Initialize client
         try:
             self.client = schwabdev.Client(
                 app_key=self.api_key,
@@ -141,11 +139,7 @@ class SchwabDevClient:
         Returns:
             DataFrame with OHLCV data
 
-        Example:
-            >>> client = SchwabDevClient()
-            >>> # Get 1 year of daily data
-            >>> data = client.get_price_history(
-            ...     "AAPL",
+                    ...     "AAPL",
             ...     period_type="year",
             ...     period=1,
             ...     frequency_type="daily",
@@ -266,12 +260,7 @@ class SchwabDevClient:
         Returns:
             DataFrame with OHLCV data, indexed by datetime
 
-        Example:
-            >>> client = SchwabDevClient()
-            >>> # Get 1-minute SPX data for Dec 23, 2025
-            >>> from datetime import datetime
-            >>> data = client.get_index_price_history(
-            ...     "SPX",  # or "$SPX" or "$SPX.X"
+                    ...     "SPX",  # or "$SPX" or "$SPX.X"
             ...     start_datetime=datetime(2025, 12, 23, 9, 30),
             ...     end_datetime=datetime(2025, 12, 23, 16, 0),
             ...     frequency_minutes=1
@@ -434,7 +423,6 @@ if __name__ == "__main__":
     print("="*70)
 
     try:
-        # Initialize client (will trigger OAuth flow if needed)
         schwab_client = SchwabDevClient()
 
         # Test 1: Get a quote

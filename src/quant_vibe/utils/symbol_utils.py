@@ -145,9 +145,7 @@ def normalize_option_ticker(ticker: str) -> str:
     Returns:
         Normalized ticker (no spaces, no O: prefix)
 
-    Examples:
-        >>> normalize_option_ticker("SPXW  260123P06860000")
-        'SPXW260123P06860000'
+            'SPXW260123P06860000'
         >>> normalize_option_ticker("O:SPXW251219C06945000")
         'SPXW251219C06945000'
         >>> normalize_option_ticker("SPXW251226C06875000")

@@ -490,7 +490,7 @@ class OptionsStrategy(ABC):
                     current_price = float(mark_value)
 
                 # Additional validation: check if mark price is reasonable given underlying
-                if current_price is not None and current_price > 0 and underlying_price is not None:
+                if current_price > 0 and underlying_price is not None:
                     intrinsic = self._calculate_intrinsic_value(leg, underlying_price)
 
                     # Check days to expiration if we have the current time
@@ -511,7 +511,7 @@ class OptionsStrategy(ABC):
                             otm_amount = leg.strike_price - underlying_price
 
                         # Check for near-expiry options - but be LESS aggressive for 1 DTE
-                        if days_to_expiry is not None and days_to_expiry == 0:
+                        if days_to_expiry == 0:
                             # Options expiring TODAY should have minimal time value if OTM
                             if otm_amount > 5:  # More than 5 points OTM on expiry day
                                 # Use aggressive caps for 0 DTE
@@ -529,7 +529,7 @@ class OptionsStrategy(ABC):
                                     used_fallback = True
                                     logger.debug(f"      → Capped at: ${current_price:.2f}")
 
-                        elif days_to_expiry is not None and days_to_expiry == 1:
+                        elif days_to_expiry == 1:
                             # Options expiring TOMORROW - should still have significant time value
                             # Only cap if price is unreasonably high
                             if otm_amount > 10 and current_price > otm_amount * 0.5:

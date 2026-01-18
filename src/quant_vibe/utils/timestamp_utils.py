@@ -35,11 +35,7 @@ def now_utc() -> datetime:
     Returns:
         datetime: Current time in UTC timezone (always aware)
 
-    Example:
-        >>> ts = now_utc()
-        >>> ts.tzinfo  # ZoneInfo(key='UTC')
-        >>> ts.tzinfo is None  # False (never naive)
-    """
+        """
     return datetime.now(UTC)
 
 
@@ -58,13 +54,7 @@ def to_utc(dt: datetime) -> datetime:
         - If aware (non-UTC): Converts to UTC
         - If already UTC-aware: Returns as-is
 
-    Example:
-        >>> naive = datetime(2025, 12, 23, 14, 30)
-        >>> to_utc(naive)  # 2025-12-23 14:30:00+00:00
-
-        >>> est_time = datetime(2025, 12, 23, 9, 30, tzinfo=EST)
-        >>> to_utc(est_time)  # 2025-12-23 14:30:00+00:00 (converted)
-    """
+        """
     if dt.tzinfo is None:
         # Naive datetime - assume UTC and add timezone info
         return dt.replace(tzinfo=UTC)
@@ -86,9 +76,7 @@ def from_timestamp(ts: float) -> datetime:
     Returns:
         datetime: UTC-aware datetime
 
-    Example:
-        >>> from_timestamp(1703344200.0)
-        datetime.datetime(2023, 12, 23, 14, 30, tzinfo=ZoneInfo('UTC'))
+            datetime.datetime(2023, 12, 23, 14, 30, tzinfo=ZoneInfo('UTC'))
     """
     return datetime.fromtimestamp(ts, tz=UTC)
 
@@ -108,10 +96,7 @@ def ensure_utc_aware(dt: datetime) -> datetime:
 
     Use this when you need strict validation (e.g., Pydantic validators)
 
-    Example:
-        >>> ensure_utc_aware(now_utc())  # Raises ValueError
-        >>> ensure_utc_aware(now_utc())  # OK
-    """
+        """
     if dt.tzinfo is None:
         raise ValueError(
             f"Datetime {dt} is naive (no timezone). "
@@ -135,10 +120,7 @@ def is_utc_aware(dt: datetime) -> bool:
     Returns:
         bool: True if datetime is UTC-aware, False otherwise
 
-    Example:
-        >>> is_utc_aware(now_utc())  # True
-        >>> is_utc_aware(now_utc())  # False
-    """
+        """
     return dt.tzinfo is not None and dt.tzinfo == UTC
 
 
@@ -162,14 +144,7 @@ def market_hours(date: datetime | None = None) -> tuple[datetime, datetime]:
         - Early close days (returns full hours)
         - Pre-market (4:00 AM ET) or after-hours (8:00 PM ET)
 
-    Example:
-        >>> open_dt, close_dt = market_hours(datetime(2025, 12, 23))
-        >>> open_dt   # 2025-12-23 14:30:00+00:00 (9:30 AM ET in UTC)
-        >>> close_dt  # 2025-12-23 21:00:00+00:00 (4:00 PM ET in UTC)
-
-        >>> # During EST (UTC-5): 9:30 AM ET = 14:30 UTC
-        >>> # During EDT (UTC-4): 9:30 AM ET = 13:30 UTC
-    """
+        """
     if date is None:
         date = now_utc()
 

@@ -17,7 +17,6 @@ from admin_ui.backend.config import get_settings
 from quant_vibe.utils import now_utc
 from quant_vibe.utils.pnl_utils import PnLCalculator
 
-# Global connection pool
 _pool: Optional[asyncpg.Pool] = None
 
 
@@ -76,14 +75,50 @@ def _get_table_name(base_table: str, trading_mode: str = 'paper') -> str:
     }
     schema = schema_map.get(trading_mode, 'public')
 
-    # Map base table names to actual table names
-    # In new schemas, tables don't have 'live_' prefix
     if schema == 'public':
-        # Old schema uses live_ prefix
         return f'live_{base_table}'
-    else:
-        # New schemas use clean names
-        return f'{schema}.{base_table}'
+    return f'{schema}.{base_table}'
+
+
+def _process_positions(rows, include_unrealized: bool = False, include_realized: bool = False) -> list[dict[str, Any]]:
+    """
+    Process position rows and calculate PnL.
+
+    Args:
+        rows: Database rows to process
+        include_unrealized: Include unrealized PnL calculation
+        include_realized: Include realized PnL calculation
+
+    Returns:
+        List of processed position dictionaries
+    """
+    result = []
+    for row in rows:
+        pos = dict(row)
+
+        # Parse JSONB fields if they're strings
+        if isinstance(pos.get('legs'), str):
+            pos['legs'] = json.loads(pos['legs'])
+        if isinstance(pos.get('metadata'), str):
+            pos['metadata'] = json.loads(pos['metadata'])
+
+        # Calculate PnL based on position type
+        if include_unrealized:
+            pnl_result = PnLCalculator.calculate_unrealized_pnl(
+                pos.get('entry_cost'),
+                pos.get('current_value')
+            )
+            pos['unrealized_pnl'] = pnl_result.pnl
+
+        if include_realized:
+            pnl_result = PnLCalculator.calculate_realized_pnl(
+                pos.get('entry_cost'),
+                pos.get('exit_value')
+            )
+            pos['realized_pnl'] = pnl_result.pnl
+
+        result.append(pos)
+    return result
 
 
 async def fetch_engine_state(trading_mode: str = 'paper') -> Optional[dict[str, Any]]:
@@ -112,34 +147,29 @@ async def fetch_engine_state(trading_mode: str = 'paper') -> Optional[dict[str, 
         ORDER BY timestamp DESC
         LIMIT 1
     """
-    # return {
-    #     "running": engine_state.get("state", "").lower() == "running",
-    #     "state": engine_state.get("state"),
-    #     "paper_trading": engine_state.get("paper_trading"),
-    #     "total_bars_processed": engine_state.get("total_bars_processed"),
-    #     "total_signals_generated": engine_state.get("total_signals_generated"),
-    #     "uptime_seconds": engine_state.get("uptime_seconds"),
-    #     "last_update": engine_state.get("timestamp"),
-    #     "metadata": engine_state.get("metadata"),
-    #     "data_feed_mode": engine_state.get("data_feed_mode", "live"),
-    # }
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(query)
-        if row:
-            result = dict(row)
-            # Handle None values gracefully
-            result['paper_trading'] = result.get('paper_trading', True)
-            result['total_bars_processed'] = result.get('total_bars_processed', 0)
-            result['total_signals_generated'] = result.get('total_signals_generated', 0)
-            result['uptime_seconds'] = result.get('uptime_seconds', 0.0)
-            result['last_update'] = result.get('timestamp')
+        if not row:
+            return None
 
-            if result['metadata'] and isinstance(result['metadata'], str):
-                result['metadata'] = json.loads(result['metadata'])
-            result['data_feed_mode'] = result['metadata'].get('data_feed_mode', 'live') if isinstance(result['metadata'], dict) else 'live'
-            return result
-        return None
+        result = dict(row)
+        result['paper_trading'] = result.get('paper_trading', True)
+        result['total_bars_processed'] = result.get('total_bars_processed', 0)
+        result['total_signals_generated'] = result.get('total_signals_generated', 0)
+        result['uptime_seconds'] = result.get('uptime_seconds', 0.0)
+        result['last_update'] = result.get('timestamp')
+
+        if result['metadata'] and isinstance(result['metadata'], str):
+            result['metadata'] = json.loads(result['metadata'])
+
+        metadata = result.get('metadata', {})
+        if isinstance(metadata, dict):
+            result['data_feed_mode'] = metadata.get('data_feed_mode', 'live')
+        else:
+            result['data_feed_mode'] = 'live'
+
+        return result
 
 
 async def fetch_active_positions(
@@ -161,7 +191,6 @@ async def fetch_active_positions(
     pool = get_pool()
     table_name = _get_table_name('positions', trading_mode)
 
-    # Build WHERE clause
     where_clauses = ["status = 'open'"]
     params = []
     param_idx = 1
@@ -193,24 +222,7 @@ async def fetch_active_positions(
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(query, *params)
-        result = []
-        for row in rows:
-            pos = dict(row)
-            # Parse JSONB fields if they're strings
-            if isinstance(pos.get('legs'), str):
-                pos['legs'] = json.loads(pos['legs'])
-            if isinstance(pos.get('metadata'), str):
-                pos['metadata'] = json.loads(pos['metadata'])
-
-            # Calculate unrealized PnL using centralized calculator
-            pnl_result = PnLCalculator.calculate_unrealized_pnl(
-                pos.get('entry_cost'),
-                pos.get('current_value')
-            )
-            pos['unrealized_pnl'] = pnl_result.pnl
-
-            result.append(pos)
-        return result
+        return _process_positions(rows, include_unrealized=True)
 
 
 async def fetch_closed_positions(
@@ -232,7 +244,6 @@ async def fetch_closed_positions(
     pool = get_pool()
     table_name = _get_table_name('positions', trading_mode)
 
-    # Build WHERE clause
     where_clauses = ["status = 'closed'"]
     params = []
     param_idx = 1
@@ -266,23 +277,7 @@ async def fetch_closed_positions(
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(query, *params)
-        result = []
-        for row in rows:
-            pos = dict(row)
-            # Parse JSONB fields if they're strings
-            if isinstance(pos.get('legs'), str):
-                pos['legs'] = json.loads(pos['legs'])
-            if isinstance(pos.get('metadata'), str):
-                pos['metadata'] = json.loads(pos['metadata'])
-
-            # Calculate realized PnL using centralized calculator
-            pnl_result = PnLCalculator.calculate_realized_pnl(
-                pos.get('entry_cost'),
-                pos.get('exit_value')
-            )
-            pos['realized_pnl'] = pnl_result.pnl
-            result.append(pos)
-        return result
+        return _process_positions(rows, include_realized=True)
 
 
 async def fetch_open_orders(
@@ -308,35 +303,25 @@ async def fetch_open_orders(
     pool = get_pool()
     table_name = _get_table_name('orders', trading_mode)
 
-    # Build WHERE clause based on filters
     where_clauses = []
     params = []
     param_idx = 1
 
-    # Status filter
-    if status_filter == 'all':
-        # Show all orders
-        pass
-    elif status_filter == 'open' or status_filter is None:
-        # Default: show open orders
-        where_clauses.append("status IN ('pending', 'submitted', 'accepted')")
-    elif status_filter in ('filled', 'rejected', 'cancelled'):
-        where_clauses.append(f"status = '{status_filter}'")
-    else:
-        # Invalid filter, default to open
-        where_clauses.append("status IN ('pending', 'submitted', 'accepted')")
+    # Apply status filter
+    if status_filter != 'all':
+        if status_filter in ('filled', 'rejected', 'cancelled'):
+            where_clauses.append(f"status = '{status_filter}'")
+        else:
+            # Default to open orders
+            where_clauses.append("status IN ('pending', 'submitted', 'accepted')")
 
-    # Account filter
+    # Apply account filter
     if account_hash:
         where_clauses.append(f"account_hash = ${param_idx}")
         params.append(account_hash)
         param_idx += 1
 
-    # Build final WHERE clause
-    where_clause = ""
-    if where_clauses:
-        where_clause = "WHERE " + " AND ".join(where_clauses)
-
+    where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
     params.append(limit)
 
     query = f"""
@@ -365,7 +350,6 @@ async def fetch_open_orders(
         result = []
         for row in rows:
             order = dict(row)
-            # Parse JSONB metadata field if it's a string
             if isinstance(order.get('metadata'), str):
                 order['metadata'] = json.loads(order['metadata'])
             result.append(order)
@@ -393,7 +377,6 @@ async def fetch_recent_events(
     pool = get_pool()
     table_name = _get_table_name('events', trading_mode)
 
-    # Build query dynamically based on filters
     where_clauses = []
     params = []
     param_idx = 1
@@ -408,7 +391,8 @@ async def fetch_recent_events(
         params.append(severity)
         param_idx += 1
 
-    where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+    params.append(limit)
 
     query = f"""
         SELECT
@@ -423,14 +407,11 @@ async def fetch_recent_events(
         LIMIT ${param_idx}
     """
 
-    params.append(limit)
-
     async with pool.acquire() as conn:
         rows = await conn.fetch(query, *params)
         result = []
         for row in rows:
             event = dict(row)
-            # Parse JSONB metadata field if it's a string (aliased as metadata from details)
             if isinstance(event.get('metadata'), str):
                 event['metadata'] = json.loads(event['metadata'])
             result.append(event)
@@ -450,13 +431,10 @@ async def clear_live_events(trading_mode: str = 'paper') -> int:
     pool = get_pool()
     table_name = _get_table_name('events', trading_mode)
 
-    query = f"DELETE FROM {table_name}"
-
     async with pool.acquire() as conn:
-        result = await conn.execute(query)
-        # Parse the result string (e.g., "DELETE 42") to get the count
-        deleted_count = int(result.split()[-1]) if result.startswith("DELETE") else 0
-        return deleted_count
+        result = await conn.execute(f"DELETE FROM {table_name}")
+        # Parse result string (e.g., "DELETE 42")
+        return int(result.split()[-1]) if result.startswith("DELETE") else 0
 
 
 async def fetch_trading_stats(
@@ -478,7 +456,6 @@ async def fetch_trading_stats(
     pool = get_pool()
     table_name = _get_table_name('positions', trading_mode)
 
-    # Build time filters
     where_clauses = ["status = 'closed'"]
     params = []
     param_idx = 1
@@ -493,15 +470,10 @@ async def fetch_trading_stats(
         params.append(end_time)
         param_idx += 1
 
-    where_sql = " AND ".join(where_clauses)
-
-    # Fetch raw trade data
     query = f"""
-        SELECT
-            entry_cost,
-            exit_value
+        SELECT entry_cost, exit_value
         FROM {table_name}
-        WHERE {where_sql}
+        WHERE {' AND '.join(where_clauses)}
     """
 
     async with pool.acquire() as conn:
@@ -511,29 +483,26 @@ async def fetch_trading_stats(
             return {}
 
         # Calculate PnL for each trade
-        trades = []
-        for row in rows:
-            pnl_result = PnLCalculator.calculate_realized_pnl(
-                row['entry_cost'],
-                row['exit_value']
-            )
-            trades.append({'pnl': pnl_result.pnl})
+        trades = [
+            {'pnl': PnLCalculator.calculate_realized_pnl(row['entry_cost'], row['exit_value']).pnl}
+            for row in rows
+        ]
 
         # Use centralized aggregation
-        pnl_stats = PnLCalculator.aggregate_pnl(trades)
+        stats = PnLCalculator.aggregate_pnl(trades)
 
         # Map to expected format
         return {
-            'total_trades': pnl_stats['num_trades'],
-            'winning_trades': pnl_stats['num_winners'],
-            'losing_trades': pnl_stats['num_losers'],
-            'total_pnl': pnl_stats['total_pnl'],
-            'avg_pnl': pnl_stats['avg_pnl'],
-            'max_win': pnl_stats['largest_win'],
-            'max_loss': pnl_stats['largest_loss'],
-            'avg_win': pnl_stats['avg_win'],
-            'avg_loss': pnl_stats['avg_loss'],
-            'win_rate': pnl_stats['win_rate'] / 100.0  # Convert percentage to ratio
+            'total_trades': stats['num_trades'],
+            'winning_trades': stats['num_winners'],
+            'losing_trades': stats['num_losers'],
+            'total_pnl': stats['total_pnl'],
+            'avg_pnl': stats['avg_pnl'],
+            'max_win': stats['largest_win'],
+            'max_loss': stats['largest_loss'],
+            'avg_win': stats['avg_win'],
+            'avg_loss': stats['avg_loss'],
+            'win_rate': stats['win_rate'] / 100.0  # Convert percentage to ratio
         }
 
 

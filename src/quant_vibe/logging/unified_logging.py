@@ -46,7 +46,6 @@ class ESTTimedRotatingFileHandler(TimedRotatingFileHandler):
         # (parent calls computeRollover which needs self.tz)
         self.tz = _EASTERN_TZ
 
-        # Initialize parent with utc=True (we'll handle timezone ourselves)
         super().__init__(filename, when=when, interval=interval, backupCount=backupCount,
                          encoding=encoding, delay=delay, utc=True)
 
@@ -195,9 +194,7 @@ def setup_normalized_logging(
     Returns:
         Configured logger instance
 
-    Example:
-        >>> logger = setup_normalized_logging(
-        ...     app_name="backtest",
+            ...     app_name="backtest",
         ...     log_level="INFO",
         ...     log_dir="logs/backtests",
         ...     capture_submodules=True  # Also capture broker, timescale, etc. logs
@@ -297,12 +294,7 @@ def get_logger(app_name: str = "quant_vibe") -> logging.Logger:
     Returns:
         Logger instance that propagates to parent
 
-    Example:
-        >>> # In utility module:
-        >>> logger = get_logger(__name__)  # e.g., "quant_vibe.messaging.broker"
-        >>> logger.info("Message from broker")
-        >>> # Logs appear in calling service's log file
-    """
+        """
     # Check if logger already exists
     logger = logging.getLogger(app_name)
 

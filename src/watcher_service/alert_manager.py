@@ -2,11 +2,11 @@
 
 import threading
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Any
+from typing import Any, Dict, Optional
 
-from watcher_service.config import NotificationConfig, AlertLevel
-from watcher_service.service_monitor import HealthStatus
 from quant_vibe.utils import now_utc
+from watcher_service.config import AlertLevel, NotificationConfig
+from watcher_service.service_monitor import HealthStatus
 
 
 class Alert:
@@ -19,14 +19,7 @@ class Alert:
         message: str,
         details: Optional[str] = None,
     ):
-        """Initialize alert.
-
-        Args:
-            service: Service name
-            level: Alert level
-            message: Alert message
-            details: Additional details
-        """
+        """Initialize alert."""
         self.service = service
         self.level = level
         self.message = message
@@ -37,31 +30,23 @@ class Alert:
         self.notified = False
         self.notified_at: Optional[datetime] = None
 
-    def update(self):
+    def update(self) -> None:
         """Update alert (seen again)."""
         self.last_seen = now_utc()
         self.count += 1
 
     def should_notify(self, min_interval_seconds: int = 300) -> bool:
-        """Check if alert should trigger notification.
-
-        Args:
-            min_interval_seconds: Minimum seconds between notifications
-
-        Returns:
-            True if should notify
-        """
+        """Check if alert should trigger notification."""
         if not self.notified:
             return True
 
-        # Re-notify if enough time has passed
         if self.notified_at:
             elapsed = (now_utc() - self.notified_at).total_seconds()
             return elapsed >= min_interval_seconds
 
         return False
 
-    def mark_notified(self):
+    def mark_notified(self) -> None:
         """Mark alert as notified."""
         self.notified = True
         self.notified_at = now_utc()
@@ -71,31 +56,16 @@ class AlertManager:
     """Manages alerts with de-duplication and notifications."""
 
     def __init__(self, config: NotificationConfig, logger):
-        """Initialize alert manager.
-
-        Args:
-            config: Notification configuration
-            logger: Logger instance
-        """
+        """Initialize alert manager."""
         self.config = config
         self.logger = logger
-
-        # Active alerts: {(service, level): Alert}
         self.active_alerts: Dict[tuple, Alert] = {}
         self.alert_lock = threading.Lock()
-
-        # Alert history for tracking
         self.alert_history = []
-
-        # Notification client (will be set later)
         self.notifier = None
 
-    def set_notifier(self, notifier):
-        """Set notification client.
-
-        Args:
-            notifier: PushoverNotifier or TradingNotifier instance
-        """
+    def set_notifier(self, notifier) -> None:
+        """Set notification client."""
         self.notifier = notifier
         self.logger.info("Alert notifier configured")
 
@@ -104,40 +74,25 @@ class AlertManager:
         service_name: str,
         health_data: Dict[str, Any],
     ) -> Optional[Alert]:
-        """Check if any alert rules match the current health data.
-
-        Args:
-            service_name: Name of service
-            health_data: Health check data including status, metrics, etc.
-
-        Returns:
-            Alert instance if rule matched, None otherwise
-        """
+        """Check if any alert rules match the current health data."""
         for rule in self.config.rules:
-            # Check if rule applies to this service
             if service_name not in rule.services:
                 continue
 
-            # Evaluate condition
             try:
-                # Create context for condition evaluation
                 context = {
                     "status": health_data.get("overall_status", HealthStatus.UNKNOWN),
                     "missed_heartbeats": health_data.get("missed_heartbeats", 0),
                     "missing": health_data.get("seconds_since_heartbeat", 0),
-                    "HealthStatus": HealthStatus,  # For comparisons
+                    "HealthStatus": HealthStatus,
                 }
 
-                # Parse and evaluate condition
-                # Simple condition format: "missed_heartbeats >= 3"
                 if self._evaluate_condition(rule.condition, context):
-                    # Format message with placeholders
                     message = rule.message.replace("{{service}}", service_name)
                     message = message.replace(
                         "{{count}}", str(context.get("missed_heartbeats", 0))
                     )
 
-                    # Create alert
                     return Alert(
                         service=service_name,
                         level=rule.level,
@@ -153,20 +108,8 @@ class AlertManager:
         return None
 
     def _evaluate_condition(self, condition: str, context: Dict[str, Any]) -> bool:
-        """Safely evaluate a condition string.
-
-        Args:
-            condition: Condition string (e.g., "missed_heartbeats >= 3")
-            context: Variables available for evaluation
-
-        Returns:
-            True if condition is met
-        """
+        """Safely evaluate a condition string."""
         try:
-            # Simple condition parsing
-            # Support: missed_heartbeats >= 3, status == unhealthy, missing >= 300
-
-            # Replace status comparisons
             condition = condition.replace(
                 "status == unhealthy", "status == HealthStatus.UNHEALTHY"
             )
@@ -177,7 +120,6 @@ class AlertManager:
                 "status == degraded", "status == HealthStatus.DEGRADED"
             )
 
-            # Evaluate using eval (safe because we control the condition strings)
             result = eval(condition, {"__builtins__": {}}, context)
             return bool(result)
 
@@ -185,23 +127,17 @@ class AlertManager:
             self.logger.warning(f"Failed to evaluate condition '{condition}': {e}")
             return False
 
-    def process_alert(self, alert: Alert):
-        """Process an alert (de-duplicate, escalate, notify).
-
-        Args:
-            alert: Alert instance
-        """
+    def process_alert(self, alert: Alert) -> None:
+        """Process an alert (de-duplicate, escalate, notify)."""
         alert_key = (alert.service, alert.level)
 
         with self.alert_lock:
             existing = self.active_alerts.get(alert_key)
 
             if existing:
-                # Alert already active - update it
                 existing.update()
                 alert = existing
             else:
-                # New alert
                 self.active_alerts[alert_key] = alert
                 self.alert_history.append(
                     {
@@ -212,18 +148,12 @@ class AlertManager:
                     }
                 )
 
-        # Check if should notify
         if self.config.enabled and alert.should_notify():
             self._send_notification(alert)
             alert.mark_notified()
 
-    def clear_alert(self, service: str, level: AlertLevel):
-        """Clear an active alert (service recovered).
-
-        Args:
-            service: Service name
-            level: Alert level to clear
-        """
+    def clear_alert(self, service: str, level: AlertLevel) -> None:
+        """Clear an active alert (service recovered)."""
         alert_key = (service, level)
 
         with self.alert_lock:
@@ -236,7 +166,6 @@ class AlertManager:
                     f"(active for {(now_utc() - alert.first_seen).total_seconds():.0f}s)"
                 )
 
-                # Send recovery notification if enabled
                 if (
                     self.config.enabled
                     and self.config.send_recovery_notifications
@@ -244,68 +173,52 @@ class AlertManager:
                 ):
                     self._send_recovery_notification(alert)
 
-    def clear_all_alerts_for_service(self, service: str):
-        """Clear all active alerts for a service (service recovered).
-
-        Args:
-            service: Service name
-        """
+    def clear_all_alerts_for_service(self, service: str) -> None:
+        """Clear all active alerts for a service."""
         with self.alert_lock:
-            # Find all alerts for this service
             alerts_to_clear = [
                 (svc, level)
                 for (svc, level) in self.active_alerts.keys()
                 if svc == service
             ]
 
-        # Clear each alert (outside lock to avoid recursive locking)
         for svc, level in alerts_to_clear:
             self.clear_alert(svc, level)
 
-    def _send_notification(self, alert: Alert):
-        """Send alert notification via configured channels.
-
-        Args:
-            alert: Alert instance
-        """
+    def _send_notification(self, alert: Alert) -> None:
+        """Send alert notification via configured channels."""
         if not self.notifier:
             self.logger.warning("No notifier configured - skipping alert notification")
             return
 
         try:
-            # Map alert level to Pushover priority
             priority_map = {
-                AlertLevel.INFO: -1,  # Lowest
-                AlertLevel.WARNING: 0,  # Normal
-                AlertLevel.CRITICAL: 1,  # High
-                AlertLevel.EMERGENCY: 2,  # Emergency (requires acknowledgment)
+                AlertLevel.INFO: -1,
+                AlertLevel.WARNING: 0,
+                AlertLevel.CRITICAL: 1,
+                AlertLevel.EMERGENCY: 2,
             }
 
             priority = priority_map.get(alert.level, 0)
 
-            # Format message
             title = f"[{alert.level.value.upper()}] {alert.service}"
             body = alert.message
             if alert.details:
                 body += f"\n\nDetails: {alert.details}"
 
-            # Send via notifier
             if hasattr(self.notifier, "send"):
-                # PushoverNotifier
                 self.notifier.send(
                     message=body,
                     title=title,
                     priority=priority,
                 )
             elif hasattr(self.notifier, "send_notification"):
-                # Alternative notifier interface
                 self.notifier.send_notification(
                     message=body,
                     title=title,
                     priority=priority,
                 )
             elif hasattr(self.notifier, "send_alert"):
-                # TradingNotifier or custom
                 self.notifier.send_alert(
                     level=alert.level.value,
                     service=alert.service,
@@ -323,17 +236,12 @@ class AlertManager:
                 exc_info=True,
             )
 
-    def _send_recovery_notification(self, alert: Alert):
-        """Send recovery notification.
-
-        Args:
-            alert: Recovered alert
-        """
+    def _send_recovery_notification(self, alert: Alert) -> None:
+        """Send recovery notification."""
         if not self.notifier:
             return
 
         try:
-            # Calculate how long the alert was active
             duration = (now_utc() - alert.first_seen).total_seconds()
             duration_str = f"{int(duration // 60)}m {int(duration % 60)}s"
 
@@ -345,18 +253,16 @@ class AlertManager:
             )
 
             if hasattr(self.notifier, "send"):
-                # PushoverNotifier
                 self.notifier.send(
                     message=body,
                     title=title,
-                    priority=-1,  # Low priority for recovery
+                    priority=-1,
                 )
             elif hasattr(self.notifier, "send_notification"):
-                # Alternative notifier interface
                 self.notifier.send_notification(
                     message=body,
                     title=title,
-                    priority=-1,  # Low priority for recovery
+                    priority=-1,
                 )
 
             self.logger.info(f"Sent recovery notification for {alert.service}")
@@ -367,11 +273,7 @@ class AlertManager:
             )
 
     def get_active_alerts(self) -> Dict[str, Any]:
-        """Get all active alerts.
-
-        Returns:
-            Dict of active alerts by service
-        """
+        """Get all active alerts."""
         with self.alert_lock:
             return {
                 service: {
@@ -386,25 +288,13 @@ class AlertManager:
             }
 
     def get_alert_history(self, limit: int = 100) -> list:
-        """Get recent alert history.
-
-        Args:
-            limit: Maximum number of alerts to return
-
-        Returns:
-            List of recent alerts
-        """
+        """Get recent alert history."""
         return self.alert_history[-limit:]
 
-    def cleanup_old_history(self, max_age_hours: int = 24):
-        """Clean up old alert history.
-
-        Args:
-            max_age_hours: Maximum age in hours
-        """
+    def cleanup_old_history(self, max_age_hours: int = 24) -> None:
+        """Clean up old alert history."""
         cutoff = now_utc() - timedelta(hours=max_age_hours)
 
-        # Keep only recent alerts
         self.alert_history = [
             alert
             for alert in self.alert_history

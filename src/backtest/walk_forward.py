@@ -1,26 +1,15 @@
-"""Walk-forward analysis for strategy validation and robustness testing.
-
-This module provides tools to:
-1. Perform rolling window optimization and out-of-sample testing
-2. Detect overfitting through performance degradation analysis
-3. Validate parameter stability across different market conditions
-4. Generate reports on out-of-sample performance
-"""
+"""Walk-forward analysis for strategy validation and robustness testing."""
 
 import pandas as pd
-import numpy as np
 from typing import Any, Dict, List, Optional, Type
 from datetime import datetime, timedelta
 
 from .options_engine import OptionsBacktestEngine
-from quant_vibe.strategies.options_base import OptionsStrategy
 from .parameter_optimizer import ParameterOptimizer
+from quant_vibe.strategies.options_base import OptionsStrategy
 from quant_vibe.logging import setup_normalized_logging
 
-logger = setup_normalized_logging(
-    app_name="walk_forward",
-    log_dir="logs/optimization"
-)
+logger = setup_normalized_logging(app_name="walk_forward", log_dir="logs/optimization")
 
 
 class WalkForwardAnalysis:
@@ -33,15 +22,7 @@ class WalkForwardAnalysis:
         test_window_days: int = 30,
         initial_capital: float = 100000.0,
     ):
-        """
-        Initialize walk-forward analyzer.
-
-        Args:
-            strategy_class: Strategy class to test
-            train_window_days: Number of days to use for training/optimization
-            test_window_days: Number of days to use for out-of-sample testing
-            initial_capital: Initial capital for backtests
-        """
+        """Initialize walk-forward analyzer."""
         self.strategy_class = strategy_class
         self.train_window_days = train_window_days
         self.test_window_days = test_window_days
@@ -58,48 +39,11 @@ class WalkForwardAnalysis:
         min_train_trades: int = 5,
         verbose: bool = True,
     ) -> pd.DataFrame:
-        """
-        Run walk-forward optimization.
-
-        Process:
-        1. Split data into overlapping train/test windows
-        2. For each window:
-           a. Optimize parameters on training data
-           b. Test optimal parameters on out-of-sample test data
-        3. Compare in-sample vs out-of-sample performance
-
-        Args:
-            underlying_data: DataFrame with underlying price data
-            options_data: DataFrame with options bars data
-            param_grid: Dict of parameters to optimize
-            fixed_params: Dict of fixed parameters
-            optimization_metric: Metric to optimize ('sharpe_ratio', 'total_return', etc.)
-            min_train_trades: Minimum trades required in training period
-            verbose: Whether to print progress
-
-        Returns:
-            DataFrame with results by test period:
-            - period: int (test period number)
-            - train_start, train_end: dates for training window
-            - test_start, test_end: dates for test window
-            - optimal_params: dict of optimal parameters from training
-            - in_sample_*: metrics from training period
-            - out_of_sample_*: metrics from test period
-            - degradation_*: percentage drop from in-sample to out-of-sample
-        """
+        """Run walk-forward optimization."""
         fixed_params = fixed_params or {}
 
-        # Get date range
-        # Handle both timestamp as column or as index
-        if "timestamp" in underlying_data.columns:
-            underlying_data = underlying_data.sort_values("timestamp")
-            min_date = underlying_data["timestamp"].min()
-            max_date = underlying_data["timestamp"].max()
-        else:
-            # Timestamp is the index
-            underlying_data = underlying_data.sort_index()
-            min_date = underlying_data.index.min()
-            max_date = underlying_data.index.max()
+        # Get date range from data
+        min_date, max_date = self._extract_date_range(underlying_data)
 
         logger.info(
             f"Starting walk-forward analysis from {min_date} to {max_date}",
@@ -113,234 +57,148 @@ class WalkForwardAnalysis:
 
         # Generate train/test periods
         periods = self._generate_periods(min_date, max_date)
-
-        if len(periods) == 0:
-            raise ValueError(
-                f"Not enough data for walk-forward analysis. "
-                f"Need at least {self.train_window_days + self.test_window_days} days."
-            )
+        self._validate_periods(periods)
 
         logger.info(
             f"Generated {len(periods)} walk-forward periods",
             extra={"num_periods": len(periods)},
         )
 
+        # Run analysis for each period
         results = []
-
         for idx, period in enumerate(periods, 1):
             if verbose:
-                logger.info(
-                    f"\n[Period {idx}/{len(periods)}] "
-                    f"Train: {period['train_start'].date()} to {period['train_end'].date()}, "
-                    f"Test: {period['test_start'].date()} to {period['test_end'].date()}",
-                    extra={
-                        "period": idx,
-                        "total_periods": len(periods),
-                        "train_start": str(period["train_start"].date()),
-                        "train_end": str(period["train_end"].date()),
-                        "test_start": str(period["test_start"].date()),
-                        "test_end": str(period["test_end"].date()),
-                    },
-                )
+                self._log_period(idx, len(periods), period)
 
-            try:
-                # Split data into train/test
-                train_underlying, train_options = self._filter_data(
-                    underlying_data,
-                    options_data,
-                    period["train_start"],
-                    period["train_end"],
-                )
+            result = self._analyze_period(
+                period,
+                underlying_data,
+                options_data,
+                param_grid,
+                fixed_params,
+                optimization_metric,
+                min_train_trades,
+                verbose,
+            )
 
-                test_underlying, test_options = self._filter_data(
-                    underlying_data,
-                    options_data,
-                    period["test_start"],
-                    period["test_end"],
-                )
-
-                # Optimize on training data
-                if verbose:
-                    logger.info("  Optimizing parameters on training data...")
-
-                optimizer = ParameterOptimizer(
-                    strategy_class=self.strategy_class,
-                    underlying_data=train_underlying,
-                    options_data=train_options,
-                    initial_capital=self.initial_capital,
-                    start_date=period["train_start"],
-                    end_date=period["train_end"],
-                )
-
-                optimizer.grid_search(
-                    param_grid=param_grid,
-                    fixed_params=fixed_params,
-                    verbose=False,  # Suppress grid search output
-                )
-
-                # Find optimal parameters
-                optimal_result = optimizer.find_optimal(
-                    metric=optimization_metric,
-                    min_trades=min_train_trades,
-                )
-
-                optimal_params = optimal_result["params"]
-
-                if verbose:
-                    logger.info(
-                        f"  Optimal params: {optimal_params}",
-                        extra={"optimal_params": optimal_params},
-                    )
-                    logger.info(
-                        f"  In-sample {optimization_metric}: {optimal_result[optimization_metric]:.2f}",
-                        extra={
-                            "in_sample_metric": optimization_metric,
-                            "value": optimal_result[optimization_metric],
-                        },
-                    )
-
-                # Test on out-of-sample data
-                if verbose:
-                    logger.info("  Testing on out-of-sample data...")
-
-                out_of_sample_metrics = self._run_backtest(
-                    optimal_params,
-                    test_underlying,
-                    test_options,
-                    period["test_start"],
-                    period["test_end"],
-                )
-
-                if verbose:
-                    logger.info(
-                        f"  Out-of-sample {optimization_metric}: "
-                        f"{out_of_sample_metrics[optimization_metric]:.2f}",
-                        extra={
-                            "out_of_sample_metric": optimization_metric,
-                            "value": out_of_sample_metrics[optimization_metric],
-                        },
-                    )
-
-                # Calculate degradation
-                degradation = self._calculate_degradation(optimal_result, out_of_sample_metrics)
-
-                if verbose:
-                    logger.info(
-                        f"  Sharpe degradation: {degradation['sharpe_ratio_degradation']:.1f}%, "
-                        f"Return degradation: {degradation['total_return_degradation']:.1f}%",
-                        extra={
-                            "sharpe_degradation": degradation["sharpe_ratio_degradation"],
-                            "return_degradation": degradation["total_return_degradation"],
-                        },
-                    )
-
-                # Store results
-                result = {
-                    "period": idx,
-                    "train_start": period["train_start"],
-                    "train_end": period["train_end"],
-                    "test_start": period["test_start"],
-                    "test_end": period["test_end"],
-                    "optimal_params": optimal_params,
-                    # In-sample metrics
-                    "in_sample_sharpe": optimal_result["sharpe_ratio"],
-                    "in_sample_return": optimal_result["total_return"],
-                    "in_sample_win_rate": optimal_result["win_rate"],
-                    "in_sample_max_drawdown": optimal_result["max_drawdown"],
-                    "in_sample_num_trades": optimal_result["num_trades"],
-                    # Out-of-sample metrics
-                    "out_of_sample_sharpe": out_of_sample_metrics["sharpe_ratio"],
-                    "out_of_sample_return": out_of_sample_metrics["total_return"],
-                    "out_of_sample_win_rate": out_of_sample_metrics["win_rate"],
-                    "out_of_sample_max_drawdown": out_of_sample_metrics["max_drawdown"],
-                    "out_of_sample_num_trades": out_of_sample_metrics["num_trades"],
-                    # Degradation
-                    "sharpe_degradation": degradation["sharpe_ratio_degradation"],
-                    "return_degradation": degradation["total_return_degradation"],
-                    "win_rate_degradation": degradation["win_rate_degradation"],
-                }
-
+            if result:
                 results.append(result)
 
-            except Exception as e:
-                logger.error(
-                    f"Error in period {idx}: {e}",
-                    exc_info=True,
-                    extra={"period": idx},
-                )
-
-        # Convert to DataFrame
+        # Create results DataFrame
         self.results = pd.DataFrame(results)
-
-        # Summary statistics
-        if len(self.results) > 0:
-            logger.info("\n" + "=" * 70)
-            logger.info("WALK-FORWARD ANALYSIS SUMMARY")
-            logger.info("=" * 70)
-            logger.info(
-                f"Average out-of-sample Sharpe: {self.results['out_of_sample_sharpe'].mean():.2f}"
-            )
-            logger.info(
-                f"Average out-of-sample return: {self.results['out_of_sample_return'].mean():.2f}%"
-            )
-            logger.info(
-                f"Average Sharpe degradation: {self.results['sharpe_degradation'].mean():.1f}%"
-            )
-            logger.info(
-                f"Average return degradation: {self.results['return_degradation'].mean():.1f}%"
-            )
-            logger.info("=" * 70)
-
         return self.results
 
-    def _generate_periods(
-        self,
-        min_date: datetime,
-        max_date: datetime,
-    ) -> List[Dict[str, datetime]]:
-        """
-        Generate train/test period splits.
+    def _extract_date_range(self, data: pd.DataFrame) -> tuple[datetime, datetime]:
+        """Extract min and max dates from data."""
+        if "timestamp" in data.columns:
+            data = data.sort_values("timestamp")
+            return data["timestamp"].min(), data["timestamp"].max()
 
-        Uses rolling window approach:
-        - Period 1: Train[0:60], Test[60:90]
-        - Period 2: Train[30:90], Test[90:120]
-        - etc.
+        # Timestamp is the index
+        data = data.sort_index()
+        return data.index.min(), data.index.max()
 
-        Args:
-            min_date: Earliest date in dataset
-            max_date: Latest date in dataset
-
-        Returns:
-            List of dicts with train_start, train_end, test_start, test_end
-        """
-        periods = []
-
-        # Start with first training window
-        current_train_start = min_date
-
-        while True:
-            # Calculate period dates
-            train_end = current_train_start + timedelta(days=self.train_window_days)
-            test_start = train_end
-            test_end = test_start + timedelta(days=self.test_window_days)
-
-            # Stop if we've run out of data
-            if test_end > max_date:
-                break
-
-            periods.append(
-                {
-                    "train_start": current_train_start,
-                    "train_end": train_end,
-                    "test_start": test_start,
-                    "test_end": test_end,
-                }
+    def _validate_periods(self, periods: List[Dict[str, datetime]]) -> None:
+        """Validate that we have enough periods for analysis."""
+        if len(periods) == 0:
+            raise ValueError(
+                f"Not enough data for walk-forward analysis. "
+                f"Need at least {self.train_window_days + self.test_window_days} days."
             )
 
-            # Move forward by test window size (non-overlapping test periods)
-            current_train_start = test_end
+    def _log_period(self, current: int, total: int, period: Dict[str, datetime]) -> None:
+        """Log current period being analyzed."""
+        logger.info(
+            f"\n[Period {current}/{total}] "
+            f"Train: {period['train_start'].date()} to {period['train_end'].date()}, "
+            f"Test: {period['test_start'].date()} to {period['test_end'].date()}",
+            extra={
+                "period": current,
+                "total_periods": total,
+                "train_start": str(period["train_start"].date()),
+                "train_end": str(period["train_end"].date()),
+                "test_start": str(period["test_start"].date()),
+                "test_end": str(period["test_end"].date()),
+            },
+        )
 
-        return periods
+    def _analyze_period(
+        self,
+        period: Dict[str, datetime],
+        underlying_data: pd.DataFrame,
+        options_data: pd.DataFrame,
+        param_grid: Dict[str, List[Any]],
+        fixed_params: Dict[str, Any],
+        optimization_metric: str,
+        min_train_trades: int,
+        verbose: bool,
+    ) -> Optional[Dict[str, Any]]:
+        """Analyze a single walk-forward period."""
+        try:
+            # Split data
+            train_underlying, train_options = self._filter_data(
+                underlying_data,
+                options_data,
+                period["train_start"],
+                period["train_end"],
+            )
+
+            test_underlying, test_options = self._filter_data(
+                underlying_data,
+                options_data,
+                period["test_start"],
+                period["test_end"],
+            )
+
+            # Optimize on training data
+            optimal_params, train_metrics = self._optimize_on_training(
+                train_underlying,
+                train_options,
+                param_grid,
+                fixed_params,
+                optimization_metric,
+                period["train_start"],
+                period["train_end"],
+                verbose,
+            )
+
+            # Skip if insufficient training trades
+            if train_metrics.get("num_trades", 0) < min_train_trades:
+                logger.warning(
+                    f"Skipping period - only {train_metrics.get('num_trades', 0)} trades in training",
+                    extra={"period": period, "min_trades": min_train_trades},
+                )
+                return None
+
+            # Test on out-of-sample data
+            test_metrics = self._test_on_out_of_sample(
+                test_underlying,
+                test_options,
+                optimal_params,
+                period["test_start"],
+                period["test_end"],
+                verbose,
+            )
+
+            # Calculate degradation
+            degradation = self._calculate_degradation(train_metrics, test_metrics)
+
+            # Build result
+            return {
+                "period": len(self.results) + 1 if self.results is not None else 1,
+                "train_start": period["train_start"],
+                "train_end": period["train_end"],
+                "test_start": period["test_start"],
+                "test_end": period["test_end"],
+                "optimal_params": optimal_params,
+                **{f"in_sample_{k}": v for k, v in train_metrics.items()},
+                **{f"out_of_sample_{k}": v for k, v in test_metrics.items()},
+                **{f"degradation_{k}": v for k, v in degradation.items()},
+            }
+
+        except Exception as e:
+            logger.error(f"Error analyzing period: {e}", extra={"period": period, "error": str(e)})
+            return None
 
     def _filter_data(
         self,
@@ -349,64 +207,94 @@ class WalkForwardAnalysis:
         start_date: datetime,
         end_date: datetime,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        Filter data to date range.
-
-        Args:
-            underlying_data: Full underlying dataset
-            options_data: Full options dataset
-            start_date: Start date
-            end_date: End date
-
-        Returns:
-            Tuple of (filtered_underlying, filtered_options)
-        """
-        # Handle both timestamp as column or as index for underlying_data
+        """Filter data to specific date range."""
+        # Filter underlying data
         if "timestamp" in underlying_data.columns:
-            underlying_filtered = underlying_data[
-                (underlying_data["timestamp"] >= start_date)
-                & (underlying_data["timestamp"] < end_date)
-            ].copy()
+            mask = (underlying_data["timestamp"] >= start_date) & (underlying_data["timestamp"] <= end_date)
+            filtered_underlying = underlying_data[mask].copy()
         else:
-            # Timestamp is the index
-            underlying_filtered = underlying_data[
-                (underlying_data.index >= start_date) & (underlying_data.index < end_date)
-            ].copy()
+            filtered_underlying = underlying_data[start_date:end_date].copy()
 
-        options_filtered = options_data[
-            (options_data["timestamp"] >= start_date) & (options_data["timestamp"] < end_date)
-        ].copy()
+        # Filter options data
+        mask = (options_data["timestamp"] >= start_date) & (options_data["timestamp"] <= end_date)
+        filtered_options = options_data[mask].copy()
 
-        return underlying_filtered, options_filtered
+        return filtered_underlying, filtered_options
 
-    def _run_backtest(
+    def _optimize_on_training(
         self,
-        params: Dict[str, Any],
         underlying_data: pd.DataFrame,
         options_data: pd.DataFrame,
+        param_grid: Dict[str, List[Any]],
+        fixed_params: Dict[str, Any],
+        optimization_metric: str,
         start_date: datetime,
         end_date: datetime,
+        verbose: bool,
+    ) -> tuple[Dict[str, Any], Dict[str, float]]:
+        """Optimize parameters on training data."""
+        optimizer = ParameterOptimizer(
+            strategy_class=self.strategy_class,
+            underlying_data=underlying_data,
+            options_data=options_data,
+            initial_capital=self.initial_capital,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        # Run grid search
+        results = optimizer.grid_search(
+            param_grid=param_grid,
+            fixed_params=fixed_params,
+            verbose=False,  # Suppress individual backtest logging
+        )
+
+        if results.empty:
+            return {}, {}
+
+        # Get best parameters
+        best = results.nlargest(1, optimization_metric).iloc[0]
+        optimal_params = best["params"]
+
+        # Extract metrics
+        metrics = {
+            "sharpe_ratio": best["sharpe_ratio"],
+            "total_return": best["total_return"],
+            "win_rate": best["win_rate"],
+            "max_drawdown": best["max_drawdown"],
+            "num_trades": best["num_trades"],
+            "profit_factor": best["profit_factor"],
+        }
+
+        if verbose:
+            logger.info(
+                f"  Training: Sharpe={metrics['sharpe_ratio']:.2f}, "
+                f"Return={metrics['total_return']:.2f}%, "
+                f"Trades={metrics['num_trades']}",
+                extra={"phase": "training", **metrics},
+            )
+
+        return optimal_params, metrics
+
+    def _test_on_out_of_sample(
+        self,
+        underlying_data: pd.DataFrame,
+        options_data: pd.DataFrame,
+        params: Dict[str, Any],
+        start_date: datetime,
+        end_date: datetime,
+        verbose: bool,
     ) -> Dict[str, float]:
-        """
-        Run single backtest with given parameters.
-
-        Args:
-            params: Strategy parameters
-            underlying_data: Underlying price data
-            options_data: Options bars data
-            start_date: Backtest start
-            end_date: Backtest end
-
-        Returns:
-            Dict with performance metrics
-        """
-        # Create strategy instance
+        """Test parameters on out-of-sample data."""
+        # Create strategy with optimal parameters
         strategy = self.strategy_class(**params)
 
-        # Create backtest engine
-        engine = OptionsBacktestEngine(initial_capital=self.initial_capital)
-
         # Run backtest
+        engine = OptionsBacktestEngine(
+            initial_capital=self.initial_capital,
+            log_trades=False,
+        )
+
         results = engine.run(
             strategy=strategy,
             underlying_data=underlying_data,
@@ -415,192 +303,109 @@ class WalkForwardAnalysis:
             end_date=end_date,
         )
 
-        trades = results["trades"]
-        equity_curve = results["equity_curve"]
-
-        # Calculate metrics
-        if len(trades) == 0:
-            return {
-                "total_return": 0.0,
-                "sharpe_ratio": 0.0,
-                "max_drawdown": 0.0,
-                "win_rate": 0.0,
-                "num_trades": 0,
-            }
-
-        # Total return
-        total_pnl = trades["pnl"].sum()
-        total_return = (total_pnl / self.initial_capital) * 100
-
-        # Win rate
-        winning_trades = trades[trades["pnl"] > 0]
-        win_rate = (len(winning_trades) / len(trades)) * 100 if len(trades) > 0 else 0.0
-
-        # Sharpe ratio
-        # Use portfolio_value column (not total_value)
-        daily_returns = equity_curve["portfolio_value"].pct_change().dropna()
-        if len(daily_returns) > 1:
-            sharpe_ratio = (
-                (daily_returns.mean() / daily_returns.std()) * np.sqrt(252)
-                if daily_returns.std() > 0
-                else 0.0
-            )
-        else:
-            sharpe_ratio = 0.0
-
-        # Max drawdown
-        cumulative = (1 + daily_returns).cumprod()
-        running_max = cumulative.expanding().max()
-        drawdown = (cumulative - running_max) / running_max
-        max_drawdown = abs(drawdown.min()) * 100
-
-        return {
-            "total_return": total_return,
-            "sharpe_ratio": sharpe_ratio,
-            "max_drawdown": max_drawdown,
-            "win_rate": win_rate,
-            "num_trades": len(trades),
+        # Extract metrics
+        metrics = {
+            "sharpe_ratio": results.get("sharpe_ratio", 0),
+            "total_return": results.get("total_return_pct", 0),
+            "win_rate": results.get("win_rate", 0),
+            "max_drawdown": results.get("max_drawdown", 0),
+            "num_trades": results.get("num_trades", 0),
+            "profit_factor": results.get("profit_factor", 0),
         }
+
+        if verbose:
+            logger.info(
+                f"  Testing:  Sharpe={metrics['sharpe_ratio']:.2f}, "
+                f"Return={metrics['total_return']:.2f}%, "
+                f"Trades={metrics['num_trades']}",
+                extra={"phase": "testing", **metrics},
+            )
+
+        return metrics
 
     def _calculate_degradation(
-        self,
-        in_sample: Dict[str, float],
-        out_of_sample: Dict[str, float],
+        self, train_metrics: Dict[str, float], test_metrics: Dict[str, float]
     ) -> Dict[str, float]:
-        """
-        Calculate performance degradation from in-sample to out-of-sample.
+        """Calculate performance degradation from in-sample to out-of-sample."""
+        degradation = {}
 
-        Args:
-            in_sample: In-sample metrics
-            out_of_sample: Out-of-sample metrics
+        for metric in ["sharpe_ratio", "total_return", "win_rate"]:
+            train_val = train_metrics.get(metric, 0)
+            test_val = test_metrics.get(metric, 0)
 
-        Returns:
-            Dict with degradation percentages (positive = worse out-of-sample)
-        """
+            if train_val != 0:
+                degradation[metric] = ((test_val - train_val) / abs(train_val)) * 100
+            else:
+                degradation[metric] = 0 if test_val == 0 else -100 if test_val < 0 else 100
 
-        def calc_degradation(in_val: float, out_val: float) -> float:
-            """Calculate percentage degradation."""
-            if in_val == 0:
-                return 0.0
-            return ((in_val - out_val) / abs(in_val)) * 100
+        return degradation
 
-        return {
-            "sharpe_ratio_degradation": calc_degradation(
-                in_sample["sharpe_ratio"],
-                out_of_sample["sharpe_ratio"],
-            ),
-            "total_return_degradation": calc_degradation(
-                in_sample["total_return"],
-                out_of_sample["total_return"],
-            ),
-            "win_rate_degradation": calc_degradation(
-                in_sample["win_rate"],
-                out_of_sample["win_rate"],
-            ),
-        }
+    def _generate_periods(self, min_date: datetime, max_date: datetime) -> List[Dict[str, datetime]]:
+        """Generate train/test period splits."""
+        periods = []
+        current_date = min_date
 
-    def check_robustness(
-        self,
-        max_sharpe_degradation: float = 50.0,
-        max_return_degradation: float = 50.0,
-        min_out_of_sample_sharpe: float = 1.0,
-        min_out_of_sample_win_rate: float = 55.0,
-    ) -> Dict[str, Any]:
-        """
-        Check if strategy passes robustness tests.
+        while current_date + timedelta(days=self.train_window_days + self.test_window_days) <= max_date:
+            period = {
+                "train_start": current_date,
+                "train_end": current_date + timedelta(days=self.train_window_days - 1),
+                "test_start": current_date + timedelta(days=self.train_window_days),
+                "test_end": current_date + timedelta(days=self.train_window_days + self.test_window_days - 1),
+            }
+            periods.append(period)
 
-        Args:
-            max_sharpe_degradation: Max acceptable Sharpe degradation (%)
-            max_return_degradation: Max acceptable return degradation (%)
-            min_out_of_sample_sharpe: Minimum acceptable out-of-sample Sharpe
-            min_out_of_sample_win_rate: Minimum acceptable out-of-sample win rate (%)
+            # Move forward by test window size
+            current_date += timedelta(days=self.test_window_days)
 
-        Returns:
-            Dict with:
-            - passed: bool
-            - failures: list of failed checks
-            - warnings: list of warnings
-        """
-        if self.results is None:
-            raise ValueError("Must run walk-forward analysis first")
+        return periods
 
-        failures = []
-        warnings = []
+    def summary_report(self) -> None:
+        """Print summary report of walk-forward results."""
+        if self.results is None or self.results.empty:
+            print("No walk-forward results available")
+            return
 
-        # Check average degradation
-        avg_sharpe_deg = self.results["sharpe_degradation"].mean()
-        avg_return_deg = self.results["return_degradation"].mean()
+        print("\n" + "=" * 70)
+        print("WALK-FORWARD ANALYSIS SUMMARY")
+        print("=" * 70)
 
-        if avg_sharpe_deg > max_sharpe_degradation:
-            failures.append(
-                f"Sharpe degradation {avg_sharpe_deg:.1f}% exceeds limit {max_sharpe_degradation}%"
-            )
+        # Overall statistics
+        print(f"\nPERIODS ANALYZED: {len(self.results)}")
+        print(f"Train Window: {self.train_window_days} days")
+        print(f"Test Window: {self.test_window_days} days")
 
-        if avg_return_deg > max_return_degradation:
-            failures.append(
-                f"Return degradation {avg_return_deg:.1f}% exceeds limit {max_return_degradation}%"
-            )
+        # Average performance
+        print("\nAVERAGE PERFORMANCE:")
+        metrics = ["sharpe_ratio", "total_return", "win_rate", "num_trades"]
 
-        # Check out-of-sample performance
-        avg_oos_sharpe = self.results["out_of_sample_sharpe"].mean()
-        avg_oos_win_rate = self.results["out_of_sample_win_rate"].mean()
+        for metric in metrics:
+            in_sample = self.results[f"in_sample_{metric}"].mean()
+            out_sample = self.results[f"out_of_sample_{metric}"].mean()
+            degradation = self.results[f"degradation_{metric}"].mean()
 
-        if avg_oos_sharpe < min_out_of_sample_sharpe:
-            failures.append(
-                f"Out-of-sample Sharpe {avg_oos_sharpe:.2f} below minimum {min_out_of_sample_sharpe}"
-            )
+            print(f"\n{metric.replace('_', ' ').title()}:")
+            print(f"  In-Sample:     {in_sample:.2f}")
+            print(f"  Out-of-Sample: {out_sample:.2f}")
+            print(f"  Degradation:   {degradation:+.2f}%")
 
-        if avg_oos_win_rate < min_out_of_sample_win_rate:
-            failures.append(
-                f"Out-of-sample win rate {avg_oos_win_rate:.1f}% below minimum {min_out_of_sample_win_rate}%"
-            )
+        # Consistency analysis
+        print("\nCONSISTENCY ANALYSIS:")
+        profitable_periods = (self.results["out_of_sample_total_return"] > 0).sum()
+        consistent_periods = (
+            (self.results["in_sample_total_return"] > 0) &
+            (self.results["out_of_sample_total_return"] > 0)
+        ).sum()
 
-        # Check for any period with negative returns
-        negative_periods = self.results[self.results["out_of_sample_return"] < 0]
-        if len(negative_periods) > 0:
-            warnings.append(
-                f"{len(negative_periods)} out of {len(self.results)} periods had negative returns"
-            )
+        print(f"  Profitable out-of-sample periods: {profitable_periods}/{len(self.results)}")
+        print(f"  Consistently profitable periods:  {consistent_periods}/{len(self.results)}")
 
-        # Check parameter stability
-        if len(self.results) > 1:
-            # Check if optimal parameters change drastically between periods
-            # (This is simplified - could be more sophisticated)
-            param_changes = []
-            for i in range(1, len(self.results)):
-                prev_params = self.results.iloc[i - 1]["optimal_params"]
-                curr_params = self.results.iloc[i]["optimal_params"]
-                if prev_params != curr_params:
-                    param_changes.append(i)
+        # Overfitting detection
+        avg_degradation = self.results["degradation_sharpe_ratio"].mean()
+        if avg_degradation < -50:
+            print("\n⚠️  WARNING: Significant overfitting detected (>50% Sharpe degradation)")
+        elif avg_degradation < -30:
+            print("\n⚠️  CAUTION: Moderate overfitting detected (>30% Sharpe degradation)")
+        else:
+            print("\n✅ Strategy shows reasonable out-of-sample performance")
 
-            if len(param_changes) == len(self.results) - 1:
-                warnings.append("Parameters changed in every period - may indicate instability")
-
-        passed = len(failures) == 0
-
-        return {
-            "passed": passed,
-            "failures": failures,
-            "warnings": warnings,
-            "avg_sharpe_degradation": avg_sharpe_deg,
-            "avg_return_degradation": avg_return_deg,
-            "avg_out_of_sample_sharpe": avg_oos_sharpe,
-            "avg_out_of_sample_win_rate": avg_oos_win_rate,
-        }
-
-    def save_results(self, filepath: str):
-        """
-        Save walk-forward results to CSV.
-
-        Args:
-            filepath: Path to save CSV file
-        """
-        if self.results is None:
-            raise ValueError("Must run analysis first")
-
-        # Convert optimal_params dict to string
-        results_copy = self.results.copy()
-        results_copy["optimal_params"] = results_copy["optimal_params"].apply(str)
-
-        results_copy.to_csv(filepath, index=False)
-        logger.info(f"Results saved to {filepath}", extra={"filepath": filepath})
+        print("=" * 70)

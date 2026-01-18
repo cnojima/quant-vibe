@@ -14,11 +14,8 @@ from fastapi import WebSocket
 
 from admin_ui.backend.config import get_settings
 
-# Global Redis client
 _redis: Optional[aioredis.Redis] = None
 _pubsub: Optional[aioredis.client.PubSub] = None
-
-# WebSocket clients for broadcasting
 _websocket_clients: set[WebSocket] = set()
 
 
@@ -86,9 +83,8 @@ async def listen_to_redis() -> None:
     """
     pubsub = get_pubsub()
 
-    # Subscribe to trading and system topics only (not streaming bars - too noisy)
+    # Subscribe to trading and system topics only
     await subscribe_to_topics([
-        # "streaming.*",  # DISABLED - too many messages (1800/sec)
         "trading.*",    # trading.signal, trading.order, trading.fill
         "system.*",     # system.heartbeat, system.error
         "heartbeat.*",  # heartbeat.live_trading, heartbeat.streaming, etc.
@@ -97,13 +93,11 @@ async def listen_to_redis() -> None:
     try:
         async for message in pubsub.listen():
             if message["type"] == "pmessage":
-                # Forward to WebSocket clients
                 await broadcast_to_websockets({
                     "topic": message["channel"],
                     "data": message["data"],
                 })
     except asyncio.CancelledError:
-        # Graceful shutdown
         await pubsub.unsubscribe()
 
 
@@ -117,7 +111,6 @@ async def broadcast_to_websockets(message: dict[str, Any]) -> None:
     if not _websocket_clients:
         return
 
-    # Send to all clients, removing disconnected ones
     disconnected = set()
     for websocket in _websocket_clients:
         try:
@@ -125,7 +118,6 @@ async def broadcast_to_websockets(message: dict[str, Any]) -> None:
         except Exception:
             disconnected.add(websocket)
 
-    # Remove disconnected clients
     _websocket_clients.difference_update(disconnected)
 
 

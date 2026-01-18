@@ -22,7 +22,7 @@ def convert_decimals_to_float(df: pd.DataFrame) -> pd.DataFrame:
 
     for col in df.columns:
         # Check if column contains any Decimal objects
-        if len(df) > 0:
+        if df[col].dtype == object and any(isinstance(x, Decimal) for x in df[col].dropna().head()):
             # Apply conversion that handles Decimal, None, and other types
             def safe_float_convert(x):
                 if isinstance(x, Decimal):
@@ -48,11 +48,7 @@ def convert_string_columns_to_numeric(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame with numeric columns properly typed
 
-    Example:
-        >>> df = pd.DataFrame({'close': ['96.3', '113.5'], 'volume': ['100', '200']})
-        >>> df = convert_string_columns_to_numeric(df)
-        >>> df['close'].dtype
-        dtype('float64')
+            dtype('float64')
     """
     if df.empty:
         return df

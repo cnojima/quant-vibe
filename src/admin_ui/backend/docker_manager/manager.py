@@ -44,27 +44,17 @@ class DockerManager:
             raise RuntimeError(f"Failed to initialize Docker client: {e}") from e
 
     def _get_container(self, service_name: str) -> Optional[Container]:
-        """
-        Get a container by service name.
-
-        Args:
-            service_name: Name of the service/container
-
-        Returns:
-            Container object or None if not found
-        """
-        # Try multiple naming patterns
-        # Also try replacing underscores with hyphens in service name
+        """Get a container by service name."""
         service_name_hyphen = service_name.replace("_", "-")
 
         naming_patterns = [
-            service_name,                              # exact name
-            f"quant-vibe-{service_name}",             # hyphen prefix
-            f"quant-vibe-{service_name_hyphen}",      # hyphen prefix + hyphenated name
-            f"quant-vibe_{service_name}",             # underscore prefix
-            f"quant-vibe_{service_name}_1",           # compose v1 with replica
-            f"quant-vibe-{service_name}-1",           # hyphen with replica
-            f"quant-vibe-{service_name_hyphen}-1",    # hyphen with replica (hyphenated)
+            service_name,
+            f"quant-vibe-{service_name}",
+            f"quant-vibe-{service_name_hyphen}",
+            f"quant-vibe_{service_name}",
+            f"quant-vibe_{service_name}_1",
+            f"quant-vibe-{service_name}-1",
+            f"quant-vibe-{service_name_hyphen}-1",
         ]
 
         for container_name in naming_patterns:
@@ -76,15 +66,7 @@ class DockerManager:
         return None
 
     def get_service_status(self, service_name: str) -> dict[str, Any]:
-        """
-        Get the status of a service.
-
-        Args:
-            service_name: Name of the service
-
-        Returns:
-            Dict with service status information
-        """
+        """Get the status of a service."""
         container = self._get_container(service_name)
 
         if not container:
@@ -96,40 +78,23 @@ class DockerManager:
             }
 
         try:
-            container.reload()  # Refresh container state
+            container.reload()
             status = container.status
 
             # Map Docker status to our enum
-            if status == "running":
-                service_status = ServiceStatus.RUNNING
-            elif status in ("created", "restarting"):
-                service_status = ServiceStatus.STARTING
-            elif status in ("paused", "exited", "dead", "removing"):
-                service_status = ServiceStatus.STOPPED
-            else:
-                service_status = ServiceStatus.ERROR
+            service_status = self._map_container_status(status)
 
             # Calculate uptime for running containers
-            uptime_seconds = 0
-            started_at_str = container.attrs.get("State", {}).get("StartedAt")
-            if status == "running" and started_at_str:
-                try:
-                    # Parse Docker timestamp (ISO 8601 format)
-                    # Remove nanoseconds and parse
-                    started_at_str = started_at_str.split(".")[0] + "Z"
-                    started_at = datetime.fromisoformat(started_at_str.replace("Z", "+00:00"))
-                    uptime_seconds = int((datetime.now(started_at.tzinfo) - started_at).total_seconds())
-                except (ValueError, AttributeError):
-                    uptime_seconds = 0
+            uptime_seconds = self._calculate_uptime(container, status)
 
             return {
                 "name": service_name,
-                "status": service_status.value,  # Use .value to get string
+                "status": service_status.value,
                 "container_status": status,
                 "container_id": container.short_id,
                 "image": container.image.tags[0] if container.image.tags else "unknown",
                 "created": container.attrs.get("Created"),
-                "started_at": started_at_str,
+                "started_at": container.attrs.get("State", {}).get("StartedAt"),
                 "uptime_seconds": uptime_seconds,
                 "ports": container.attrs.get("NetworkSettings", {}).get("Ports", {}),
             }
@@ -141,14 +106,35 @@ class DockerManager:
                 "uptime_seconds": 0,
             }
 
-    def list_services(self) -> list[dict[str, Any]]:
-        """
-        List all quant-vibe services.
+    def _map_container_status(self, status: str) -> ServiceStatus:
+        """Map Docker container status to ServiceStatus enum."""
+        if status == "running":
+            return ServiceStatus.RUNNING
+        if status in ("created", "restarting"):
+            return ServiceStatus.STARTING
+        if status in ("paused", "exited", "dead", "removing"):
+            return ServiceStatus.STOPPED
+        return ServiceStatus.ERROR
 
-        Returns:
-            List of service status dictionaries
-        """
-        # Known quant-vibe services
+    def _calculate_uptime(self, container: Container, status: str) -> int:
+        """Calculate container uptime in seconds."""
+        if status != "running":
+            return 0
+
+        started_at_str = container.attrs.get("State", {}).get("StartedAt")
+        if not started_at_str:
+            return 0
+
+        try:
+            # Parse Docker timestamp (ISO 8601 format)
+            started_at_str = started_at_str.split(".")[0] + "Z"
+            started_at = datetime.fromisoformat(started_at_str.replace("Z", "+00:00"))
+            return int((datetime.now(started_at.tzinfo) - started_at).total_seconds())
+        except (ValueError, AttributeError):
+            return 0
+
+    def list_services(self) -> list[dict[str, Any]]:
+        """List all quant-vibe services."""
         services = [
             "streaming",
             "live_trading_real",
@@ -167,15 +153,7 @@ class DockerManager:
         return [self.get_service_status(service) for service in services]
 
     async def start_service(self, service_name: str) -> dict[str, Any]:
-        """
-        Start a service.
-
-        Args:
-            service_name: Name of the service to start
-
-        Returns:
-            Dict with operation result
-        """
+        """Start a service."""
         container = self._get_container(service_name)
 
         if not container:
@@ -191,7 +169,6 @@ class DockerManager:
                     "message": f"Service '{service_name}' is already running",
                 }
 
-            # Start container in a thread pool (blocking operation)
             await asyncio.to_thread(container.start)
 
             return {
@@ -205,16 +182,7 @@ class DockerManager:
             }
 
     async def stop_service(self, service_name: str, timeout: int = 10) -> dict[str, Any]:
-        """
-        Stop a service.
-
-        Args:
-            service_name: Name of the service to stop
-            timeout: Timeout in seconds before forcefully killing
-
-        Returns:
-            Dict with operation result
-        """
+        """Stop a service."""
         container = self._get_container(service_name)
 
         if not container:
@@ -230,7 +198,6 @@ class DockerManager:
                     "message": f"Service '{service_name}' is not running",
                 }
 
-            # Stop container in a thread pool (blocking operation)
             await asyncio.to_thread(container.stop, timeout=timeout)
 
             return {
@@ -244,16 +211,7 @@ class DockerManager:
             }
 
     async def restart_service(self, service_name: str, timeout: int = 10) -> dict[str, Any]:
-        """
-        Restart a service.
-
-        Args:
-            service_name: Name of the service to restart
-            timeout: Timeout in seconds before forcefully killing
-
-        Returns:
-            Dict with operation result
-        """
+        """Restart a service."""
         container = self._get_container(service_name)
 
         if not container:
@@ -263,7 +221,6 @@ class DockerManager:
             }
 
         try:
-            # Restart container in a thread pool (blocking operation)
             await asyncio.to_thread(container.restart, timeout=timeout)
 
             return {
@@ -282,17 +239,7 @@ class DockerManager:
         tail: int = 100,
         since: Optional[datetime] = None,
     ) -> dict[str, Any]:
-        """
-        Get logs from a service.
-
-        Args:
-            service_name: Name of the service
-            tail: Number of lines from the end of the logs
-            since: Only return logs since this timestamp
-
-        Returns:
-            Dict with logs
-        """
+        """Get logs from a service."""
         container = self._get_container(service_name)
 
         if not container:
@@ -322,12 +269,7 @@ class DockerManager:
             }
 
     def test_connection(self) -> bool:
-        """
-        Test Docker daemon connectivity.
-
-        Returns:
-            True if connection successful, False otherwise
-        """
+        """Test Docker daemon connectivity."""
         try:
             self.client.ping()
             return True

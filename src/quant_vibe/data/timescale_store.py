@@ -1,29 +1,25 @@
-"""
-TimescaleDB data storage for high-frequency options data.
+"""TimescaleDB storage for high-frequency options data.
 
-This module provides TimescaleDB integration for storing and querying:
+Provides TimescaleDB integration for:
 - 1-minute options bars (OHLCV)
 - Quote data (bid/ask)
 - Greeks (delta, gamma, theta, vega, etc.)
-
-Features:
-- Automatic compression for older data
-- Continuous aggregates for higher timeframes (5min, 15min, 1hour, daily)
-- Optimized indexes for fast queries
-- Bulk insert capabilities for efficient data loading
+- Backtest management and analysis
 """
 
+import json
 import os
-
-from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
-from datetime import datetime, timedelta
 from contextlib import contextmanager
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+
 import pandas as pd
-from psycopg2.extras import execute_batch, RealDictCursor
+from dotenv import load_dotenv
+from psycopg2.extras import RealDictCursor, execute_batch
 from psycopg2.pool import SimpleConnectionPool
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
-from dotenv import load_dotenv
+
 from quant_vibe.logging.unified_logging import get_logger
 from quant_vibe.utils.timestamp_utils import now_utc
 
@@ -31,49 +27,15 @@ if TYPE_CHECKING:
     from quant_vibe.models import OptionsBar, UnderlyingBar
 
 load_dotenv()
-
 logger = get_logger(__name__)
 
+# Greek value constraints for database numeric(8,6)
+GREEK_MIN_VALUE = -99.999999
+GREEK_MAX_VALUE = 99.999999
+
+
 class TimescaleStore:
-    """
-    TimescaleDB storage client for options timeseries data.
-
-    This class handles all database operations including:
-    - Inserting options bars (1-minute resolution)
-    - Querying data by time range, ticker, strike, etc.
-    - Accessing continuous aggregates for higher timeframes
-    - Bulk operations for efficient data loading
-    """
-
-    @staticmethod
-    def normalize_contract_symbol(symbol: str) -> str:
-        """
-        Normalize option contract symbols to a canonical format.
-
-        Handles multiple formats:
-        - Massive API: "O:SPXW251223P06865000" → "SPXW251223P06865000"
-        - Schwab API: "SPXW  260122C07025000" → "SPXW260122C07025000"
-
-        Canonical format: {UNDERLYING}{YYMMDD}{C|P}{STRIKE8DIGITS}
-        Example: "SPXW251223P06865000"
-
-        Args:
-            symbol: Raw contract symbol from any data source
-
-        Returns:
-            Normalized contract symbol
-        """
-        if not symbol:
-            return symbol
-
-        # Remove "O:" prefix (Massive format)
-        if symbol.startswith("O:"):
-            symbol = symbol[2:]
-
-        # Remove extra spaces (Schwab format)
-        symbol = symbol.replace(" ", "")
-
-        return symbol
+    """TimescaleDB storage client for options timeseries data."""
 
     def __init__(
         self,
@@ -84,24 +46,13 @@ class TimescaleStore:
         password: Optional[str] = None,
         pool_size: int = 5,
     ):
-        """
-        Initialize TimescaleDB connection.
-
-        Args:
-            host: Database host (defaults to TIMESCALE_HOST env var or 'localhost')
-            port: Database port (defaults to TIMESCALE_PORT env var or 5432)
-            database: Database name (defaults to TIMESCALE_DB env var or 'options_data')
-            user: Database user (defaults to TIMESCALE_USER env var or 'quantvibe')
-            password: Database password (defaults to TIMESCALE_PASSWORD env var)
-            pool_size: Connection pool size
-        """
+        """Initialize TimescaleDB connection."""
         self.host = host or os.getenv("TIMESCALE_HOST", "localhost")
         self.port = port or int(os.getenv("TIMESCALE_PORT", "5432"))
         self.database = database or os.getenv("TIMESCALE_DB", "options_data")
         self.user = user or os.getenv("TIMESCALE_USER", "quantvibe")
         self.password = password or os.getenv("TIMESCALE_PASSWORD", "quantvibe_dev")
 
-        # Create connection pool
         self.pool = SimpleConnectionPool(
             minconn=1,
             maxconn=pool_size,
@@ -111,8 +62,6 @@ class TimescaleStore:
             user=self.user,
             password=self.password,
         )
-
-        # SQLAlchemy engine (lazy initialization)
         self._engine = None
 
     @property
@@ -123,14 +72,10 @@ class TimescaleStore:
                 f"postgresql://{self.user}:{self.password}@"
                 f"{self.host}:{self.port}/{self.database}"
             )
-            # Use NullPool to avoid connection pool conflicts with psycopg2 pool
-            # Add connection options for query timeout (10 minutes for large queries)
             self._engine = create_engine(
                 connection_string,
                 poolclass=NullPool,
-                connect_args={
-                    "options": "-c statement_timeout=600000"  # 10 minutes in milliseconds
-                }
+                connect_args={"options": "-c statement_timeout=600000"}  # 10 minutes
             )
         return self._engine
 
@@ -143,36 +88,91 @@ class TimescaleStore:
         finally:
             self.pool.putconn(conn)
 
+    @staticmethod
+    def normalize_contract_symbol(symbol: str) -> str:
+        """Normalize option contract symbols to canonical format.
+
+        Format: {UNDERLYING}{YYMMDD}{C|P}{STRIKE8DIGITS}
+        Example: "SPXW251223P06865000"
+        """
+        if not symbol:
+            return symbol
+
+        # Remove "O:" prefix (Massive format)
+        if symbol.startswith("O:"):
+            symbol = symbol[2:]
+
+        # Remove extra spaces (Schwab format)
+        return symbol.replace(" ", "")
+
+    def _coerce_greek_value(
+        self, value: Optional[float], field_name: str, option_ticker: str
+    ) -> Optional[float]:
+        """Coerce Greek values to fit database constraints."""
+        if value is None:
+            return None
+
+        if value < GREEK_MIN_VALUE or value > GREEK_MAX_VALUE:
+            logger.warning(
+                f"Greek value overflow - Field: {field_name}, "
+                f"Value: {value}, Ticker: {option_ticker}, "
+                f"Coercing to range [{GREEK_MIN_VALUE}, {GREEK_MAX_VALUE}]"
+            )
+            return max(GREEK_MIN_VALUE, min(GREEK_MAX_VALUE, value))
+
+        return value
+
+    def _prepare_option_bar_values(self, bar: "OptionsBar") -> tuple:
+        """Prepare values from OptionsBar for database insertion."""
+        option_ticker = self.normalize_contract_symbol(bar.contract_symbol)
+
+        return (
+            bar.timestamp,
+            option_ticker,
+            bar.underlying_ticker,
+            float(bar.open),
+            float(bar.high),
+            float(bar.low),
+            float(bar.close),
+            bar.volume,
+            float(bar.vwap) if bar.vwap is not None else None,
+            bar.transactions,
+            float(bar.bid) if bar.bid is not None else None,
+            float(bar.ask) if bar.ask is not None else None,
+            bar.bid_size,
+            bar.ask_size,
+            float(bar.strike_price),
+            bar.contract_type,
+            bar.expiration_date,
+            self._coerce_greek_value(
+                float(bar.implied_volatility) if bar.implied_volatility is not None else None,
+                "implied_volatility", option_ticker
+            ),
+            self._coerce_greek_value(
+                float(bar.delta) if bar.delta is not None else None,
+                "delta", option_ticker
+            ),
+            self._coerce_greek_value(
+                float(bar.gamma) if bar.gamma is not None else None,
+                "gamma", option_ticker
+            ),
+            self._coerce_greek_value(
+                float(bar.theta) if bar.theta is not None else None,
+                "theta", option_ticker
+            ),
+            self._coerce_greek_value(
+                float(bar.vega) if bar.vega is not None else None,
+                "vega", option_ticker
+            ),
+            self._coerce_greek_value(
+                float(bar.rho) if bar.rho is not None else None,
+                "rho", option_ticker
+            ),
+            bar.data_source,
+        )
+
     def insert_option_bar(self, bar: "OptionsBar") -> None:
-        """
-        Insert a single options bar into the database using Pydantic model.
-
-        Args:
-            bar: OptionsBar Pydantic model instance
-
-        Example:
-            >>> from quant_vibe.models import OptionsBar
-            >>> from quant_vibe.utils import now_utc
-            >>> from datetime import date
-            >>> from decimal import Decimal
-            >>> bar = OptionsBar(
-            ...     timestamp=now_utc(),
-            ...     contract_symbol="SPXW260123P06860000",
-            ...     underlying_ticker="SPX",
-            ...     strike_price=Decimal("6860.0"),
-            ...     contract_type="put",
-            ...     expiration_date=date(2026, 1, 23),
-            ...     open=Decimal("10.2"),
-            ...     high=Decimal("10.8"),
-            ...     low=Decimal("10.0"),
-            ...     close=Decimal("10.5"),
-            ...     volume=100,
-            ...     bid=Decimal("10.4"),
-            ...     ask=Decimal("10.6"),
-            ...     mark=Decimal("10.5"),
-            ... )
-            >>> store.insert_option_bar(bar)
-        """
+        """Insert a single options bar into the database."""
         query = """
         INSERT INTO options_bars (
             timestamp, option_ticker, underlying_ticker,
@@ -188,658 +188,371 @@ class TimescaleStore:
         )
         """
 
-        # Normalize contract symbol to canonical format
-        option_ticker = self.normalize_contract_symbol(bar.contract_symbol)
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, self._prepare_option_bar_values(bar))
+            conn.commit()
 
-        # Coerce Greek values to fit database constraints
-        implied_volatility = self._coerce_greek_value(
-            float(bar.implied_volatility) if bar.implied_volatility is not None else None,
-            "implied_volatility",
-            option_ticker
+    def bulk_insert_option_bars(
+        self, bars: List["OptionsBar"], batch_size: int = 1000
+    ) -> int:
+        """Bulk insert options bars for efficient data loading."""
+        if not bars:
+            return 0
+
+        query = """
+        INSERT INTO options_bars (
+            timestamp, option_ticker, underlying_ticker,
+            open, high, low, close, volume, vwap, transactions,
+            bid, ask, bid_size, ask_size,
+            strike_price, contract_type, expiration_date,
+            implied_volatility, delta, gamma, theta, vega, rho,
+            data_source
+        ) VALUES %s
+        ON CONFLICT (timestamp, option_ticker) DO NOTHING
+        """
+
+        total_inserted = 0
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                for i in range(0, len(bars), batch_size):
+                    batch = bars[i : i + batch_size]
+                    values = [self._prepare_option_bar_values(bar) for bar in batch]
+
+                    execute_batch(cur, query.replace("%s", "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"), values)
+                    total_inserted += cur.rowcount
+
+            conn.commit()
+
+        logger.info(f"Bulk inserted {total_inserted} option bars")
+        return total_inserted
+
+    def get_option_bars(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        option_ticker: Optional[str] = None,
+        underlying_ticker: Optional[str] = None,
+        strike: Optional[float] = None,
+        contract_type: Optional[str] = None,
+        expiration_date: Optional[datetime] = None,
+        timeframe: str = "1min",
+        limit: Optional[int] = None,
+    ) -> pd.DataFrame:
+        """Get option bars from database with flexible filtering."""
+        table_map = {
+            "1min": "options_bars",
+            "5min": "options_bars_5min",
+            "15min": "options_bars_15min",
+            "1hour": "options_bars_1hour",
+            "daily": "options_bars_daily",
+        }
+
+        if timeframe not in table_map:
+            raise ValueError(f"Invalid timeframe: {timeframe}")
+
+        query = f"""
+        SELECT
+            timestamp, option_ticker, underlying_ticker,
+            open, high, low, close, volume,
+            bid, ask, bid_size, ask_size,
+            strike_price, contract_type, expiration_date,
+            implied_volatility, delta, gamma, theta, vega, rho
+        FROM {table_map[timeframe]}
+        WHERE timestamp >= %s AND timestamp <= %s
+        """
+
+        params = [start_date, end_date]
+
+        if option_ticker:
+            query += " AND option_ticker = %s"
+            params.append(self.normalize_contract_symbol(option_ticker))
+
+        if underlying_ticker:
+            query += " AND underlying_ticker = %s"
+            params.append(underlying_ticker)
+
+        if strike is not None:
+            query += " AND strike_price = %s"
+            params.append(strike)
+
+        if contract_type:
+            query += " AND contract_type = %s"
+            params.append(contract_type)
+
+        if expiration_date:
+            query += " AND expiration_date = %s"
+            params.append(expiration_date)
+
+        query += " ORDER BY timestamp"
+
+        if limit:
+            query += f" LIMIT {limit}"
+
+        return pd.read_sql(query, self.engine, params=params, parse_dates=["timestamp"])
+
+    def get_options_chain_bars(
+        self,
+        timestamp: datetime,
+        underlying_ticker: str,
+        expiration_date: Optional[datetime] = None,
+        contract_type: Optional[str] = None,
+        min_strike: Optional[float] = None,
+        max_strike: Optional[float] = None,
+    ) -> pd.DataFrame:
+        """Get all option bars at a specific timestamp (chain snapshot)."""
+        query = """
+        SELECT
+            timestamp, option_ticker, underlying_ticker,
+            open, high, low, close, volume,
+            bid, ask, bid_size, ask_size,
+            strike_price, contract_type, expiration_date,
+            implied_volatility, delta, gamma, theta, vega, rho
+        FROM options_bars
+        WHERE timestamp = %s AND underlying_ticker = %s
+        """
+
+        params = [timestamp, underlying_ticker]
+
+        if expiration_date:
+            query += " AND expiration_date = %s"
+            params.append(expiration_date)
+
+        if contract_type:
+            query += " AND contract_type = %s"
+            params.append(contract_type)
+
+        if min_strike is not None:
+            query += " AND strike_price >= %s"
+            params.append(min_strike)
+
+        if max_strike is not None:
+            query += " AND strike_price <= %s"
+            params.append(max_strike)
+
+        query += " ORDER BY strike_price, contract_type"
+
+        return pd.read_sql(query, self.engine, params=params, parse_dates=["timestamp"])
+
+    def get_options_for_backtest(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        underlying_ticker: str,
+        min_dte: int = 0,
+        max_dte: int = 45,
+        strike_delta: float = 0.0,
+        contract_types: Optional[List[str]] = None,
+        min_volume: int = 0,
+        min_bid: float = 0.0,
+        timeframe: str = "5min",
+        additional_filters: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Get options data optimized for backtesting with DTE and filtering."""
+        table_map = {
+            "1min": "options_bars",
+            "5min": "options_bars_5min",
+            "15min": "options_bars_15min",
+            "1hour": "options_bars_1hour",
+            "daily": "options_bars_daily",
+        }
+
+        if timeframe not in table_map:
+            raise ValueError(f"Invalid timeframe: {timeframe}")
+
+        table_name = table_map[timeframe]
+
+        # Build column selection with aggregation for non-1min timeframes
+        if timeframe == "1min":
+            columns = """
+                ob.timestamp,
+                ob.option_ticker,
+                ob.underlying_ticker,
+                ob.open,
+                ob.high,
+                ob.low,
+                ob.close,
+                ob.volume,
+                ob.bid,
+                ob.ask,
+                ob.bid_size,
+                ob.ask_size,
+                ob.strike_price,
+                ob.contract_type,
+                ob.expiration_date,
+                ob.implied_volatility,
+                ob.delta,
+                ob.gamma,
+                ob.theta,
+                ob.vega,
+                ob.rho
+            """
+        else:
+            columns = """
+                ob.timestamp,
+                ob.option_ticker,
+                ob.underlying_ticker,
+                ob.open,
+                ob.high,
+                ob.low,
+                ob.close,
+                ob.volume,
+                ob.bid_close as bid,
+                ob.ask_close as ask,
+                ob.bid_size_close as bid_size,
+                ob.ask_size_close as ask_size,
+                ob.strike_price,
+                ob.contract_type,
+                ob.expiration_date,
+                ob.iv_close as implied_volatility,
+                ob.delta_close as delta,
+                ob.gamma_close as gamma,
+                ob.theta_close as theta,
+                ob.vega_close as vega,
+                ob.rho_close as rho
+            """
+
+        query = f"""
+        WITH filtered_options AS (
+            SELECT DISTINCT
+                {columns},
+                (ob.expiration_date::date - ob.timestamp::date) as dte,
+                ub.close as underlying_price,
+                ABS(ob.strike_price - ub.close) as strike_distance
+            FROM {table_name} ob
+            JOIN underlying_bars_{timeframe if timeframe != '1min' else 'minute'} ub
+                ON ob.timestamp = ub.timestamp
+                AND ob.underlying_ticker = ub.ticker
+            WHERE ob.timestamp >= %s
+                AND ob.timestamp <= %s
+                AND ob.underlying_ticker = %s
+                AND (ob.expiration_date::date - ob.timestamp::date) >= %s
+                AND (ob.expiration_date::date - ob.timestamp::date) <= %s
+        """
+
+        params = [start_date, end_date, underlying_ticker, min_dte, max_dte]
+
+        # Add optional filters
+        if contract_types:
+            query += f" AND ob.contract_type IN ({','.join(['%s'] * len(contract_types))})"
+            params.extend(contract_types)
+
+        if min_volume > 0:
+            query += " AND ob.volume >= %s"
+            params.append(min_volume)
+
+        if min_bid > 0:
+            bid_col = "ob.bid_close" if timeframe != "1min" else "ob.bid"
+            query += f" AND {bid_col} >= %s"
+            params.append(min_bid)
+
+        if strike_delta > 0:
+            query += " AND ABS(ob.strike_price - ub.close) <= %s"
+            params.append(strike_delta)
+
+        if additional_filters:
+            query += f" AND {additional_filters}"
+
+        query += """
         )
-        delta = self._coerce_greek_value(
-            float(bar.delta) if bar.delta is not None else None,
-            "delta",
-            option_ticker
+        SELECT * FROM filtered_options
+        ORDER BY timestamp, strike_price, contract_type
+        """
+
+        df = pd.read_sql(
+            query,
+            self.engine,
+            params=params,
+            parse_dates=["timestamp", "expiration_date"]
         )
-        gamma = self._coerce_greek_value(
-            float(bar.gamma) if bar.gamma is not None else None,
-            "gamma",
-            option_ticker
+
+        logger.info(
+            f"Retrieved {len(df)} option bars for backtest "
+            f"({underlying_ticker}, {start_date} to {end_date}, "
+            f"DTE {min_dte}-{max_dte}, timeframe={timeframe})"
         )
-        theta = self._coerce_greek_value(
-            float(bar.theta) if bar.theta is not None else None,
-            "theta",
-            option_ticker
+
+        return df
+
+    def get_underlying_price_from_options(
+        self,
+        timestamp: datetime,
+        underlying_ticker: str,
+        lookback_minutes: int = 5,
+    ) -> Optional[float]:
+        """Estimate underlying price from ATM options at given timestamp."""
+        query = """
+        WITH recent_bars AS (
+            SELECT
+                strike_price,
+                contract_type,
+                bid,
+                ask,
+                ABS(EXTRACT(EPOCH FROM (timestamp - %s))) as seconds_away
+            FROM options_bars
+            WHERE underlying_ticker = %s
+                AND timestamp >= %s
+                AND timestamp <= %s
+                AND bid IS NOT NULL
+                AND ask IS NOT NULL
+                AND bid > 0
+                AND ask > 0
+        ),
+        atm_spreads AS (
+            SELECT
+                strike_price,
+                AVG(CASE WHEN contract_type = 'call' THEN (bid + ask) / 2 END) as call_mid,
+                AVG(CASE WHEN contract_type = 'put' THEN (bid + ask) / 2 END) as put_mid,
+                MIN(seconds_away) as seconds_away
+            FROM recent_bars
+            GROUP BY strike_price
+            HAVING COUNT(DISTINCT contract_type) = 2
         )
-        vega = self._coerce_greek_value(
-            float(bar.vega) if bar.vega is not None else None,
-            "vega",
-            option_ticker
-        )
-        rho = self._coerce_greek_value(
-            float(bar.rho) if bar.rho is not None else None,
-            "rho",
-            option_ticker
-        )
+        SELECT
+            strike_price as underlying_price
+        FROM atm_spreads
+        WHERE call_mid IS NOT NULL AND put_mid IS NOT NULL
+        ORDER BY ABS(call_mid - put_mid), seconds_away
+        LIMIT 1
+        """
+
+        lookback_start = timestamp - timedelta(minutes=lookback_minutes)
+        lookback_end = timestamp + timedelta(minutes=lookback_minutes)
 
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     query,
-                    (
-                        bar.timestamp,
-                        option_ticker,
-                        bar.underlying_ticker,
-                        float(bar.open),
-                        float(bar.high),
-                        float(bar.low),
-                        float(bar.close),
-                        bar.volume,
-                        float(bar.vwap) if bar.vwap is not None else None,
-                        bar.transactions,
-                        float(bar.bid) if bar.bid is not None else None,
-                        float(bar.ask) if bar.ask is not None else None,
-                        bar.bid_size,
-                        bar.ask_size,
-                        float(bar.strike_price),
-                        bar.contract_type,
-                        bar.expiration_date,
-                        implied_volatility,
-                        delta,
-                        gamma,
-                        theta,
-                        vega,
-                        rho,
-                        bar.data_source,
-                    ),
+                    (timestamp, underlying_ticker, lookback_start, lookback_end)
                 )
-            conn.commit()
-
-    def _coerce_greek_value(self, value: Optional[float], field_name: str, option_ticker: str) -> Optional[float]:
-        """
-        Coerce Greek values to fit database constraints (numeric(8,6): -99.999999 to 99.999999).
-
-        Args:
-            value: The value to coerce
-            field_name: Name of the field (for logging)
-            option_ticker: Option ticker (for logging)
-
-        Returns:
-            Coerced value or None
-        """
-        if value is None:
-            return None
-
-        # Database constraint: numeric(8,6) allows values from -99.999999 to 99.999999
-        # Total 8 digits, 6 after decimal point = max 2 digits before decimal
-        MIN_VALUE = -99.999999
-        MAX_VALUE = 99.999999
-
-        if value < MIN_VALUE or value > MAX_VALUE:
-            logger.warning(
-                f"Greek value overflow - Field: {field_name}, "
-                f"Value: {value}, Ticker: {option_ticker}, "
-                f"Coercing to range [{MIN_VALUE}, {MAX_VALUE}]"
-            )
-            # Coerce to valid range
-            return max(MIN_VALUE, min(MAX_VALUE, value))
-
-        return value
-
-    def bulk_insert_option_bars(self, bars: List["OptionsBar"], batch_size: int = 1000) -> int:
-        """
-        Bulk insert options bars for efficient data loading.
-
-        Args:
-            bars: List of OptionsBar Pydantic model instances
-            batch_size: Number of rows to insert per batch
-
-        Returns:
-            Number of rows inserted
-
-        Example:
-            >>> from quant_vibe.models import OptionsBar
-            >>> from quant_vibe.utils import now_utc
-            >>> from datetime import date
-            >>> from decimal import Decimal
-            >>> bars = [
-            ...     OptionsBar(
-            ...         timestamp=now_utc(),
-            ...         contract_symbol='SPXW260123P06860000',
-            ...         underlying_ticker='SPX',
-            ...         strike_price=Decimal('6860.0'),
-            ...         contract_type='put',
-            ...         expiration_date=date(2026, 1, 23),
-            ...         open=Decimal('100.5'),
-            ...         high=Decimal('101.0'),
-            ...         low=Decimal('100.0'),
-            ...         close=Decimal('100.75'),
-            ...         volume=1000,
-            ...         bid=Decimal('100.4'),
-            ...         ask=Decimal('100.6'),
-            ...         mark=Decimal('100.5'),
-            ...     ),
-            ... ]
-            >>> store.bulk_insert_option_bars(bars)
-        """
-        query = """
-        INSERT INTO options_bars (
-            timestamp, option_ticker, underlying_ticker,
-            open, high, low, close, volume, vwap, transactions,
-            bid, ask, bid_size, ask_size,
-            strike_price, contract_type, expiration_date,
-            implied_volatility, delta, gamma, theta, vega, rho,
-            data_source
-        ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s
-        )
-        """
-
-        rows = []
-        for bar in bars:
-            # Normalize contract symbol to canonical format
-            option_ticker = self.normalize_contract_symbol(bar.contract_symbol)
-
-            # Coerce Greek values to fit database constraints
-            implied_volatility = self._coerce_greek_value(
-                float(bar.implied_volatility) if bar.implied_volatility is not None else None,
-                "implied_volatility",
-                option_ticker
-            )
-            delta = self._coerce_greek_value(
-                float(bar.delta) if bar.delta is not None else None,
-                "delta",
-                option_ticker
-            )
-            gamma = self._coerce_greek_value(
-                float(bar.gamma) if bar.gamma is not None else None,
-                "gamma",
-                option_ticker
-            )
-            theta = self._coerce_greek_value(
-                float(bar.theta) if bar.theta is not None else None,
-                "theta",
-                option_ticker
-            )
-            vega = self._coerce_greek_value(
-                float(bar.vega) if bar.vega is not None else None,
-                "vega",
-                option_ticker
-            )
-            rho = self._coerce_greek_value(
-                float(bar.rho) if bar.rho is not None else None,
-                "rho",
-                option_ticker
-            )
-
-            rows.append(
-                (
-                    bar.timestamp,
-                    option_ticker,
-                    bar.underlying_ticker,
-                    float(bar.open),
-                    float(bar.high),
-                    float(bar.low),
-                    float(bar.close),
-                    bar.volume,
-                    float(bar.vwap) if bar.vwap is not None else None,
-                    bar.transactions,
-                    float(bar.bid) if bar.bid is not None else None,
-                    float(bar.ask) if bar.ask is not None else None,
-                    bar.bid_size,
-                    bar.ask_size,
-                    float(bar.strike_price),
-                    bar.contract_type,
-                    bar.expiration_date,
-                    implied_volatility,
-                    delta,
-                    gamma,
-                    theta,
-                    vega,
-                    rho,
-                    bar.data_source,
-                )
-            )
-
-        with self.get_connection() as conn:
-            with conn.cursor() as cur:
-                execute_batch(cur, query, rows, page_size=batch_size)
-            conn.commit()
-
-        return len(rows)
-
-    def get_option_bars(
-        self,
-        option_ticker: str,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        timeframe: str = "1min",
-    ) -> pd.DataFrame:
-        """
-        Get options bars for a specific contract.
-
-        Args:
-            option_ticker: Option contract ticker
-            start_time: Start time (defaults to 30 days ago)
-            end_time: End time (defaults to now)
-            timeframe: Timeframe ('1min', '5min', '15min', '1hour', 'daily')
-
-        Returns:
-            DataFrame with OHLCV and quote data
-        """
-        if not end_time:
-            end_time = now_utc()
-        if not start_time:
-            start_time = end_time - timedelta(days=30)
-
-        # Map timeframe to table/view
-        table_map = {
-            "1min": "options_bars",
-            "5min": "options_bars_5min",
-            "15min": "options_bars_15min",
-            "1hour": "options_bars_1hour",
-            "daily": "options_bars_daily",
-        }
-
-        table = table_map.get(timeframe, "options_bars")
-        time_col = "timestamp" if timeframe == "1min" else "bucket"
-
-        query = f"""
-        SELECT
-            {time_col} as timestamp,
-            open, high, low, close, volume, vwap, transactions,
-            bid, ask, bid_size, ask_size,
-            implied_volatility, delta, gamma, theta, vega, rho
-        FROM {table}
-        WHERE option_ticker = %s
-            AND {time_col} >= %s
-            AND {time_col} <= %s
-        ORDER BY {time_col} ASC
-        """
-
-        df = pd.read_sql_query(
-            query, self.engine, params=(option_ticker, start_time, end_time), parse_dates=["timestamp"]
-        )
-
-        if not df.empty:
-            df.set_index("timestamp", inplace=True)
-
-        return df
-
-    def get_options_chain_bars(
-        self,
-        underlying_ticker: str,
-        expiration_date: datetime,
-        timestamp: datetime,
-        strike_min: Optional[float] = None,
-        strike_max: Optional[float] = None,
-    ) -> pd.DataFrame:
-        """
-        Get options chain data for a specific point in time.
-
-        Args:
-            underlying_ticker: Underlying ticker (e.g., 'SPX')
-            expiration_date: Contract expiration date
-            timestamp: Specific timestamp to query
-            strike_min: Minimum strike price filter
-            strike_max: Maximum strike price filter
-
-        Returns:
-            DataFrame with chain data at the specified timestamp
-        """
-        query = """
-        SELECT
-            option_ticker, strike_price, contract_type,
-            open, high, low, close, volume, vwap,
-            bid, ask, bid_size, ask_size,
-            implied_volatility, delta, gamma, theta, vega, rho
-        FROM options_bars
-        WHERE underlying_ticker = %s
-            AND expiration_date = %s
-            AND timestamp = %s
-        """
-
-        params = [underlying_ticker, expiration_date, timestamp]
-
-        if strike_min is not None:
-            query += " AND strike_price >= %s"
-            params.append(strike_min)
-
-        if strike_max is not None:
-            query += " AND strike_price <= %s"
-            params.append(strike_max)
-
-        query += " ORDER BY strike_price, contract_type"
-
-        df = pd.read_sql_query(query, self.engine, params=tuple(params))
-
-        return df
-
-    def get_options_for_backtest(
-        self,
-        underlying_ticker: str,
-        start_time: datetime,
-        end_time: datetime,
-        min_dte: Optional[int] = None,
-        max_dte: Optional[int] = None,
-        strike_range_pct: Optional[float] = None,
-        timeframe: str = "1min",
-    ) -> List["OptionsBar"]:
-        """
-        Get options data optimized for backtesting.
-
-        Args:
-            underlying_ticker: Underlying ticker (e.g., 'SPXW')
-            start_time: Start time for backtest
-            end_time: End time for backtest
-            min_dte: Minimum days to expiration filter
-            max_dte: Maximum days to expiration filter
-            strike_range_pct: Optional percentage range around ATM (e.g., 0.1 for ±10%)
-            timeframe: Time aggregation - "1min" (default), "5min", "15min", "1hour", "daily"
-                      Using 5min or 15min dramatically reduces memory usage for optimizations
-
-        Returns:
-            List of OptionsBar Pydantic model instances with all options data in the time range.
-            Each bar contains: timestamp, contract_symbol, strike_price, contract_type,
-            expiration_date, OHLCV data, bid/ask quotes, Greeks, etc.
-
-            Note: contract_type values are lowercase enum: 'call', 'put'
-        """
-        # Map timeframe to table/view name
-        table_map = {
-            "1min": "options_bars",
-            "5min": "options_bars_5min",
-            "15min": "options_bars_15min",
-            "1hour": "options_bars_1hour",
-            "daily": "options_bars_daily",
-        }
-
-        table_name = table_map.get(timeframe, "options_bars")
-
-        # Log which timeframe and table is being used
-        logger.info(f"Loading options data with timeframe='{timeframe}' from table '{table_name}'")
-
-        # For aggregated views, use 'bucket' column; for base table use 'timestamp'
-        time_column = "bucket" if timeframe != "1min" else "timestamp"
-
-        query = f"""
-        SELECT
-            {time_column} as timestamp,
-            option_ticker as contract_symbol,
-            strike_price,
-            contract_type,
-            expiration_date,
-            open, high, low, close, volume,
-            bid, ask,
-            (bid + ask) / 2.0 as mark,
-            bid_size, ask_size,
-            delta, gamma, theta, vega, rho,
-            implied_volatility,
-            COALESCE(expired, false) as expired
-        FROM {table_name}
-        WHERE underlying_ticker = %s
-            AND {time_column} >= %s
-            AND {time_column} <= %s
-            AND COALESCE(expired, false) = false
-        """
-
-        params = [underlying_ticker, start_time, end_time]
-
-        # Add DTE filters if specified
-        if min_dte is not None:
-            query += f" AND (expiration_date - {time_column}::date) >= %s"
-            params.append(min_dte)
-
-        if max_dte is not None:
-            query += f" AND (expiration_date - {time_column}::date) <= %s"
-            params.append(max_dte)
-
-        query += " ORDER BY timestamp, expiration_date, strike_price, contract_type"
-
-        logger.debug("Executing options backtest query with params: %s", params)
-        logger.debug("Query: %s", query)
-
-        # Estimate query size and warn if it might be slow
-        import time
-        from sqlalchemy.exc import OperationalError
-
-        logger.info(f"Fetching data for {underlying_ticker} from {start_time.date()} to {end_time.date()} (DTE: {min_dte}-{max_dte})...")
-        query_start = time.time()
-
-        try:
-            df = pd.read_sql_query(query, self.engine, params=tuple(params), parse_dates=['timestamp', 'expiration_date'])
-        except OperationalError as e:
-            if "statement timeout" in str(e).lower():
-                elapsed = time.time() - query_start
-                raise TimeoutError(
-                    f"Query timeout after {elapsed:.1f}s loading data from {start_time.date()} to {end_time.date()}.\n"
-                    f"Try one of these solutions:\n"
-                    f"  1. Use a smaller date range (currently {(end_time - start_time).days} days)\n"
-                    f"  2. Use aggregated timeframe: timeframe='5min' (reduces data by ~95%)\n"
-                    f"  3. Increase statement_timeout in TimescaleStore.engine property"
-                ) from e
-            raise
-
-        query_elapsed = time.time() - query_start
-
-        # Log how much data was loaded
-        if not df.empty:
-            estimated_mb = len(df) * 200 / 1024 / 1024  # Rough estimate: 200 bytes per row
-            logger.info(f"Loaded {len(df):,} rows (~{estimated_mb:.1f} MB) from {table_name} in {query_elapsed:.1f}s")
-
-            # Warn if dataset is very large and suggest using aggregated timeframe
-            if len(df) > 500000 and timeframe == "1min":
-                logger.warning(
-                    f"Large dataset detected ({len(df):,} rows). "
-                    f"Consider using timeframe='5min' to reduce memory usage by ~95% "
-                    f"(reduces {len(df):,} rows to ~{len(df)//5:,} rows)"
-                )
-        else:
-            logger.warning(f"No data found in {table_name}")
-
-        # Convert DataFrame to list of Pydantic models using vectorized operations
-        from quant_vibe.models import OptionsBar
-        from decimal import Decimal
-
-        if df.empty:
-            return []
-
-        # Normalize contract symbols in bulk (vectorized)
-        df['contract_symbol'] = df['contract_symbol'].apply(self.normalize_contract_symbol)
-
-        # Convert expiration_date to date objects (vectorized)
-        # pd.read_sql_query with parse_dates returns Timestamp objects, convert to date
-        # This matches the OptionsBar Pydantic model which expects date (not datetime)
-        import datetime as dt
-        df['expiration_date'] = df['expiration_date'].apply(
-            lambda x: x.date() if isinstance(x, (pd.Timestamp, dt.datetime)) else x
-        )
-
-        # Pre-fill data_source if not present
-        if 'data_source' not in df.columns:
-            df['data_source'] = 'combined'
-
-        # Use model_validate to create Pydantic models from dict records (much faster than iterrows)
-        # Convert to dict records and batch process
-        records = df.to_dict('records')
-
-        # Batch convert to Pydantic models
-        bars = []
-        for record in records:
-            # Add underlying_ticker since it's not in the query result
-            record['underlying_ticker'] = underlying_ticker
-
-            # Convert numeric fields to Decimal where needed
-            # Pydantic will handle type coercion, but we need to ensure Decimal for precision fields
-            for field in ['strike_price', 'open', 'high', 'low', 'close', 'bid', 'ask', 'mark', 'vwap',
-                         'implied_volatility', 'delta', 'gamma', 'theta', 'vega', 'rho']:
-                if field in record and pd.notna(record[field]):
-                    record[field] = Decimal(str(record[field]))
-                elif field in record:
-                    record[field] = None
-
-            # Convert integer fields
-            for field in ['volume', 'bid_size', 'ask_size', 'transactions']:
-                if field in record and pd.notna(record[field]):
-                    record[field] = int(record[field])
-                elif field in record:
-                    record[field] = None if field != 'volume' else 0
-
-            try:
-                bar = OptionsBar.model_validate(record)
-                bars.append(bar)
-            except Exception as e:
-                # Skip invalid records (e.g., NULL strike_price from bad data collection)
-                # This is expected for ~5% of records with incomplete data
-                logger.debug(f"Skipped invalid OptionsBar record: {e}")
-                continue
-
-        return bars
-
-    def get_underlying_price_from_options(
-        self,
-        underlying_ticker: str,
-        start_time: datetime,
-        end_time: datetime,
-    ) -> List["UnderlyingBar"]:
-        """
-        Estimate underlying price from ATM options using bid/ask data.
-
-        This finds the strike where call and put prices are closest (ATM),
-        which gives us a good estimate of the underlying price.
-
-        Args:
-            underlying_ticker: Underlying ticker (e.g., 'SPX')
-            start_time: Start time
-            end_time: End time
-
-        Returns:
-            List of UnderlyingBar Pydantic model instances with estimated underlying prices.
-            Each bar has OHLC set to the estimated price (since we derive from a single point).
-        """
-        query = """
-        WITH nearest_expiry AS (
-            SELECT timestamp, MIN(expiration_date) as exp_date
-            FROM options_bars
-            WHERE underlying_ticker = %s
-                AND timestamp >= %s
-                AND timestamp <= %s
-            GROUP BY timestamp
-        ),
-        atm_strikes AS (
-            SELECT DISTINCT
-                o.timestamp,
-                o.strike_price,
-                AVG((o.bid + o.ask) / 2.0) as mark_price
-            FROM options_bars o
-            INNER JOIN nearest_expiry ne
-                ON o.timestamp = ne.timestamp
-                AND o.expiration_date = ne.exp_date
-            WHERE o.underlying_ticker = %s
-                AND o.bid IS NOT NULL
-                AND o.ask IS NOT NULL
-                AND o.bid > 0
-                AND o.ask > 0
-            GROUP BY o.timestamp, o.strike_price
-            HAVING COUNT(*) >= 2
-        )
-        SELECT
-            timestamp,
-            strike_price as price
-        FROM atm_strikes
-        WHERE mark_price > 0
-        ORDER BY timestamp, mark_price DESC
-        """
-
-        df = pd.read_sql_query(
-            query,
-            self.engine,
-            params=(underlying_ticker, start_time, end_time, underlying_ticker),
-            parse_dates=['timestamp']
-        )
-
-        if df.empty:
-            return []
-
-        # Group by timestamp and take median strike as best ATM estimate
-        result = df.groupby('timestamp').agg({
-            'price': 'median'
-        }).reset_index()
-
-        # Convert to UnderlyingBar Pydantic models using vectorized operations
-        from quant_vibe.models import UnderlyingBar
-        from decimal import Decimal
-
-        # Convert to dict records for batch processing (much faster than iterrows)
-        records = result.to_dict('records')
-
-        # Batch convert to Pydantic models
-        bars = []
-        for record in records:
-            price = Decimal(str(record['price']))
-            record['ticker'] = underlying_ticker
-            record['open'] = price
-            record['high'] = price
-            record['low'] = price
-            record['close'] = price
-            record['volume'] = 0
-            record['data_source'] = 'derived_from_options'
-            # Remove 'price' as it's not a field in UnderlyingBar
-            del record['price']
-
-            try:
-                bar = UnderlyingBar.model_validate(record)
-                bars.append(bar)
-            except Exception as e:
-                logger.warning(f"Failed to create UnderlyingBar from record: {e}")
-                continue
-
-        return bars
+                result = cur.fetchone()
+                return float(result[0]) if result else None
 
     def get_available_expirations(
-        self, underlying_ticker: str, as_of: Optional[datetime] = None
+        self, underlying_ticker: str, as_of_date: Optional[datetime] = None
     ) -> List[datetime]:
-        """
-        Get list of available expiration dates for an underlying ticker.
-
-        Args:
-            underlying_ticker: Underlying ticker
-            as_of: Optional date to query expirations as of (defaults to now)
-
-        Returns:
-            List of expiration dates
-        """
-        if not as_of:
-            as_of = now_utc()
-
+        """Get list of available expiration dates for an underlying."""
         query = """
         SELECT DISTINCT expiration_date
         FROM options_bars
         WHERE underlying_ticker = %s
-            AND expiration_date >= %s
-        ORDER BY expiration_date
         """
+
+        params = [underlying_ticker]
+
+        if as_of_date:
+            query += " AND timestamp <= %s"
+            params.append(as_of_date)
+
+        query += " ORDER BY expiration_date"
 
         with self.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(query, (underlying_ticker, as_of))
-                rows = cur.fetchall()
-
-        return [row[0] for row in rows]
+                cur.execute(query, params)
+                return [row[0] for row in cur.fetchall()]
 
     def get_data_range(self, option_ticker: str) -> Optional[Tuple[datetime, datetime]]:
-        """
-        Get the time range of available data for an option ticker.
-
-        Args:
-            option_ticker: Option contract ticker
-
-        Returns:
-            Tuple of (min_timestamp, max_timestamp) or None if no data
-        """
+        """Get the date range of available data for a specific option."""
         query = """
         SELECT MIN(timestamp), MAX(timestamp)
         FROM options_bars
@@ -848,214 +561,134 @@ class TimescaleStore:
 
         with self.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(query, (option_ticker,))
-                row = cur.fetchone()
-
-        if row and row[0] and row[1]:
-            return (row[0], row[1])
-        return None
+                cur.execute(query, (self.normalize_contract_symbol(option_ticker),))
+                result = cur.fetchone()
+                return result if result[0] else None
 
     def delete_option_data(
         self,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
         option_ticker: Optional[str] = None,
         underlying_ticker: Optional[str] = None,
-        before_date: Optional[datetime] = None,
     ) -> int:
-        """
-        Delete option data based on filters.
+        """Delete option data with flexible filtering."""
+        if not any([start_date, end_date, option_ticker, underlying_ticker]):
+            raise ValueError("At least one filter parameter must be specified")
 
-        Args:
-            option_ticker: Specific option ticker to delete
-            underlying_ticker: Delete all data for an underlying
-            before_date: Delete data before this date
-
-        Returns:
-            Number of rows deleted
-        """
         query = "DELETE FROM options_bars WHERE 1=1"
         params = []
 
+        if start_date:
+            query += " AND timestamp >= %s"
+            params.append(start_date)
+
+        if end_date:
+            query += " AND timestamp <= %s"
+            params.append(end_date)
+
         if option_ticker:
             query += " AND option_ticker = %s"
-            params.append(option_ticker)
+            params.append(self.normalize_contract_symbol(option_ticker))
 
         if underlying_ticker:
             query += " AND underlying_ticker = %s"
             params.append(underlying_ticker)
 
-        if before_date:
-            query += " AND timestamp < %s"
-            params.append(before_date)
-
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(query, params)
-                rows_deleted = cur.rowcount
-            conn.commit()
+                deleted_count = cur.rowcount
+                conn.commit()
 
-        return rows_deleted
+        logger.info(f"Deleted {deleted_count} option bars")
+        return deleted_count
 
     def get_database_stats(self) -> Dict[str, Any]:
-        """
-        Get database statistics (size, row counts, compression info).
-
-        Returns:
-            Dictionary with database statistics
-        """
+        """Get database statistics and metadata."""
         stats = {}
 
+        queries = {
+            "total_options_bars": "SELECT COUNT(*) FROM options_bars",
+            "unique_contracts": "SELECT COUNT(DISTINCT option_ticker) FROM options_bars",
+            "unique_underlyings": "SELECT COUNT(DISTINCT underlying_ticker) FROM options_bars",
+            "date_range": "SELECT MIN(timestamp), MAX(timestamp) FROM options_bars",
+            "total_size_mb": """
+                SELECT pg_size_pretty(pg_total_relation_size('options_bars'))
+            """,
+            "compressed_chunks": """
+                SELECT COUNT(*)
+                FROM timescaledb_information.chunks
+                WHERE hypertable_name = 'options_bars'
+                    AND is_compressed = true
+            """,
+        }
+
         with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Total row count
-                cur.execute("SELECT COUNT(*) as count FROM options_bars")
-                stats["total_rows"] = cur.fetchone()["count"]
-
-                # Database size
-                cur.execute(
-                    "SELECT pg_size_pretty(pg_database_size(%s)) as size", (self.database,)
-                )
-                stats["database_size"] = cur.fetchone()["size"]
-
-                # Table size
-                cur.execute("SELECT pg_size_pretty(pg_total_relation_size('options_bars')) as size")
-                stats["table_size"] = cur.fetchone()["size"]
-
-                # Compression stats
-                cur.execute("""
-                    SELECT
-                        COUNT(*) as compressed_chunks
-                    FROM timescaledb_information.chunks
-                    WHERE hypertable_name = 'options_bars'
-                        AND is_compressed = TRUE
-                """)
-                stats["compressed_chunks"] = cur.fetchone()["compressed_chunks"]
-
-                # Time range
-                cur.execute("SELECT MIN(timestamp) as min_time, MAX(timestamp) as max_time FROM options_bars")
-                row = cur.fetchone()
-                stats["min_timestamp"] = row["min_time"]
-                stats["max_timestamp"] = row["max_time"]
+            with conn.cursor() as cur:
+                for key, query in queries.items():
+                    cur.execute(query)
+                    result = cur.fetchone()
+                    if key == "date_range" and result[0]:
+                        stats["oldest_data"] = result[0]
+                        stats["newest_data"] = result[1]
+                    elif key == "total_size_mb":
+                        stats[key] = result[0]
+                    elif result:
+                        stats[key] = result[0]
 
         return stats
 
-    # ========================================================================
-    # UNDERLYING PRICE DATA METHODS
-    # ========================================================================
+    # ==================== Underlying Bars Methods ====================
 
     def insert_underlying_bar(self, bar: "UnderlyingBar") -> None:
-        """
-        Insert a single underlying price bar using Pydantic model.
-
-        Args:
-            bar: UnderlyingBar Pydantic model instance
-
-        Example:
-            >>> from quant_vibe.models import UnderlyingBar
-            >>> from quant_vibe.utils import now_utc
-            >>> from decimal import Decimal
-            >>> bar = UnderlyingBar(
-            ...     timestamp=now_utc(),
-            ...     ticker="SPX",
-            ...     open=Decimal("6100.0"),
-            ...     high=Decimal("6120.0"),
-            ...     low=Decimal("6090.0"),
-            ...     close=Decimal("6110.0"),
-            ...     volume=1000000,
-            ... )
-            >>> store.insert_underlying_bar(bar)
-        """
+        """Insert a single underlying bar."""
         query = """
-        INSERT INTO underlying_bars (
-            timestamp, ticker,
-            open, high, low, close, volume, vwap, transactions,
-            data_source
-        ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-        )
-        ON CONFLICT (timestamp, ticker) DO UPDATE SET
-            open = EXCLUDED.open,
-            high = EXCLUDED.high,
-            low = EXCLUDED.low,
-            close = EXCLUDED.close,
-            volume = EXCLUDED.volume,
-            vwap = EXCLUDED.vwap,
-            transactions = EXCLUDED.transactions,
-            data_source = EXCLUDED.data_source
+        INSERT INTO underlying_bars_minute (
+            timestamp, ticker, open, high, low, close, volume, vwap, transactions
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (timestamp, ticker) DO NOTHING
         """
 
         with self.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(query, (
-                    bar.timestamp,
-                    bar.ticker,
-                    float(bar.open),
-                    float(bar.high),
-                    float(bar.low),
-                    float(bar.close),
-                    bar.volume,
-                    float(bar.vwap) if bar.vwap is not None else None,
-                    bar.transactions,
-                    bar.data_source,
-                ))
+                cur.execute(
+                    query,
+                    (
+                        bar.timestamp,
+                        bar.ticker,
+                        float(bar.open),
+                        float(bar.high),
+                        float(bar.low),
+                        float(bar.close),
+                        bar.volume,
+                        float(bar.vwap) if bar.vwap is not None else None,
+                        bar.transactions,
+                    ),
+                )
             conn.commit()
 
-    def bulk_insert_underlying_bars(self, bars: List["UnderlyingBar"], batch_size: int = 1000) -> int:
-        """
-        Bulk insert underlying price bars using Pydantic models.
+    def bulk_insert_underlying_bars(
+        self, bars: List["UnderlyingBar"], batch_size: int = 1000
+    ) -> int:
+        """Bulk insert underlying bars."""
+        if not bars:
+            return 0
 
-        Args:
-            bars: List of UnderlyingBar Pydantic model instances
-            batch_size: Number of bars per batch (default: 1000)
-
-        Returns:
-            Number of bars inserted
-
-        Example:
-            >>> from quant_vibe.models import UnderlyingBar
-            >>> from quant_vibe.utils import now_utc
-            >>> from decimal import Decimal
-            >>> bars = [
-            ...     UnderlyingBar(
-            ...         timestamp=now_utc(),
-            ...         ticker="SPX",
-            ...         open=Decimal("6850.0"),
-            ...         high=Decimal("6855.0"),
-            ...         low=Decimal("6848.0"),
-            ...         close=Decimal("6852.0"),
-            ...         volume=0,
-            ...     ),
-            ... ]
-            >>> store.bulk_insert_underlying_bars(bars)
-        """
         query = """
-        INSERT INTO underlying_bars (
-            timestamp, ticker,
-            open, high, low, close, volume, vwap, transactions,
-            data_source
-        ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-        )
-        ON CONFLICT (timestamp, ticker) DO UPDATE SET
-            open = EXCLUDED.open,
-            high = EXCLUDED.high,
-            low = EXCLUDED.low,
-            close = EXCLUDED.close,
-            volume = EXCLUDED.volume,
-            vwap = EXCLUDED.vwap,
-            transactions = EXCLUDED.transactions,
-            data_source = EXCLUDED.data_source
+        INSERT INTO underlying_bars_minute (
+            timestamp, ticker, open, high, low, close, volume, vwap, transactions
+        ) VALUES %s
+        ON CONFLICT (timestamp, ticker) DO NOTHING
         """
 
         total_inserted = 0
-
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 for i in range(0, len(bars), batch_size):
-                    batch = bars[i:i + batch_size]
-
-                    values = []
-                    for bar in batch:
-                        values.append((
+                    batch = bars[i : i + batch_size]
+                    values = [
+                        (
                             bar.timestamp,
                             bar.ticker,
                             float(bar.open),
@@ -1065,602 +698,384 @@ class TimescaleStore:
                             bar.volume,
                             float(bar.vwap) if bar.vwap is not None else None,
                             bar.transactions,
-                            bar.data_source,
-                        ))
+                        )
+                        for bar in batch
+                    ]
 
-                    cur.executemany(query, values)
-                    total_inserted += len(batch)
+                    execute_batch(
+                        cur,
+                        query.replace("%s", "(%s, %s, %s, %s, %s, %s, %s, %s, %s)"),
+                        values
+                    )
+                    total_inserted += cur.rowcount
 
             conn.commit()
 
+        logger.info(f"Bulk inserted {total_inserted} underlying bars")
         return total_inserted
 
     def get_underlying_bars(
         self,
         ticker: str,
-        start_time: datetime,
-        end_time: datetime
-    ) -> List["UnderlyingBar"]:
-        """
-        Get underlying price bars for a ticker and time range.
+        start_date: datetime,
+        end_date: datetime,
+        timeframe: str = "1min",
+        columns: Optional[List[str]] = None,
+    ) -> pd.DataFrame:
+        """Get underlying bars from database."""
+        table_map = {
+            "1min": "underlying_bars_minute",
+            "5min": "underlying_bars_5min",
+            "15min": "underlying_bars_15min",
+            "1hour": "underlying_bars_1hour",
+            "daily": "underlying_bars_daily",
+        }
 
-        Args:
-            ticker: Ticker symbol (e.g., 'SPX', 'SPY')
-            start_time: Start timestamp
-            end_time: End timestamp
+        if timeframe not in table_map:
+            raise ValueError(f"Invalid timeframe: {timeframe}")
 
-        Returns:
-            List of UnderlyingBar Pydantic model instances
+        if columns:
+            cols = ", ".join(columns)
+        else:
+            cols = "timestamp, ticker, open, high, low, close, volume"
 
-        Example:
-            >>> from quant_vibe.data import TimescaleStore
-            >>> from quant_vibe.utils import now_utc
-            >>> from datetime import timedelta
-            >>> store = TimescaleStore()
-            >>> bars = store.get_underlying_bars(
-            ...     'SPX',
-            ...     now_utc() - timedelta(hours=1),
-            ...     now_utc()
-            ... )
-        """
-        query = """
-        SELECT
-            timestamp,
-            open,
-            high,
-            low,
-            close,
-            volume,
-            vwap,
-            transactions
-        FROM underlying_bars
+        query = f"""
+        SELECT {cols}
+        FROM {table_map[timeframe]}
         WHERE ticker = %s
             AND timestamp >= %s
             AND timestamp <= %s
-        ORDER BY timestamp ASC
+        ORDER BY timestamp
         """
 
-        df = pd.read_sql_query(
+        return pd.read_sql(
             query,
             self.engine,
-            params=(ticker, start_time, end_time),
-            parse_dates=['timestamp']
+            params=[ticker, start_date, end_date],
+            parse_dates=["timestamp"]
         )
 
-        if df.empty:
-            return []
-
-        # Convert to UnderlyingBar Pydantic models using vectorized operations
-        from quant_vibe.models import UnderlyingBar
-        from decimal import Decimal
-
-        # Pre-fill data_source if not present
-        if 'data_source' not in df.columns:
-            df['data_source'] = 'schwab'
-
-        # Convert to dict records for batch processing (much faster than iterrows)
-        records = df.to_dict('records')
-
-        # Batch convert to Pydantic models
-        bars = []
-        for record in records:
-            # Add ticker since it's not in the query result
-            record['ticker'] = ticker
-
-            # Convert numeric fields to Decimal
-            for field in ['open', 'high', 'low', 'close', 'vwap']:
-                if field in record and pd.notna(record[field]):
-                    record[field] = Decimal(str(record[field]))
-                elif field in record:
-                    record[field] = None
-
-            # Convert integer fields
-            for field in ['volume', 'transactions']:
-                if field in record and pd.notna(record[field]):
-                    record[field] = int(record[field])
-                elif field in record:
-                    record[field] = None if field != 'volume' else 0
-
-            try:
-                bar = UnderlyingBar.model_validate(record)
-                bars.append(bar)
-            except Exception as e:
-                logger.warning(f"Failed to create UnderlyingBar from record: {e}")
-                continue
-
-        return bars
-
-    # ========================================================================
-    # BACKTEST RESULTS PERSISTENCE
-    # ========================================================================
+    # ==================== Backtest Methods ====================
 
     def save_backtest_run(
         self,
         backtest_id: str,
         strategy_name: str,
+        ticker: str,
         start_date: datetime,
         end_date: datetime,
         initial_capital: float,
-        parameters: Optional[Dict[str, Any]] = None,
-        max_positions: int = 1,
-        status: str = "pending",
-        created_by: Optional[str] = None,
+        parameters: Dict[str, Any],
+        final_capital: Optional[float] = None,
+        total_return: Optional[float] = None,
+        max_drawdown: Optional[float] = None,
+        sharpe_ratio: Optional[float] = None,
+        total_trades: Optional[int] = None,
+        winning_trades: Optional[int] = None,
+        losing_trades: Optional[int] = None,
+        avg_profit: Optional[float] = None,
+        avg_loss: Optional[float] = None,
+        profit_factor: Optional[float] = None,
+        win_rate: Optional[float] = None,
+        status: str = "running",
+        error_message: Optional[str] = None,
     ) -> None:
-        """
-        Save backtest run metadata to database.
-
-        Args:
-            backtest_id: Unique identifier for this backtest run
-            strategy_name: Name of the strategy
-            start_date: Backtest start date
-            end_date: Backtest end date
-            initial_capital: Starting capital
-            parameters: Strategy parameters (stored as JSON)
-            max_positions: Maximum concurrent positions
-            status: Execution status ('pending', 'running', 'completed', 'failed')
-            created_by: Username of who created this backtest
-
-        Example:
-            >>> store = TimescaleStore()
-            >>> store.save_backtest_run(
-            ...     backtest_id='bullish_vertical_put_20251230_143022',
-            ...     strategy_name='bullish_vertical_put',
-            ...     start_date=datetime(2025, 12, 1),
-            ...     end_date=datetime(2025, 12, 15),
-            ...     initial_capital=100000.0,
-            ...     parameters={'spread_width': 20, 'min_dte': 0, 'max_dte': 0}
-            ... )
-        """
-        import json
-
+        """Save backtest run metadata and metrics."""
         query = """
         INSERT INTO backtest_runs (
-            backtest_id, strategy_name, start_date, end_date, initial_capital,
-            parameters, max_positions, status, created_by
+            backtest_id, strategy_name, ticker, start_date, end_date,
+            initial_capital, parameters, final_capital, total_return,
+            max_drawdown, sharpe_ratio, total_trades, winning_trades,
+            losing_trades, avg_profit, avg_loss, profit_factor, win_rate,
+            status, error_message, created_at
         ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s
         )
         ON CONFLICT (backtest_id) DO UPDATE SET
+            final_capital = EXCLUDED.final_capital,
+            total_return = EXCLUDED.total_return,
+            max_drawdown = EXCLUDED.max_drawdown,
+            sharpe_ratio = EXCLUDED.sharpe_ratio,
+            total_trades = EXCLUDED.total_trades,
+            winning_trades = EXCLUDED.winning_trades,
+            losing_trades = EXCLUDED.losing_trades,
+            avg_profit = EXCLUDED.avg_profit,
+            avg_loss = EXCLUDED.avg_loss,
+            profit_factor = EXCLUDED.profit_factor,
+            win_rate = EXCLUDED.win_rate,
             status = EXCLUDED.status,
-            parameters = EXCLUDED.parameters
+            error_message = EXCLUDED.error_message,
+            updated_at = NOW()
         """
 
-        params = (
-            backtest_id,
-            strategy_name,
-            start_date,
-            end_date,
-            initial_capital,
-            json.dumps(parameters) if parameters else None,
-            max_positions,
-            status,
-            created_by,
-        )
-
         with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(query, params)
+            with conn.cursor() as cur:
+                cur.execute(
+                    query,
+                    (
+                        backtest_id, strategy_name, ticker, start_date, end_date,
+                        initial_capital, json.dumps(parameters), final_capital,
+                        total_return, max_drawdown, sharpe_ratio, total_trades,
+                        winning_trades, losing_trades, avg_profit, avg_loss,
+                        profit_factor, win_rate, status, error_message, now_utc()
+                    ),
+                )
             conn.commit()
+
+        logger.info(f"Saved backtest run {backtest_id} with status {status}")
 
     def update_backtest_status(
         self,
         backtest_id: str,
         status: str,
         error_message: Optional[str] = None,
+        completed_at: Optional[datetime] = None,
     ) -> None:
-        """
-        Update backtest execution status.
-
-        Args:
-            backtest_id: Backtest identifier
-            status: New status ('running', 'completed', 'failed')
-            error_message: Error message if status is 'failed'
-        """
-        if status == "running":
-            query = """
-            UPDATE backtest_runs
-            SET status = %s, started_at = NOW()
-            WHERE backtest_id = %s
-            """
-            params = (status, backtest_id)
-        elif status in ("completed", "failed"):
-            query = """
-            UPDATE backtest_runs
-            SET status = %s, completed_at = NOW(), error_message = %s
-            WHERE backtest_id = %s
-            """
-            params = (status, error_message, backtest_id)
-        else:
-            query = """
-            UPDATE backtest_runs
-            SET status = %s
-            WHERE backtest_id = %s
-            """
-            params = (status, backtest_id)
-
-        with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(query, params)
-            conn.commit()
-
-    def update_backtest_metrics(
-        self,
-        backtest_id: str,
-        metrics: Dict[str, Any],
-    ) -> None:
-        """
-        Update backtest summary metrics.
-
-        Args:
-            backtest_id: Backtest identifier
-            metrics: Dictionary of performance metrics
-
-        Example:
-            >>> metrics = {
-            ...     'final_capital': 105000.0,
-            ...     'total_return': 5000.0,
-            ...     'total_return_pct': 5.0,
-            ...     'num_trades': 10,
-            ...     'win_rate': 70.0,
-            ...     'sharpe_ratio': 1.5,
-            ... }
-            >>> store.update_backtest_metrics(backtest_id, metrics)
-        """
+        """Update backtest run status."""
         query = """
         UPDATE backtest_runs
-        SET
-            final_capital = %(final_capital)s,
-            total_return = %(total_return)s,
-            total_return_pct = %(total_return_pct)s,
-            num_trades = %(num_trades)s,
-            num_winning_trades = %(num_winning_trades)s,
-            num_losing_trades = %(num_losing_trades)s,
-            win_rate = %(win_rate)s,
-            avg_win = %(avg_win)s,
-            avg_loss = %(avg_loss)s,
-            profit_factor = %(profit_factor)s,
-            max_drawdown = %(max_drawdown)s,
-            sharpe_ratio = %(sharpe_ratio)s
-        WHERE backtest_id = %(backtest_id)s
+        SET status = %s,
+            error_message = %s,
+            completed_at = %s,
+            updated_at = NOW()
+        WHERE backtest_id = %s
         """
-
-        params = {**metrics, "backtest_id": backtest_id}
 
         with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(query, params)
+            with conn.cursor() as cur:
+                cur.execute(query, (status, error_message, completed_at, backtest_id))
             conn.commit()
 
-    def save_backtest_trades(
-        self,
-        backtest_id: str,
-        trades_df: pd.DataFrame,
+        logger.info(f"Updated backtest {backtest_id} status to {status}")
+
+    def update_backtest_metrics(
+        self, backtest_id: str, metrics: Dict[str, Any]
     ) -> None:
-        """
-        Save trade records to database.
+        """Update backtest metrics after completion."""
+        allowed_fields = [
+            "final_capital", "total_return", "max_drawdown", "sharpe_ratio",
+            "total_trades", "winning_trades", "losing_trades", "avg_profit",
+            "avg_loss", "profit_factor", "win_rate"
+        ]
 
-        Args:
-            backtest_id: Backtest identifier
-            trades_df: DataFrame with trade records (matches Trade Pydantic model)
+        updates = []
+        params = []
 
-        Expected columns (matching Trade model in src/quant_vibe/models/market_data.py):
-            - position_id, strategy_name, spread_type
-            - entry_time, exit_time, duration_minutes (optional)
-            - entry_premium, exit_premium, pnl, pnl_pct
-            - entry_trigger, exit_reason
-            - entry_underlying_price, exit_underlying_price
-            - max_risk, max_profit, peak_value
-            - legs (as list of dicts or JSON string)
-        """
-        import json
+        for field, value in metrics.items():
+            if field in allowed_fields:
+                updates.append(f"{field} = %s")
+                params.append(value)
 
-        if trades_df.empty:
+        if not updates:
             return
+
+        params.append(backtest_id)
+        query = f"""
+        UPDATE backtest_runs
+        SET {', '.join(updates)}, updated_at = NOW()
+        WHERE backtest_id = %s
+        """
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+            conn.commit()
+
+        logger.info(f"Updated metrics for backtest {backtest_id}")
+
+    def save_backtest_trades(
+        self, backtest_id: str, trades: pd.DataFrame
+    ) -> None:
+        """Save backtest trade history."""
+        if trades.empty:
+            return
+
+        def convert_to_serializable(obj):
+            """Convert non-serializable objects for JSON storage."""
+            if pd.isna(obj):
+                return None
+            if isinstance(obj, (pd.Timestamp, datetime)):
+                return obj.isoformat()
+            if hasattr(obj, "tolist"):
+                return obj.tolist()
+            if hasattr(obj, "to_dict"):
+                return obj.to_dict()
+            return str(obj)
 
         query = """
         INSERT INTO backtest_trades (
-            backtest_id, position_id, strategy_name, spread_type, entry_time, exit_time,
-            duration_minutes, entry_premium, exit_premium, pnl, pnl_pct,
-            entry_trigger, exit_reason, entry_underlying_price, exit_underlying_price,
-            max_risk, max_profit, peak_value, legs
-        ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-        )
+            backtest_id, trade_number, timestamp, action, quantity,
+            price, trade_value, commission, position_after,
+            portfolio_value, metadata
+        ) VALUES %s
         """
 
-        def convert_to_serializable(obj):
-            """
-            Convert pandas/numpy/datetime types to JSON-serializable types.
+        values = []
+        for idx, row in trades.iterrows():
+            trade_number = idx + 1 if isinstance(idx, int) else idx
 
-            This follows the Pydantic pattern for handling complex types at data boundaries.
-            See: docs/SIMPLIFICATION_PLAN.md for the long-term Pydantic migration plan.
-            """
-            from datetime import datetime, date
-            from decimal import Decimal
+            metadata = {}
+            for col in trades.columns:
+                if col not in ["timestamp", "action", "quantity", "price", "commission"]:
+                    value = row[col]
+                    if not pd.isna(value):
+                        metadata[col] = convert_to_serializable(value)
 
-            if obj is None:
-                return None
-
-            # Handle datetime types (timestamp normalization)
-            if isinstance(obj, pd.Timestamp):
-                return obj.isoformat()
-            if isinstance(obj, datetime):
-                return obj.isoformat()
-            if isinstance(obj, date):
-                return obj.isoformat()
-
-            # Handle numeric types
-            if isinstance(obj, Decimal):
-                return float(obj)
-            if hasattr(obj, 'item'):  # NumPy scalar
-                return obj.item()
-
-            # Recursively handle collections
-            if isinstance(obj, dict):
-                return {k: convert_to_serializable(v) for k, v in obj.items()}
-            if isinstance(obj, (list, tuple)):
-                return [convert_to_serializable(item) for item in obj]
-
-            return obj
-
-        # Prepare records for batch insert
-        records = []
-        for _, row in trades_df.iterrows():
-            # Convert legs to JSON if it's a list of dicts
-            legs_json = row.get('legs', [])
-            if isinstance(legs_json, str):
-                legs_json = json.loads(legs_json)
-
-            # Convert all pandas/numpy types to serializable types
-            legs_json = convert_to_serializable(legs_json)
-
-            records.append((
+            values.append((
                 backtest_id,
-                row.get('position_id'),
-                row.get('strategy_name'),
-                row.get('spread_type'),
-                row.get('entry_time'),
-                row.get('exit_time'),
-                row.get('duration_minutes'),
-                row.get('entry_premium'),
-                row.get('exit_premium'),
-                row.get('pnl'),
-                row.get('pnl_pct'),
-                row.get('entry_trigger'),
-                row.get('exit_reason'),
-                row.get('entry_underlying_price'),
-                row.get('exit_underlying_price'),
-                row.get('max_risk'),
-                row.get('max_profit'),
-                row.get('peak_value'),
-                json.dumps(legs_json),
+                trade_number,
+                row.get("timestamp", row.get("entry_timestamp")),
+                row.get("action", "trade"),
+                row.get("quantity", row.get("contracts", 1)),
+                float(row.get("price", row.get("entry_price", 0))),
+                float(row.get("trade_value", row.get("cost", 0))),
+                float(row.get("commission", 0)),
+                row.get("position_after", 0),
+                float(row.get("portfolio_value", row.get("capital", 0))),
+                json.dumps(metadata) if metadata else None,
             ))
 
         with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                execute_batch(cursor, query, records, page_size=100)
+            with conn.cursor() as cur:
+                execute_batch(
+                    cur,
+                    query.replace("%s", "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"),
+                    values,
+                    page_size=100
+                )
             conn.commit()
 
+        logger.info(f"Saved {len(values)} trades for backtest {backtest_id}")
+
     def save_backtest_equity_curve(
-        self,
-        backtest_id: str,
-        equity_df: pd.DataFrame,
+        self, backtest_id: str, equity_curve: pd.DataFrame
     ) -> None:
-        """
-        Save equity curve data to database.
-
-        Args:
-            backtest_id: Backtest identifier
-            equity_df: DataFrame with equity curve snapshots
-
-        Expected columns or index:
-            - timestamp (as index or column), cash, portfolio_value, active_position
-            - returns, cummax, drawdown (optional)
-        """
-        if equity_df.empty:
+        """Save backtest equity curve data."""
+        if equity_curve.empty:
             return
-
-        # Reset index to get timestamp as a column if it's the index
-        df = equity_df.copy()
-        if df.index.name == 'timestamp' or 'timestamp' not in df.columns:
-            df = df.reset_index()
 
         query = """
         INSERT INTO backtest_equity_curve (
-            backtest_id, timestamp, cash, portfolio_value, active_position,
-            returns, cummax, drawdown
-        ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s
-        )
+            backtest_id, timestamp, portfolio_value, cash,
+            positions_value, daily_return, drawdown
+        ) VALUES %s
         """
 
-        # Prepare records for batch insert
-        records = []
-        for _, row in df.iterrows():
-            records.append((
+        values = []
+        for _, row in equity_curve.iterrows():
+            values.append((
                 backtest_id,
-                row.get('timestamp'),
-                row.get('cash'),
-                row.get('portfolio_value'),
-                row.get('active_position', False),
-                row.get('returns'),
-                row.get('cummax'),
-                row.get('drawdown'),
+                row["timestamp"] if "timestamp" in row else row.name,
+                float(row.get("portfolio_value", row.get("total", 0))),
+                float(row.get("cash", 0)),
+                float(row.get("positions_value", 0)),
+                float(row.get("daily_return", 0)),
+                float(row.get("drawdown", 0)),
             ))
 
         with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                execute_batch(cursor, query, records, page_size=1000)
+            with conn.cursor() as cur:
+                execute_batch(
+                    cur,
+                    query.replace("%s", "(%s, %s, %s, %s, %s, %s, %s)"),
+                    values,
+                    page_size=100
+                )
             conn.commit()
 
+        logger.info(f"Saved equity curve with {len(values)} points for backtest {backtest_id}")
+
     def get_backtest_run(self, backtest_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Get backtest run metadata.
-
-        Args:
-            backtest_id: Backtest identifier
-
-        Returns:
-            Dictionary with backtest metadata or None if not found
-        """
+        """Get backtest run details."""
         query = """
-        SELECT * FROM backtest_runs
-        WHERE backtest_id = %s
+        SELECT * FROM backtest_runs WHERE backtest_id = %s
         """
 
         with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(query, (backtest_id,))
-                result = cursor.fetchone()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(query, (backtest_id,))
+                result = cur.fetchone()
                 return dict(result) if result else None
 
     def get_backtest_trades(self, backtest_id: str) -> pd.DataFrame:
-        """
-        Get trade records for a backtest.
-
-        Args:
-            backtest_id: Backtest identifier
-
-        Returns:
-            DataFrame with trade records (matching Trade Pydantic model)
-        """
+        """Get backtest trade history."""
         query = """
-        SELECT
-            trade_id, position_id, strategy_name, spread_type, entry_time, exit_time,
-            duration_minutes, entry_premium, exit_premium, pnl, pnl_pct,
-            entry_trigger, exit_reason, entry_underlying_price, exit_underlying_price,
-            max_risk, max_profit, peak_value, legs
-        FROM backtest_trades
+        SELECT * FROM backtest_trades
         WHERE backtest_id = %s
-        ORDER BY entry_time ASC
+        ORDER BY trade_number
         """
 
-        df = pd.read_sql_query(
-            query,
-            self.engine,
-            params=(backtest_id,),
-            parse_dates=['entry_time', 'exit_time']
-        )
+        df = pd.read_sql(query, self.engine, params=[backtest_id])
+
+        # Parse metadata JSON if present
+        if "metadata" in df.columns and not df.empty:
+            df["metadata"] = df["metadata"].apply(
+                lambda x: json.loads(x) if x else {}
+            )
 
         return df
 
     def get_backtest_equity_curve(self, backtest_id: str) -> pd.DataFrame:
-        """
-        Get equity curve for a backtest.
-
-        Args:
-            backtest_id: Backtest identifier
-
-        Returns:
-            DataFrame with equity curve data
-        """
+        """Get backtest equity curve."""
         query = """
-        SELECT
-            timestamp, cash, portfolio_value, active_position,
-            returns, cummax, drawdown
-        FROM backtest_equity_curve
+        SELECT * FROM backtest_equity_curve
         WHERE backtest_id = %s
-        ORDER BY timestamp ASC
+        ORDER BY timestamp
         """
 
-        df = pd.read_sql_query(
+        return pd.read_sql(
             query,
             self.engine,
-            params=(backtest_id,),
-            parse_dates=['timestamp']
+            params=[backtest_id],
+            parse_dates=["timestamp"]
         )
-
-        return df
 
     def get_backtest_history(
         self,
         strategy_name: Optional[str] = None,
-        limit: int = 50,
-        status: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Get backtest execution history.
-
-        Args:
-            strategy_name: Filter by strategy name (optional)
-            limit: Maximum number of results
-            status: Filter by status (optional)
-
-        Returns:
-            List of backtest metadata dictionaries
-        """
+        ticker: Optional[str] = None,
+        limit: int = 100,
+    ) -> pd.DataFrame:
+        """Get historical backtest runs."""
         query = """
-        SELECT * FROM backtest_runs
-        WHERE 1=1
+        SELECT * FROM backtest_runs WHERE 1=1
         """
+
         params = []
 
         if strategy_name:
             query += " AND strategy_name = %s"
             params.append(strategy_name)
 
-        if status:
-            query += " AND status = %s"
-            params.append(status)
+        if ticker:
+            query += " AND ticker = %s"
+            params.append(ticker)
 
         query += " ORDER BY created_at DESC LIMIT %s"
         params.append(limit)
 
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(query, params)
-                results = cursor.fetchall()
-                return [dict(row) for row in results]
+        return pd.read_sql(
+            query,
+            self.engine,
+            params=params,
+            parse_dates=["start_date", "end_date", "created_at", "updated_at"]
+        )
 
     def delete_backtest(self, backtest_id: str) -> bool:
-        """
-        Delete a backtest and all associated data (trades, equity curve).
+        """Delete backtest and all related data."""
+        query = "DELETE FROM backtest_runs WHERE backtest_id = %s"
 
-        Args:
-            backtest_id: Unique backtest identifier
-
-        Returns:
-            True if deletion was successful, False if backtest not found
-        """
         with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                # Delete trades first (foreign key constraint)
-                cursor.execute(
-                    "DELETE FROM backtest_trades WHERE backtest_id = %s",
-                    (backtest_id,)
-                )
-
-                # Delete equity curve
-                cursor.execute(
-                    "DELETE FROM backtest_equity_curve WHERE backtest_id = %s",
-                    (backtest_id,)
-                )
-
-                # Delete backtest run
-                cursor.execute(
-                    "DELETE FROM backtest_runs WHERE backtest_id = %s",
-                    (backtest_id,)
-                )
-
-                deleted_count = cursor.rowcount
+            with conn.cursor() as cur:
+                cur.execute(query, (backtest_id,))
+                deleted = cur.rowcount > 0
                 conn.commit()
 
-                return deleted_count > 0
+        if deleted:
+            logger.info(f"Deleted backtest {backtest_id}")
 
-    def close(self) -> None:
-        """Close all connections in the pool and dispose of SQLAlchemy engine."""
-        if self.pool:
-            self.pool.closeall()
-        if self._engine is not None:
-            self._engine.dispose()
-
-    def __enter__(self):
-        """Context manager entry."""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
-        self.close()
+        return deleted
 
     # ==================== Backtest Analysis Methods ====================
 
@@ -1676,147 +1091,68 @@ class TimescaleStore:
         recommendations_markdown: str,
         analyzer_version: str = "1.0.0",
     ) -> int:
-        """
-        Save backtest analysis results to database.
-
-        Args:
-            backtest_id: Backtest identifier
-            total_trades: Total number of trades analyzed
-            outlier_threshold_pct: Standard deviation threshold used
-            num_big_winners: Number of outlier winners found
-            num_big_losers: Number of outlier losers found
-            findings: JSONB structured findings
-            summary_markdown: Markdown summary
-            recommendations_markdown: Markdown recommendations
-            analyzer_version: Version of analyzer
-
-        Returns:
-            analysis_id: Database ID of created analysis record
-
-        Raises:
-            psycopg2.Error: If database operation fails
-        """
-        import json
-
+        """Save backtest analysis results."""
         query = """
-            INSERT INTO backtest_analysis (
-                backtest_id,
-                total_trades,
-                outlier_threshold_pct,
-                num_big_winners,
-                num_big_losers,
-                findings,
-                summary_markdown,
-                recommendations_markdown,
-                analyzer_version
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s
-            )
-            RETURNING analysis_id;
+        INSERT INTO backtest_analysis (
+            backtest_id, total_trades, outlier_threshold_pct,
+            num_big_winners, num_big_losers, findings,
+            summary_markdown, recommendations_markdown, analyzer_version
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING analysis_id
         """
 
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(
+            with conn.cursor() as cur:
+                cur.execute(
                     query,
                     (
-                        backtest_id,
-                        total_trades,
-                        outlier_threshold_pct,
-                        num_big_winners,
-                        num_big_losers,
-                        json.dumps(findings),
-                        summary_markdown,
-                        recommendations_markdown,
-                        analyzer_version,
+                        backtest_id, total_trades, outlier_threshold_pct,
+                        num_big_winners, num_big_losers, json.dumps(findings),
+                        summary_markdown, recommendations_markdown, analyzer_version
                     ),
                 )
-                analysis_id = cursor.fetchone()[0]
+                analysis_id = cur.fetchone()[0]
                 conn.commit()
-                logger.info(f"Saved analysis {analysis_id} for backtest {backtest_id}")
-                return analysis_id
-            except Exception as e:
-                conn.rollback()
-                logger.error(f"Failed to save backtest analysis: {e}")
-                raise
+
+        logger.info(f"Saved analysis {analysis_id} for backtest {backtest_id}")
+        return analysis_id
 
     def get_backtest_analysis(self, backtest_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Get backtest analysis results from database.
-
-        Args:
-            backtest_id: Backtest identifier
-
-        Returns:
-            Dictionary with analysis data, or None if not found
-        """
+        """Get backtest analysis results."""
         query = """
-            SELECT
-                analysis_id,
-                backtest_id,
-                analyzed_at,
-                total_trades,
-                outlier_threshold_pct,
-                num_big_winners,
-                num_big_losers,
-                findings,
-                summary_markdown,
-                recommendations_markdown,
-                analyzer_version,
-                created_at,
-                updated_at
-            FROM backtest_analysis
-            WHERE backtest_id = %s
-            ORDER BY analyzed_at DESC
-            LIMIT 1;
+        SELECT * FROM backtest_analysis
+        WHERE backtest_id = %s
+        ORDER BY analyzed_at DESC
+        LIMIT 1
         """
 
         with self.get_connection() as conn:
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            try:
-                cursor.execute(query, (backtest_id,))
-                result = cursor.fetchone()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(query, (backtest_id,))
+                result = cur.fetchone()
+
                 if result:
-                    # Convert to regular dict and handle datetime objects
                     analysis = dict(result)
                     # Convert datetime objects to ISO format strings
                     for key in ["analyzed_at", "created_at", "updated_at"]:
                         if key in analysis and analysis[key]:
                             analysis[key] = analysis[key].isoformat()
                     return analysis
+
                 return None
-            except Exception as e:
-                logger.error(f"Failed to get backtest analysis: {e}")
-                raise
 
     def delete_backtest_analysis(self, backtest_id: str) -> int:
-        """
-        Delete backtest analysis for a specific backtest.
-
-        Note: This is also handled automatically by ON DELETE CASCADE
-        when a backtest is deleted.
-
-        Args:
-            backtest_id: Backtest identifier
-
-        Returns:
-            Number of analysis records deleted
-        """
-        query = "DELETE FROM backtest_analysis WHERE backtest_id = %s;"
+        """Delete backtest analysis records."""
+        query = "DELETE FROM backtest_analysis WHERE backtest_id = %s"
 
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(query, (backtest_id,))
-                deleted_count = cursor.rowcount
+            with conn.cursor() as cur:
+                cur.execute(query, (backtest_id,))
+                deleted_count = cur.rowcount
                 conn.commit()
-                logger.info(f"Deleted {deleted_count} analysis records for backtest {backtest_id}")
-                return deleted_count
-            except Exception as e:
-                conn.rollback()
-                logger.error(f"Failed to delete backtest analysis: {e}")
-                raise
+
+        logger.info(f"Deleted {deleted_count} analysis records for backtest {backtest_id}")
+        return deleted_count
 
     def update_backtest_analysis(
         self,
@@ -1825,21 +1161,7 @@ class TimescaleStore:
         summary_markdown: Optional[str] = None,
         recommendations_markdown: Optional[str] = None,
     ) -> bool:
-        """
-        Update an existing backtest analysis.
-
-        Args:
-            analysis_id: Analysis record ID
-            findings: Optional updated findings JSONB
-            summary_markdown: Optional updated summary
-            recommendations_markdown: Optional updated recommendations
-
-        Returns:
-            True if update successful, False if record not found
-        """
-        import json
-
-        # Build dynamic UPDATE query based on provided fields
+        """Update an existing backtest analysis."""
         updates = []
         params = []
 
@@ -1859,27 +1181,39 @@ class TimescaleStore:
             logger.warning("No fields to update in backtest analysis")
             return False
 
-        # Add analysis_id to params
         params.append(analysis_id)
-
         query = f"""
-            UPDATE backtest_analysis
-            SET {', '.join(updates)}
-            WHERE analysis_id = %s;
+        UPDATE backtest_analysis
+        SET {', '.join(updates)}
+        WHERE analysis_id = %s
         """
 
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(query, params)
-                updated = cursor.rowcount > 0
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                updated = cur.rowcount > 0
                 conn.commit()
-                if updated:
-                    logger.info(f"Updated analysis {analysis_id}")
-                else:
-                    logger.warning(f"Analysis {analysis_id} not found for update")
-                return updated
-            except Exception as e:
-                conn.rollback()
-                logger.error(f"Failed to update backtest analysis: {e}")
-                raise
+
+        if updated:
+            logger.info(f"Updated analysis {analysis_id}")
+        else:
+            logger.warning(f"Analysis {analysis_id} not found for update")
+
+        return updated
+
+    # ==================== Context Manager Methods ====================
+
+    def close(self) -> None:
+        """Close all connections and dispose of resources."""
+        if self.pool:
+            self.pool.closeall()
+        if self._engine is not None:
+            self._engine.dispose()
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.close()

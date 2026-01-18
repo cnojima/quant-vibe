@@ -22,12 +22,7 @@ class DailyPerformanceReport:
     Tracks actual P&L vs target, win rates, drawdowns, and strategy-level metrics.
     Designed for systematic income generation tracking ($1,780/day target).
 
-    Example:
-        >>> reporter = DailyPerformanceReport(target_daily_income=1780.0)
-        >>> report = reporter.generate_report(trades_df, now_utc())
-        >>> reporter.save_report(report, Path("reports/daily"))
-        >>> reporter.send_summary(report)  # Via Pushover
-    """
+        """
 
     def __init__(
         self,
@@ -100,7 +95,7 @@ class DailyPerformanceReport:
             day_trades = pd.DataFrame()
 
         # Calculate basic metrics using centralized PnL aggregation
-        if len(day_trades) > 0:
+        if not day_trades.empty:
             # Use centralized PnL aggregator
             pnl_stats = PnLCalculator.aggregate_pnl(day_trades.to_dict('records'))
 

@@ -91,10 +91,7 @@ class MassiveClient:
         Returns:
             DataFrame with options contract data
 
-        Example:
-            >>> client = MassiveClient()
-            >>> contracts = client.list_options_contracts(
-            ...     "SPX",
+                    ...     "SPX",
             ...     expiration_date="2024-12-20",
             ...     contract_type="call"
             ... )
@@ -165,10 +162,7 @@ class MassiveClient:
         Returns:
             DataFrame with options chain data (both calls and puts)
 
-        Example:
-            >>> client = MassiveClient()
-            >>> chain = client.get_option_chain("SPX", "2024-12-20")
-        """
+                """
         return self.list_options_contracts(
             underlying_ticker=underlying_ticker,
             expiration_date=expiration_date,
@@ -201,10 +195,7 @@ class MassiveClient:
         Returns:
             DataFrame with OHLCV data for the option
 
-        Example:
-            >>> client = MassiveClient()
-            >>> bars = client.get_option_bars(
-            ...     "O:SPX241220C04500000",
+                    ...     "O:SPX241220C04500000",
             ...     from_date="2024-01-01",
             ...     to_date="2024-12-20"
             ... )
@@ -297,11 +288,7 @@ class MassiveClient:
             Columns: Open, High, Low, Close, Volume
             Index: timestamp (datetime)
 
-        Example:
-            >>> client = MassiveClient()
-            >>> # Get 1-minute SPX bars for a specific day
-            >>> bars = client.get_index_bars(
-            ...     index_ticker="I:SPX",
+                    ...     index_ticker="I:SPX",
             ...     multiplier=1,
             ...     timespan="minute",
             ...     from_date="2025-12-23",
@@ -379,10 +366,7 @@ class MassiveClient:
         Returns:
             Dictionary with snapshot data including greeks, implied volatility, etc.
 
-        Example:
-            >>> client = MassiveClient()
-            >>> snapshot = client.get_snapshot_option("AAPL", "O:AAPL241220C00150000")
-        """
+                """
         result = self.client.get_snapshot_option(
             underlying_ticker=underlying_ticker, option_contract=option_ticker
         )
@@ -405,10 +389,7 @@ class MassiveClient:
         Returns:
             DataFrame with snapshot data for all contracts in the chain
 
-        Example:
-            >>> client = MassiveClient()
-            >>> chain = client.get_snapshot_options_chain("AAPL")
-        """
+                """
         params = {}
         if strike_price is not None:
             params["strike_price"] = strike_price
@@ -453,13 +434,7 @@ class MassiveClient:
         Returns:
             DataFrame with matching contracts
 
-        Example:
-            >>> client = MassiveClient()
-            >>> # Get all SPX contracts expiring in next 30 days
-            >>> today = now_utc().strftime("%Y-%m-%d")
-            >>> future = (now_utc() + timedelta(days=30)).strftime("%Y-%m-%d")
-            >>> contracts = client.search_options_by_date_range("SPX", today, future)
-        """
+                """
         return self.list_options_contracts(
             underlying_ticker=underlying_ticker,
             expiration_date_gte=start_date,

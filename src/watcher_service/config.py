@@ -1,9 +1,9 @@
-"""Configuration management for watcher service."""
+"""Configuration for watcher service."""
 
-from pathlib import Path
-from typing import List, Optional
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
+from typing import List, Optional
 
 import yaml
 
@@ -14,7 +14,7 @@ class ServiceType(Enum):
     DOCKER = "docker"
     HTTP = "http"
     REDIS = "redis"
-    HYBRID = "hybrid"  # Combines multiple check types
+    HYBRID = "hybrid"
 
 
 class AlertLevel(Enum):
@@ -28,14 +28,14 @@ class AlertLevel(Enum):
 
 @dataclass
 class ServiceConfig:
-    """Configuration for a single service to monitor."""
+    """Configuration for a single service."""
 
     name: str
     type: ServiceType
     critical: bool = True
-    container: Optional[str] = None  # Docker container name
-    health_endpoint: Optional[str] = None  # HTTP health endpoint
-    heartbeat_topic: Optional[str] = None  # Redis topic for heartbeats
+    container: Optional[str] = None
+    health_endpoint: Optional[str] = None
+    heartbeat_topic: Optional[str] = None
     custom_checks: List[str] = field(default_factory=list)
 
 
@@ -45,8 +45,8 @@ class NotificationRule:
 
     level: AlertLevel
     services: List[str]
-    condition: str  # Python expression to evaluate
-    message: str  # Template message with {{placeholders}}
+    condition: str
+    message: str
 
 
 @dataclass
@@ -64,57 +64,48 @@ class WatcherConfig:
     """Main watcher service configuration."""
 
     check_interval_seconds: int = 30
-    heartbeat_timeout_seconds: int = 90  # 3 missed heartbeats
-    critical_timeout_seconds: int = 150  # 5 missed heartbeats
+    heartbeat_timeout_seconds: int = 90
+    critical_timeout_seconds: int = 150
     services: List[ServiceConfig] = field(default_factory=list)
     notifications: NotificationConfig = field(default_factory=NotificationConfig)
 
     @classmethod
     def from_yaml(cls, config_path: Optional[Path] = None) -> "WatcherConfig":
-        """Load configuration from YAML file.
-
-        Args:
-            config_path: Path to config file (defaults to config/watcher.yaml)
-
-        Returns:
-            WatcherConfig instance
-        """
+        """Load configuration from YAML file."""
         if config_path is None:
             config_path = Path(__file__).parent.parent.parent / "config" / "watcher.yaml"
 
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
 
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             data = yaml.safe_load(f)
 
         watcher_data = data.get("watcher", {})
 
-        # Parse services
-        services = []
-        for svc_data in watcher_data.get("services", []):
-            service = ServiceConfig(
-                name=svc_data["name"],
-                type=ServiceType(svc_data["type"]),
-                critical=svc_data.get("critical", True),
-                container=svc_data.get("container"),
-                health_endpoint=svc_data.get("health_endpoint"),
-                heartbeat_topic=svc_data.get("heartbeat_topic"),
-                custom_checks=svc_data.get("custom_checks", []),
+        services = [
+            ServiceConfig(
+                name=svc["name"],
+                type=ServiceType(svc["type"]),
+                critical=svc.get("critical", True),
+                container=svc.get("container"),
+                health_endpoint=svc.get("health_endpoint"),
+                heartbeat_topic=svc.get("heartbeat_topic"),
+                custom_checks=svc.get("custom_checks", []),
             )
-            services.append(service)
+            for svc in watcher_data.get("services", [])
+        ]
 
-        # Parse notification config
         notif_data = watcher_data.get("notifications", {})
-        rules = []
-        for rule_data in notif_data.get("rules", []):
-            rule = NotificationRule(
-                level=AlertLevel(rule_data["level"]),
-                services=rule_data["services"],
-                condition=rule_data["condition"],
-                message=rule_data["message"],
+        rules = [
+            NotificationRule(
+                level=AlertLevel(rule["level"]),
+                services=rule["services"],
+                condition=rule["condition"],
+                message=rule["message"],
             )
-            rules.append(rule)
+            for rule in notif_data.get("rules", [])
+        ]
 
         notifications = NotificationConfig(
             enabled=notif_data.get("enabled", True),
@@ -132,23 +123,12 @@ class WatcherConfig:
         )
 
     def get_service(self, name: str) -> Optional[ServiceConfig]:
-        """Get service config by name.
-
-        Args:
-            name: Service name
-
-        Returns:
-            ServiceConfig or None if not found
-        """
+        """Get service config by name."""
         for service in self.services:
             if service.name == name:
                 return service
         return None
 
     def get_critical_services(self) -> List[ServiceConfig]:
-        """Get list of critical services.
-
-        Returns:
-            List of critical ServiceConfig objects
-        """
+        """Get list of critical services."""
         return [svc for svc in self.services if svc.critical]

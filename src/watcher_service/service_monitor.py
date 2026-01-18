@@ -1,11 +1,11 @@
 """Service monitoring with Docker, HTTP, and Redis health checks."""
 
 import time
-from typing import Dict, Optional, Any
 from enum import Enum
+from typing import Any, Dict, Optional
 
-import requests
 import docker
+import requests
 from docker.errors import DockerException, NotFound
 from quant_vibe.utils import now_utc
 
@@ -23,15 +23,10 @@ class ServiceMonitor:
     """Monitors service health using multiple check methods."""
 
     def __init__(self, logger):
-        """Initialize service monitor.
-
-        Args:
-            logger: Logger instance
-        """
+        """Initialize service monitor."""
         self.logger = logger
         self.docker_client: Optional[docker.DockerClient] = None
 
-        # Initialize Docker client
         try:
             self.docker_client = docker.from_env()
             self.logger.info("Docker client initialized")
@@ -40,14 +35,7 @@ class ServiceMonitor:
             self.logger.warning("Docker health checks will be disabled")
 
     def check_docker_health(self, container_name: str) -> Dict[str, Any]:
-        """Check Docker container health.
-
-        Args:
-            container_name: Name of container to check
-
-        Returns:
-            Dict with status, details, and timestamp
-        """
+        """Check Docker container health."""
         if not self.docker_client:
             return {
                 "status": HealthStatus.UNKNOWN,
@@ -57,12 +45,9 @@ class ServiceMonitor:
 
         try:
             container = self.docker_client.containers.get(container_name)
-
-            # Get container state
             container.reload()
             state = container.attrs["State"]
 
-            # Check if running
             if not state.get("Running", False):
                 return {
                     "status": HealthStatus.UNHEALTHY,
@@ -71,39 +56,32 @@ class ServiceMonitor:
                     "restart_count": state.get("RestartCount", 0),
                 }
 
-            # Check Docker health status (if healthcheck defined)
             health = state.get("Health", {})
             health_status = health.get("Status", "none")
 
-            if health_status == "healthy":
-                return {
-                    "status": HealthStatus.HEALTHY,
-                    "details": "Container running and healthy",
-                    "timestamp": now_utc().isoformat(),
-                    "restart_count": state.get("RestartCount", 0),
-                }
-            elif health_status == "unhealthy":
-                return {
-                    "status": HealthStatus.UNHEALTHY,
-                    "details": f"Container health check failed: {health.get('FailingStreak', 0)} failures",
-                    "timestamp": now_utc().isoformat(),
-                    "restart_count": state.get("RestartCount", 0),
-                }
+            status_map = {
+                "healthy": HealthStatus.HEALTHY,
+                "unhealthy": HealthStatus.UNHEALTHY,
+                "starting": HealthStatus.DEGRADED,
+            }
+
+            status = status_map.get(health_status, HealthStatus.HEALTHY)
+
+            if health_status == "unhealthy":
+                details = f"Container health check failed: {health.get('FailingStreak', 0)} failures"
             elif health_status == "starting":
-                return {
-                    "status": HealthStatus.DEGRADED,
-                    "details": "Container starting (health check in progress)",
-                    "timestamp": now_utc().isoformat(),
-                    "restart_count": state.get("RestartCount", 0),
-                }
+                details = "Container starting (health check in progress)"
+            elif health_status == "healthy":
+                details = "Container running and healthy"
             else:
-                # No healthcheck defined, assume healthy if running
-                return {
-                    "status": HealthStatus.HEALTHY,
-                    "details": "Container running (no healthcheck defined)",
-                    "timestamp": now_utc().isoformat(),
-                    "restart_count": state.get("RestartCount", 0),
-                }
+                details = "Container running (no healthcheck defined)"
+
+            return {
+                "status": status,
+                "details": details,
+                "timestamp": now_utc().isoformat(),
+                "restart_count": state.get("RestartCount", 0),
+            }
 
         except NotFound:
             return {
@@ -118,18 +96,8 @@ class ServiceMonitor:
                 "timestamp": now_utc().isoformat(),
             }
 
-    def check_http_health(
-        self, endpoint: str, timeout: int = 5
-    ) -> Dict[str, Any]:
-        """Check HTTP health endpoint.
-
-        Args:
-            endpoint: HTTP endpoint URL (e.g., http://service:8000/health)
-            timeout: Request timeout in seconds
-
-        Returns:
-            Dict with status, details, response_time, and timestamp
-        """
+    def check_http_health(self, endpoint: str, timeout: int = 5) -> Dict[str, Any]:
+        """Check HTTP health endpoint."""
         start_time = time.time()
 
         try:
@@ -137,17 +105,17 @@ class ServiceMonitor:
             response_time = time.time() - start_time
 
             if response.status_code == 200:
-                # Try to parse JSON response
                 try:
                     data = response.json()
                     status_str = data.get("status", "healthy")
 
-                    if status_str in ["healthy", "ok"]:
-                        health_status = HealthStatus.HEALTHY
-                    elif status_str == "degraded":
-                        health_status = HealthStatus.DEGRADED
-                    else:
-                        health_status = HealthStatus.UNHEALTHY
+                    status_map = {
+                        "healthy": HealthStatus.HEALTHY,
+                        "ok": HealthStatus.HEALTHY,
+                        "degraded": HealthStatus.DEGRADED,
+                    }
+
+                    health_status = status_map.get(status_str, HealthStatus.UNHEALTHY)
 
                     return {
                         "status": health_status,
@@ -157,7 +125,6 @@ class ServiceMonitor:
                         "data": data,
                     }
                 except ValueError:
-                    # Not JSON, but 200 OK is healthy
                     return {
                         "status": HealthStatus.HEALTHY,
                         "details": "Service responding (non-JSON response)",
@@ -198,17 +165,7 @@ class ServiceMonitor:
         container: Optional[str] = None,
         health_endpoint: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Check service health using appropriate method(s).
-
-        Args:
-            service_name: Name of service
-            service_type: Type of check (docker, http, hybrid)
-            container: Docker container name (if applicable)
-            health_endpoint: HTTP endpoint (if applicable)
-
-        Returns:
-            Combined health check result
-        """
+        """Check service health using appropriate method(s)."""
         results = {"service": service_name, "checks": {}}
 
         if service_type == "docker" and container:
@@ -220,17 +177,14 @@ class ServiceMonitor:
             results["overall_status"] = results["checks"]["http"]["status"]
 
         elif service_type == "hybrid":
-            # Run all available checks
             if container:
                 results["checks"]["docker"] = self.check_docker_health(container)
 
             if health_endpoint:
                 results["checks"]["http"] = self.check_http_health(health_endpoint)
 
-            # Determine overall status (worst case)
-            statuses = [
-                check["status"] for check in results["checks"].values()
-            ]
+            statuses = [check["status"] for check in results["checks"].values()]
+
             if HealthStatus.UNHEALTHY in statuses:
                 results["overall_status"] = HealthStatus.UNHEALTHY
             elif HealthStatus.DEGRADED in statuses:
@@ -247,7 +201,7 @@ class ServiceMonitor:
         results["timestamp"] = now_utc().isoformat()
         return results
 
-    def close(self):
+    def close(self) -> None:
         """Clean up resources."""
         if self.docker_client:
             try:

@@ -1,17 +1,16 @@
 """OAuth token management for Schwab API."""
 
+import traceback
 from datetime import datetime
 from typing import Optional
+
 import schwabdev
+
 from quant_vibe.utils import now_utc
 
 
 class TokenManager:
-    """Manages OAuth token refresh for Schwab API.
-
-    Attributes:
-        refresh_interval_minutes: Minutes between automatic token refreshes
-    """
+    """Manages OAuth token refresh for Schwab API."""
 
     def __init__(self, client: schwabdev.Client, refresh_interval_minutes: int = 14):
         """Initialize token manager.
@@ -32,18 +31,15 @@ class TokenManager:
         """
         try:
             now = now_utc()
-            print(f"\n🔄 [{now.strftime('%Y-%m-%d %H:%M:%S')}] Refreshing Schwab OAuth token...")
+            print(f"\n[{now.strftime('%Y-%m-%d %H:%M:%S')}] Refreshing Schwab OAuth token...")
 
-            # Call token refresh
             self.client.update_tokens()
-
             self.last_refresh = now
-            print("  ✓ Token refresh successful")
+            print("  Token refresh successful")
             return True
 
         except Exception as e:
-            print(f"  ✗ Token refresh failed: {e}")
-            import traceback
+            print(f"  Token refresh failed: {e}")
             traceback.print_exc()
             return False
 
@@ -53,7 +49,7 @@ class TokenManager:
         Returns:
             True if token should be refreshed
         """
-        if self.last_refresh is None:
+        if not self.last_refresh:
             return True
 
         elapsed_minutes = (now_utc() - self.last_refresh).total_seconds() / 60.0
@@ -65,7 +61,7 @@ class TokenManager:
         Returns:
             Minutes since last refresh, or 0 if never refreshed
         """
-        if self.last_refresh is None:
+        if not self.last_refresh:
             return 0.0
 
         return (now_utc() - self.last_refresh).total_seconds() / 60.0

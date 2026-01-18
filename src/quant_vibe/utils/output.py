@@ -35,7 +35,7 @@ class TeeOutput:
         """Write message to both terminal and file.
 
         Args:
-            message: The message to write
+            message:
         """
         self.terminal.write(message)
         self.log.write(message)

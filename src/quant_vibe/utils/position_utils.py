@@ -32,11 +32,7 @@ def generate_position_id(
     Returns:
         Unique position ID string
 
-    Examples:
-        >>> from datetime import datetime
-        >>> dt = datetime(2026, 1, 2, 15, 30, 45)
-        >>> generate_position_id("BVP", dt)
-        'BVP_20260102_153045'
+            'BVP_20260102_153045'
         >>> generate_position_id("COIN", dt, counter=3)
         'COIN_20260102_153045_3'
         >>> generate_position_id("BB", dt, include_uuid=True)

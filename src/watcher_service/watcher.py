@@ -1,27 +1,25 @@
 """Main watcher service orchestrator."""
 
 import os
-import sys
-import time
 import signal
+import sys
 import threading
+import time
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 
-# Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from quant_vibe.logging import setup_normalized_logging
 from quant_vibe.messaging import RedisMessageBroker
-from watcher_service.config import WatcherConfig, ServiceType
-from watcher_service.service_monitor import ServiceMonitor, HealthStatus
-from watcher_service.heartbeat_manager import HeartbeatManager
-from watcher_service.alert_manager import AlertManager
 from quant_vibe.utils import now_utc
+from watcher_service.alert_manager import AlertManager
+from watcher_service.config import ServiceType, WatcherConfig
+from watcher_service.heartbeat_manager import HeartbeatManager
+from watcher_service.service_monitor import HealthStatus, ServiceMonitor
 
-# Optional: Import Pushover notifier if available
 try:
     from quant_vibe.notifications import PushoverNotifier
 
@@ -35,17 +33,11 @@ class WatcherService:
     """Main watcher service for monitoring system health."""
 
     def __init__(self, config: Optional[WatcherConfig] = None):
-        """Initialize watcher service.
-
-        Args:
-            config: Watcher configuration (loads from file if not provided)
-        """
+        """Initialize watcher service."""
         load_dotenv()
 
-        # Load config
         self.config = config or WatcherConfig.from_yaml()
 
-        # Setup normalized logging (read level from env, default to INFO)
         log_level = os.getenv("LOG_LEVEL", "INFO").upper()
         self.logger = setup_normalized_logging(
             app_name="watcher",
@@ -57,14 +49,9 @@ class WatcherService:
         self.logger.info("=" * 70)
 
         self.logger.info(f"Monitoring {len(self.config.services)} services")
-        self.logger.info(
-            f"Check interval: {self.config.check_interval_seconds}s"
-        )
-        self.logger.info(
-            f"Heartbeat timeout: {self.config.heartbeat_timeout_seconds}s"
-        )
+        self.logger.info(f"Check interval: {self.config.check_interval_seconds}s")
+        self.logger.info(f"Heartbeat timeout: {self.config.heartbeat_timeout_seconds}s")
 
-        # Initialize components
         self.service_monitor = ServiceMonitor(self.logger)
         self.redis_broker = RedisMessageBroker()
         self.heartbeat_manager = HeartbeatManager(
@@ -72,11 +59,8 @@ class WatcherService:
             self.logger,
             self.config.heartbeat_timeout_seconds,
         )
-        self.alert_manager = AlertManager(
-            self.config.notifications, self.logger
-        )
+        self.alert_manager = AlertManager(self.config.notifications, self.logger)
 
-        # Initialize notifier if enabled
         if self.config.notifications.enabled and PUSHOVER_AVAILABLE:
             try:
                 self.notifier = PushoverNotifier()
@@ -85,33 +69,24 @@ class WatcherService:
             except Exception as e:
                 self.logger.warning(f"Failed to initialize Pushover: {e}")
                 self.logger.warning("Notifications will be disabled")
-        else:
-            if not PUSHOVER_AVAILABLE:
-                self.logger.warning(
-                    "Pushover not available - notifications disabled"
-                )
+        elif not PUSHOVER_AVAILABLE:
+            self.logger.warning("Pushover not available - notifications disabled")
 
-        # Service health state
         self.service_health: Dict[str, Dict[str, Any]] = {}
         self.health_lock = threading.Lock()
-
-        # Control flags
         self.running = False
         self.shutdown_event = threading.Event()
-
-        # Subscribe to heartbeat topics
         self._subscribe_to_heartbeats()
-
         self.start_time = now_utc()
         self.logger.info("Watcher service initialized")
 
-    def _subscribe_to_heartbeats(self):
+    def _subscribe_to_heartbeats(self) -> None:
         """Subscribe to heartbeat topics for services with Redis heartbeats."""
-        service_topics = {}
-
-        for service in self.config.services:
-            if service.heartbeat_topic:
-                service_topics[service.name] = service.heartbeat_topic
+        service_topics = {
+            service.name: service.heartbeat_topic
+            for service in self.config.services
+            if service.heartbeat_topic
+        }
 
         if service_topics:
             self.logger.info(
@@ -121,7 +96,7 @@ class WatcherService:
         else:
             self.logger.info("No services configured with Redis heartbeats")
 
-    def check_all_services(self):
+    def check_all_services(self) -> None:
         """Run health checks on all configured services."""
         for service in self.config.services:
             try:
@@ -130,19 +105,13 @@ class WatcherService:
                 with self.health_lock:
                     self.service_health[service.name] = health_data
 
-                # Check alert rules
                 if service.critical or health_data["overall_status"] != HealthStatus.HEALTHY:
-                    alert = self.alert_manager.check_rules(
-                        service.name, health_data
-                    )
+                    alert = self.alert_manager.check_rules(service.name, health_data)
                     if alert:
                         self.alert_manager.process_alert(alert)
                     else:
-                        # No alert matched but service is still being monitored
-                        # Clear any existing alerts (service recovered)
                         self.alert_manager.clear_all_alerts_for_service(service.name)
                 elif health_data["overall_status"] == HealthStatus.HEALTHY:
-                    # Service is healthy - clear any lingering alerts
                     self.alert_manager.clear_all_alerts_for_service(service.name)
 
             except Exception as e:
@@ -152,21 +121,13 @@ class WatcherService:
                 )
 
     def _check_service(self, service) -> Dict[str, Any]:
-        """Check health of a single service.
-
-        Args:
-            service: ServiceConfig instance
-
-        Returns:
-            Combined health data
-        """
+        """Check health of a single service."""
         health_data = {
             "service": service.name,
             "timestamp": now_utc().isoformat(),
             "checks": {},
         }
 
-        # Docker/HTTP checks via ServiceMonitor
         if service.type in [ServiceType.DOCKER, ServiceType.HTTP, ServiceType.HYBRID]:
             monitor_result = self.service_monitor.check_service(
                 service_name=service.name,
@@ -177,16 +138,13 @@ class WatcherService:
             health_data["checks"].update(monitor_result.get("checks", {}))
             health_data["overall_status"] = monitor_result.get("overall_status")
 
-        # Redis heartbeat check
         if service.heartbeat_topic:
             heartbeat_status = self.heartbeat_manager.get_heartbeat_status(
                 service.name
             )
             health_data["checks"]["heartbeat"] = heartbeat_status
 
-            # Combine with overall status (worst case)
             if service.type == ServiceType.HYBRID:
-                # Already have status from docker/http
                 statuses = [
                     health_data.get("overall_status"),
                     heartbeat_status["status"],
@@ -196,10 +154,8 @@ class WatcherService:
                 elif HealthStatus.DEGRADED in statuses:
                     health_data["overall_status"] = HealthStatus.DEGRADED
             else:
-                # Redis-only service
                 health_data["overall_status"] = heartbeat_status["status"]
 
-            # Add heartbeat-specific fields for alert rules
             health_data["missed_heartbeats"] = heartbeat_status.get(
                 "missed_heartbeats", 0
             )
@@ -210,56 +166,30 @@ class WatcherService:
         return health_data
 
     def get_service_health(self, service_name: str) -> Optional[Dict[str, Any]]:
-        """Get health data for a specific service.
-
-        Args:
-            service_name: Name of service
-
-        Returns:
-            Health data dict or None if not found
-        """
+        """Get health data for a specific service."""
         with self.health_lock:
             return self.service_health.get(service_name)
 
     def get_all_service_health(self) -> Dict[str, Dict[str, Any]]:
-        """Get health data for all services.
-
-        Returns:
-            Dict of {service_name: health_data}
-        """
+        """Get health data for all services."""
         with self.health_lock:
             return dict(self.service_health)
 
     def get_status_summary(self) -> Dict[str, Any]:
-        """Get overall watcher status summary.
-
-        Returns:
-            Status summary dict
-        """
+        """Get overall watcher status summary."""
         with self.health_lock:
             services = dict(self.service_health)
 
-        # Count by status
-        healthy = sum(
-            1
-            for s in services.values()
-            if s.get("overall_status") == HealthStatus.HEALTHY
-        )
-        degraded = sum(
-            1
-            for s in services.values()
-            if s.get("overall_status") == HealthStatus.DEGRADED
-        )
-        unhealthy = sum(
-            1
-            for s in services.values()
-            if s.get("overall_status") == HealthStatus.UNHEALTHY
-        )
-        unknown = sum(
-            1
-            for s in services.values()
-            if s.get("overall_status") == HealthStatus.UNKNOWN
-        )
+        status_counts = {
+            HealthStatus.HEALTHY: 0,
+            HealthStatus.DEGRADED: 0,
+            HealthStatus.UNHEALTHY: 0,
+            HealthStatus.UNKNOWN: 0,
+        }
+
+        for service in services.values():
+            status = service.get("overall_status", HealthStatus.UNKNOWN)
+            status_counts[status] = status_counts.get(status, 0) + 1
 
         uptime_seconds = (now_utc() - self.start_time).total_seconds()
 
@@ -267,25 +197,23 @@ class WatcherService:
             "watcher_status": "running" if self.running else "stopped",
             "uptime_seconds": round(uptime_seconds, 1),
             "services_monitored": len(services),
-            "services_healthy": healthy,
-            "services_degraded": degraded,
-            "services_unhealthy": unhealthy,
-            "services_unknown": unknown,
+            "services_healthy": status_counts[HealthStatus.HEALTHY],
+            "services_degraded": status_counts[HealthStatus.DEGRADED],
+            "services_unhealthy": status_counts[HealthStatus.UNHEALTHY],
+            "services_unknown": status_counts[HealthStatus.UNKNOWN],
             "active_alerts": len(self.alert_manager.get_active_alerts()),
         }
 
-    def run(self):
+    def run(self) -> None:
         """Run the main watcher loop."""
         self.running = True
         self.logger.info("=" * 70)
         self.logger.info("Watcher Service Started")
         self.logger.info("=" * 70)
 
-        # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
-        # Start heartbeat listener in background thread
         heartbeat_thread = threading.Thread(
             target=self._heartbeat_listener_thread, daemon=True
         )
@@ -293,10 +221,8 @@ class WatcherService:
 
         try:
             while not self.shutdown_event.is_set():
-                # Run health checks
                 self.check_all_services()
 
-                # Log summary
                 summary = self.get_status_summary()
                 self.logger.info(
                     f"Status: {summary['services_healthy']}/{summary['services_monitored']} healthy | "
@@ -305,12 +231,10 @@ class WatcherService:
                     f"{summary['active_alerts']} active alerts"
                 )
 
-                # Periodic cleanup
-                if int(time.time()) % 3600 == 0:  # Every hour
+                if int(time.time()) % 3600 == 0:
                     self.heartbeat_manager.cleanup_stale_heartbeats()
                     self.alert_manager.cleanup_old_history()
 
-                # Wait for next check interval
                 self.shutdown_event.wait(self.config.check_interval_seconds)
 
         except Exception as e:
@@ -318,21 +242,13 @@ class WatcherService:
         finally:
             self.stop()
 
-    def _heartbeat_listener_thread(self):
+    def _heartbeat_listener_thread(self) -> None:
         """Background thread for listening to heartbeat messages."""
         try:
             self.logger.info("Starting heartbeat listener thread")
 
-            # Use non-blocking polling instead of blocking listen()
-            # This allows the thread to check for shutdown events
             while not self.shutdown_event.is_set():
-                # Poll for messages with 100ms timeout
                 self.redis_broker.get_message(timeout=0.1)
-
-                # get_message() handles the callback internally,
-                # so we don't need to do anything with the return value
-
-                # Small sleep to avoid busy-waiting
                 time.sleep(0.01)
 
             self.logger.info("Heartbeat listener thread shutting down")
@@ -340,17 +256,12 @@ class WatcherService:
         except Exception as e:
             self.logger.error(f"Error in heartbeat listener: {e}", exc_info=True)
 
-    def _signal_handler(self, signum, frame):
-        """Handle shutdown signals.
-
-        Args:
-            signum: Signal number
-            frame: Stack frame
-        """
+    def _signal_handler(self, signum, frame) -> None:
+        """Handle shutdown signals."""
         self.logger.info(f"Received signal {signum} - shutting down")
         self.shutdown_event.set()
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the watcher service."""
         if not self.running:
             return
@@ -359,7 +270,6 @@ class WatcherService:
         self.running = False
         self.shutdown_event.set()
 
-        # Cleanup
         try:
             self.service_monitor.close()
             self.heartbeat_manager.stop()

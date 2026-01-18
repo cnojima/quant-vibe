@@ -131,10 +131,7 @@ class OptimizationService:
         Returns:
             Parameter grid dictionary {param_name: [value1, value2, ...]}
 
-        Example:
-            >>> grid = service.generate_param_grid('coin_toss')
-            >>> # {'target_price': [1.6, 2.0, 2.4], 'profit_target_pct': [0.8, 1.0, 1.2]}
-        """
+                """
         # Use StrategyRegistry to auto-generate grid
         grid = StrategyRegistry.generate_optimization_grid(
             strategy_name=strategy_name,
@@ -163,10 +160,7 @@ class OptimizationService:
         Returns:
             Dictionary of fixed parameters
 
-        Example:
-            >>> fixed = service.get_fixed_params('coin_toss')
-            >>> # {'min_dte': 0, 'max_dte': 45, 'max_trades_daily': 5}
-        """
+                """
         # Get all default params
         all_params = StrategyRegistry.get_default_params(strategy_name)
 
@@ -192,9 +186,7 @@ class OptimizationService:
         Returns:
             Total number of combinations
 
-        Example:
-            >>> count = service.count_permutations({
-            ...     'param_a': [1, 2, 3],
+                    ...     'param_a': [1, 2, 3],
             ...     'param_b': [0.5, 1.0]
             ... })
             >>> # Returns: 6 (3 × 2)
@@ -229,10 +221,7 @@ class OptimizationService:
             - warnings: List[str]
             - errors: List[str]
 
-        Example:
-            >>> result = service.validate_param_grid('coin_toss', grid)
-            >>> if not result['valid']:
-            ...     print(result['errors'])
+                    ...     print(result['errors'])
         """
         result = {
             "valid": True,

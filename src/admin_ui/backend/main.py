@@ -26,8 +26,6 @@ from admin_ui.backend.redis_client import (
     register_websocket,
     unregister_websocket,
 )
-
-# Import routers
 from admin_ui.backend.api import (
     auth,
     backtests,
@@ -67,12 +65,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         await redis_task
     except asyncio.CancelledError:
         pass
+
     await close_db_pool()
     await close_redis()
     print("Connections closed")
 
 
-# Create FastAPI application
+settings = get_settings()
+
 app = FastAPI(
     title="Quant-Vibe Admin UI API",
     description="REST API for managing Quant-Vibe trading system",
@@ -80,10 +80,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Get settings
-settings = get_settings()
-
-# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -93,14 +89,12 @@ app.add_middleware(
 )
 
 
-# Health check endpoint
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "admin_ui"}
 
 
-# Root endpoint
 @app.get("/")
 async def root():
     """Root endpoint with API information."""
@@ -112,21 +106,26 @@ async def root():
     }
 
 
-# Include routers
-app.include_router(auth.router, prefix=f"{settings.api_prefix}/auth", tags=["auth"])
-app.include_router(services.router, prefix=f"{settings.api_prefix}/services", tags=["services"])
-app.include_router(status.router, prefix=f"{settings.api_prefix}/status", tags=["status"])
-app.include_router(tokens.router, prefix=f"{settings.api_prefix}/tokens", tags=["tokens"])
-app.include_router(live.router, prefix=f"{settings.api_prefix}/live", tags=["live"])
-app.include_router(backtests.router, prefix=f"{settings.api_prefix}/backtests", tags=["backtests"])
-app.include_router(config.router, prefix=f"{settings.api_prefix}/config", tags=["config"])
-app.include_router(strategies.router, prefix=f"{settings.api_prefix}/strategies", tags=["strategies"])
-app.include_router(watcher.router, prefix=f"{settings.api_prefix}/watcher", tags=["watcher"])
-app.include_router(optimization.router, prefix=f"{settings.api_prefix}/optimization", tags=["optimization"])
-app.include_router(notifications.router, prefix=f"{settings.api_prefix}/notifications", tags=["notifications"])
+# Include routers with API prefix
+api_prefix = settings.api_prefix
+routers = [
+    (auth.router, "auth"),
+    (services.router, "services"),
+    (status.router, "status"),
+    (tokens.router, "tokens"),
+    (live.router, "live"),
+    (backtests.router, "backtests"),
+    (config.router, "config"),
+    (strategies.router, "strategies"),
+    (watcher.router, "watcher"),
+    (optimization.router, "optimization"),
+    (notifications.router, "notifications"),
+]
+
+for router, tag in routers:
+    app.include_router(router, prefix=f"{api_prefix}/{tag}", tags=[tag])
 
 
-# WebSocket endpoint for real-time updates
 @app.websocket("/ws/events")
 async def websocket_endpoint(websocket: WebSocket):
     """
@@ -139,7 +138,6 @@ async def websocket_endpoint(websocket: WebSocket):
     print(f"[WebSocket] Client connected from {websocket.client}")
 
     try:
-        # Send welcome message immediately
         await websocket.send_json({
             "type": "connection",
             "message": "Connected to live trading events",
@@ -152,22 +150,19 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     try:
-        # Keep connection alive and handle incoming messages
         while True:
-            # Receive any messages from client (ping/pong, close, etc.)
             message = await websocket.receive()
 
-            # Handle different message types
             if message["type"] == "websocket.disconnect":
                 print("[WebSocket] Client initiated disconnect")
                 break
-            elif message["type"] == "websocket.receive":
-                # Text message from client
-                if "text" in message:
-                    data = message["text"]
-                    if data == "ping":
-                        await websocket.send_json({"type": "pong"})
-                        print("[WebSocket] Responded to ping")
+
+            if message["type"] == "websocket.receive" and "text" in message:
+                data = message["text"]
+                if data == "ping":
+                    await websocket.send_json({"type": "pong"})
+                    print("[WebSocket] Responded to ping")
+
     except WebSocketDisconnect:
         print("[WebSocket] Client disconnected (WebSocketDisconnect)")
     except Exception as e:
@@ -179,7 +174,6 @@ async def websocket_endpoint(websocket: WebSocket):
         print("[WebSocket] Connection closed and unregistered")
 
 
-# Exception handlers
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     """Global exception handler."""

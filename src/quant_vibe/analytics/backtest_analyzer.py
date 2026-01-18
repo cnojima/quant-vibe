@@ -321,7 +321,7 @@ class PatternExtractor:
         hourly_stats = {}
         for hour in range(24):
             hour_trades = self.trades_df[self.trades_df["entry_hour"] == hour]
-            if len(hour_trades) > 0:
+            if not hour_trades.empty:
                 hourly_stats[hour] = {
                     "avg_pnl": float(hour_trades["pnl"].mean()),
                     "win_rate": float((hour_trades["pnl"] > 0).mean()),

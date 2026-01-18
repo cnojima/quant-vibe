@@ -1,31 +1,17 @@
-"""Live trading engine for options strategies.
-
-This package provides real-time trading capabilities for executing
-options strategies with streaming market data.
-
-Components:
-- engine: Main LiveTradingEngine orchestrator
-- data_feed: Real-time data consumer from schwabdev stream
-- strategy_executor: Strategy execution loop
-- order_manager: Order submission and tracking
-- position_manager: Position tracking and valuation
-- risk_manager: Risk checks and limits
-- state_store: State persistence and recovery
-- monitor: Monitoring and alerts
-"""
+"""Live trading engine for options strategies."""
 
 from .engine import LiveTradingEngine
-from .state_store import StateStore
-from .order_manager import OrderManager, Order, OrderStatus, OrderSide, OCOStatus
+from .order_manager import Order, OrderManager, OrderSide, OrderStatus, OCOStatus
 from .position_manager import PositionManager
+from .state_store import StateStore
 
 __all__ = [
     'LiveTradingEngine',
-    'StateStore',
-    'OrderManager',
     'Order',
-    'OrderStatus',
+    'OrderManager',
     'OrderSide',
+    'OrderStatus',
     'OCOStatus',
     'PositionManager',
+    'StateStore',
 ]

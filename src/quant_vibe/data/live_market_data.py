@@ -68,11 +68,7 @@ class LiveMarketDataProvider:
                 - volume: Trading volume
                 - vwap: Volume-weighted average price (if available)
 
-        Example:
-            >>> provider = LiveMarketDataProvider(data_feed)
-            >>> underlying = provider.get_underlying_history("SPX", lookback_bars=100)
-            >>> # DataFrame with last 100 1-minute bars of SPX
-        """
+                """
         # Get underlying price from data feed
         bars = self._build_underlying_bars_from_options(ticker)
 
@@ -137,11 +133,7 @@ class LiveMarketDataProvider:
                 - delta, gamma, theta, vega, rho: Greeks
                 - implied_volatility: IV
 
-        Example:
-            >>> provider = LiveMarketDataProvider(data_feed)
-            >>> options = provider.get_current_options_snapshot("SPX")
-            >>> # DataFrame with all active SPXW contracts and their latest bars
-        """
+                """
         # Get all bars from data feed
         all_bars = self.data_feed.get_bars(symbol=None)
 

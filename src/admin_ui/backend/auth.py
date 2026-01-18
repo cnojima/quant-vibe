@@ -103,20 +103,16 @@ def authenticate_user(username: str, password: str) -> Optional[User]:
     """Authenticate a user with username and password."""
     settings = get_settings()
 
-    # For MVP, we're using a single admin user from config
-    # In production, this should query a user database
     if username != settings.admin_username:
         return None
 
-    # For MVP, compare plain password (in production, use hashed)
-    # You can hash the password in .env using:
-    # python -c "from passlib.context import CryptContext; print(CryptContext(schemes=['bcrypt']).hash('your-password'))"
-    if password != settings.admin_password:
-        # If password starts with $2b$ it's a bcrypt hash
-        if settings.admin_password.startswith("$2b$"):
-            if not verify_password(password, settings.admin_password):
-                return None
-        else:
+    # Support both plain and hashed passwords for flexibility
+    if settings.admin_password.startswith("$2b$"):
+        # Bcrypt hash
+        if not verify_password(password, settings.admin_password):
             return None
+    elif password != settings.admin_password:
+        # Plain password
+        return None
 
     return User(username=username)

@@ -1,11 +1,9 @@
-"""Configuration loader for backtesting engine.
-
-Loads and validates backtest configuration from YAML files.
-"""
+"""Configuration loader for backtesting engine."""
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import yaml
 
 
@@ -13,12 +11,7 @@ class BacktestConfig:
     """Backtest configuration loader and validator."""
 
     def __init__(self, config_path: str = "config/backtest.yaml"):
-        """
-        Initialize configuration loader.
-
-        Args:
-            config_path: Path to YAML configuration file
-        """
+        """Initialize configuration loader."""
         self.config_path = Path(config_path)
         self.config = self._load_config()
         self._validate_config()
@@ -50,9 +43,7 @@ class BacktestConfig:
                 f"Required: {required_sections}"
             )
 
-        # Validate at least one strategy is enabled
-        enabled_strategies = self.get_enabled_strategies()
-        if not enabled_strategies:
+        if not self.get_enabled_strategies():
             raise ValueError(
                 "No strategies enabled in configuration.\n"
                 "Set 'enabled: true' for at least one strategy in the 'strategies' section."
@@ -69,95 +60,85 @@ class BacktestConfig:
 
     def get_output_dir(self) -> Path:
         """Get output directory for backtest results."""
-        output_dir = self.config['engine'].get('output_dir', 'reports/backtests')
-        return Path(output_dir)
+        return Path(self.config['engine'].get('output_dir', 'reports/backtests'))
 
     def _resolve_date_preset(self, preset: str) -> tuple[datetime, datetime]:
-        """
-        Resolve a date preset to actual dates in EST.
-
-        Args:
-            preset: Date preset ('today', 'this_week', 'this_month', etc.)
-
-        Returns:
-            Tuple of (start_date, end_date)
-        """
-        from zoneinfo import ZoneInfo
+        """Resolve a date preset to actual dates in EST."""
         est = ZoneInfo('America/New_York')
         now_est = datetime.now(est)
 
-        if preset == 'today':
-            # Today's date in EST
-            start_date = datetime(now_est.year, now_est.month, now_est.day)
-            end_date = start_date
-        elif preset == 'this_week':
-            # Monday to Friday of current week
-            days_since_monday = now_est.weekday()
-            monday = now_est - timedelta(days=days_since_monday)
-            start_date = datetime(monday.year, monday.month, monday.day)
-            # If today is Monday-Thursday, end is today; if Friday+, end is Friday
-            if now_est.weekday() <= 4:  # Mon-Fri
-                end_date = datetime(now_est.year, now_est.month, now_est.day)
-            else:
-                friday = monday + timedelta(days=4)
-                end_date = datetime(friday.year, friday.month, friday.day)
-        elif preset == 'this_month':
-            # First day to today of current month
-            start_date = datetime(now_est.year, now_est.month, 1)
-            end_date = datetime(now_est.year, now_est.month, now_est.day)
-        elif preset == 'this_quarter':
-            # First day of quarter to today
-            quarter_month = ((now_est.month - 1) // 3) * 3 + 1
-            start_date = datetime(now_est.year, quarter_month, 1)
-            end_date = datetime(now_est.year, now_est.month, now_est.day)
-        elif preset == 'this_year':
-            # Jan 1 to today of current year
-            start_date = datetime(now_est.year, 1, 1)
+        # Map preset to date range
+        preset_map = {
+            'today': lambda: (
+                datetime(now_est.year, now_est.month, now_est.day),
+                datetime(now_est.year, now_est.month, now_est.day)
+            ),
+            'this_week': lambda: self._current_week_range(now_est),
+            'this_month': lambda: (
+                datetime(now_est.year, now_est.month, 1),
+                datetime(now_est.year, now_est.month, now_est.day)
+            ),
+            'this_quarter': lambda: (
+                datetime(now_est.year, ((now_est.month - 1) // 3) * 3 + 1, 1),
+                datetime(now_est.year, now_est.month, now_est.day)
+            ),
+            'this_year': lambda: (
+                datetime(now_est.year, 1, 1),
+                datetime(now_est.year, now_est.month, now_est.day)
+            )
+        }
+
+        if preset not in preset_map:
+            raise ValueError(f"Unknown date preset: {preset}")
+
+        return preset_map[preset]()
+
+    def _current_week_range(self, now_est: datetime) -> tuple[datetime, datetime]:
+        """Get the current week range (Monday to today or Friday)."""
+        days_since_monday = now_est.weekday()
+        monday = now_est - timedelta(days=days_since_monday)
+        start_date = datetime(monday.year, monday.month, monday.day)
+
+        # End date is today if weekday, or Friday if weekend
+        if now_est.weekday() <= 4:  # Mon-Fri
             end_date = datetime(now_est.year, now_est.month, now_est.day)
         else:
-            raise ValueError(f"Unknown date preset: {preset}")
+            friday = monday + timedelta(days=4)
+            end_date = datetime(friday.year, friday.month, friday.day)
 
         return start_date, end_date
 
     def get_date_range(self) -> tuple[datetime, datetime]:
-        """
-        Get date range for backtest.
-
-        Returns:
-            Tuple of (start_date, end_date) as datetime objects
-
-        Note:
-            This returns the configured dates. The actual date range
-            will be converted to market hours by the orchestrator.
-        """
+        """Get date range for backtest."""
         date_config = self.config.get('date_range', {})
         preset = date_config.get('preset', 'this_month')
 
         if preset == 'custom':
-            custom = date_config.get('custom', {})
-            start_val = custom.get('start_date')
-            end_val = custom.get('end_date')
+            return self._parse_custom_dates(date_config.get('custom', {}))
 
-            if not start_val or not end_val:
-                raise ValueError(
-                    "Custom date range requires 'start_date' and 'end_date' in config"
-                )
+        return self._resolve_date_preset(preset)
 
-            # Handle both string and datetime.date types from YAML
-            if isinstance(start_val, str):
-                start_date = datetime.strptime(start_val, '%Y-%m-%d')
-            else:
-                start_date = datetime(start_val.year, start_val.month, start_val.day)
+    def _parse_custom_dates(self, custom: Dict[str, Any]) -> tuple[datetime, datetime]:
+        """Parse custom date range from config."""
+        start_val = custom.get('start_date')
+        end_val = custom.get('end_date')
 
-            if isinstance(end_val, str):
-                end_date = datetime.strptime(end_val, '%Y-%m-%d')
-            else:
-                end_date = datetime(end_val.year, end_val.month, end_val.day)
-        else:
-            # Resolve preset to actual dates
-            start_date, end_date = self._resolve_date_preset(preset)
+        if not start_val or not end_val:
+            raise ValueError(
+                "Custom date range requires 'start_date' and 'end_date' in config"
+            )
+
+        # Handle both string and datetime.date types from YAML
+        start_date = self._parse_date_value(start_val)
+        end_date = self._parse_date_value(end_val)
 
         return start_date, end_date
+
+    def _parse_date_value(self, value: Any) -> datetime:
+        """Parse date value from string or date object."""
+        if isinstance(value, str):
+            return datetime.strptime(value, '%Y-%m-%d')
+        return datetime(value.year, value.month, value.day)
 
     def get_date_preset(self) -> str:
         """Get date range preset."""
@@ -170,9 +151,7 @@ class BacktestConfig:
     def get_db_profile(self) -> Optional[str]:
         """Get database profile (auto, local, or remote)."""
         profile = self.config['data_source'].get('db_profile', 'auto')
-        if profile == 'auto':
-            return None  # Let load_options_backtest_data auto-detect
-        return profile
+        return None if profile == 'auto' else profile
 
     def get_min_dte(self) -> int:
         """Get minimum days to expiration."""
@@ -187,28 +166,24 @@ class BacktestConfig:
         return bool(self.config['data_source'].get('verbose', True))
 
     def get_timeframe(self) -> str:
-        """
-        Get timeframe for data aggregation.
-
-        Returns:
-            Timeframe string: "1min" (default), "5min", "15min", "1hour", "daily"
-
-        Note:
-            For backtests >30 days, use "5min" to reduce memory by ~95%
-        """
+        """Get timeframe for data aggregation."""
         return self.config['data_source'].get('timeframe', '1min')
 
     def should_print_trade_details(self) -> bool:
         """Check if trade details should be printed."""
-        return bool(self.config.get('reporting', {}).get('print_trade_details', True))
+        return self._get_reporting_flag('print_trade_details', True)
 
     def should_print_educational_metrics(self) -> bool:
         """Check if educational metrics should be printed."""
-        return bool(self.config.get('reporting', {}).get('print_educational_metrics', True))
+        return self._get_reporting_flag('print_educational_metrics', True)
 
     def should_print_performance_summary(self) -> bool:
         """Check if performance summary should be printed."""
-        return bool(self.config.get('reporting', {}).get('print_performance_summary', True))
+        return self._get_reporting_flag('print_performance_summary', True)
+
+    def _get_reporting_flag(self, key: str, default: bool) -> bool:
+        """Get a boolean flag from reporting config."""
+        return bool(self.config.get('reporting', {}).get(key, default))
 
     def should_auto_save_results(self) -> bool:
         """Check if results should be saved automatically."""
@@ -216,15 +191,19 @@ class BacktestConfig:
 
     def should_save_trades(self) -> bool:
         """Check if trades should be saved."""
-        return bool(self.config.get('output', {}).get('save_trades', True))
+        return self._get_output_flag('save_trades', True)
 
     def should_save_equity_curve(self) -> bool:
         """Check if equity curve should be saved."""
-        return bool(self.config.get('output', {}).get('save_equity_curve', True))
+        return self._get_output_flag('save_equity_curve', True)
 
     def should_save_log(self) -> bool:
         """Check if log should be saved."""
-        return bool(self.config.get('output', {}).get('save_log', True))
+        return self._get_output_flag('save_log', True)
+
+    def _get_output_flag(self, key: str, default: bool) -> bool:
+        """Get a boolean flag from output config."""
+        return bool(self.config.get('output', {}).get(key, default))
 
     def get_log_level(self) -> str:
         """Get logging level."""
@@ -240,8 +219,7 @@ class BacktestConfig:
 
     def __repr__(self) -> str:
         """String representation of config."""
-        enabled = self.get_enabled_strategies()
-        strategy_names = [s['name'] for s in enabled]
+        strategy_names = [s['name'] for s in self.get_enabled_strategies()]
         return (
             f"BacktestConfig(config_path={self.config_path}, "
             f"strategies={strategy_names}, "

@@ -15,9 +15,7 @@ def safe_decimal(value: Any, fallback: Union[Decimal, int, float, str, None] = N
     Returns:
         Decimal representation of value, or fallback if conversion fails
 
-    Examples:
-        >>> safe_decimal(42.5)
-        Decimal('42.5')
+            Decimal('42.5')
         >>> safe_decimal(None, 0)
         Decimal('0')
         >>> safe_decimal('invalid', 100)

@@ -20,11 +20,7 @@ class TradingNotifier:
     Centralizes notification logic for trading events with configurable
     filtering and rate limiting.
 
-    Example:
-        >>> notifier = TradingNotifier()
-        >>> notifier.on_position_opened("BPS", "6200/6180", 250.0)
-        >>> notifier.on_order_filled("SPXW 251231P06200", 1, 2.50)
-    """
+        """
 
     def __init__(
         self,
@@ -39,7 +35,6 @@ class TradingNotifier:
         self.config = config or {}
         self.logger = get_logger(__name__)
 
-        # Initialize Pushover
         pushover_config = self.config.get("pushover", {})
         self.pushover = PushoverNotifier(
             api_token=pushover_config.get("api_token"),

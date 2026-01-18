@@ -2,12 +2,14 @@
 
 import sqlite3
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any
-import schwabdev
 
+import schwabdev
 from quant_vibe.logging import get_logger
+from quant_vibe.utils.timestamp_utils import now_utc
+
 
 class TokenInfo:
     """Token information with metadata."""
@@ -22,17 +24,6 @@ class TokenInfo:
         token_type: str = "Bearer",
         scope: str = "",
     ):
-        """Initialize token info.
-
-        Args:
-            access_token: OAuth access token
-            refresh_token: OAuth refresh token
-            access_token_issued: When access token was issued
-            refresh_token_issued: When refresh token was issued
-            expires_in: Access token expiration time in seconds
-            token_type: Token type (usually "Bearer")
-            scope: Token scope
-        """
         self.access_token = access_token
         self.refresh_token = refresh_token
         self.access_token_issued = access_token_issued
@@ -53,23 +44,19 @@ class TokenInfo:
 
     @property
     def is_access_token_expired(self) -> bool:
-        """Check if access token is expired."""
-        return datetime.now(timezone.utc) >= self.access_token_expires_at
+        return now_utc() >= self.access_token_expires_at
 
     @property
     def is_refresh_token_expired(self) -> bool:
-        """Check if refresh token is expired."""
-        return datetime.now(timezone.utc) >= self.refresh_token_expires_at
+        return now_utc() >= self.refresh_token_expires_at
 
     @property
     def access_token_age_seconds(self) -> float:
-        """Get access token age in seconds."""
-        return (datetime.now(timezone.utc) - self.access_token_issued).total_seconds()
+        return (now_utc() - self.access_token_issued).total_seconds()
 
     @property
     def seconds_until_expiration(self) -> float:
-        """Get seconds until access token expires."""
-        return (self.access_token_expires_at - datetime.now(timezone.utc)).total_seconds()
+        return (self.access_token_expires_at - now_utc()).total_seconds()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation."""
@@ -90,18 +77,7 @@ class TokenInfo:
 
 
 class CentralizedTokenManager:
-    """Centralized token manager for Schwab API OAuth tokens.
-
-    Manages token lifecycle:
-    - Token storage and retrieval
-    - Automatic token refresh
-    - Token expiry monitoring
-    - Thread-safe access
-
-    Thread Safety:
-        All public methods are thread-safe using a lock to protect
-        concurrent access to the schwabdev client and token state.
-    """
+    """Centralized token manager for Schwab API OAuth tokens."""
 
     def __init__(
         self,
@@ -110,178 +86,139 @@ class CentralizedTokenManager:
         callback_url: str,
         tokens_db_path: str
     ):
-        """Initialize centralized token manager.
-
-        Args:
-            api_key: Schwab API key
-            api_secret: Schwab app secret
-            callback_url: OAuth callback URL
-            tokens_db_path: Path to schwabdev tokens database
-            logger: Logger instance (creates new one if not provided)
-        """
         self.api_key = api_key
         self.api_secret = api_secret
         self.callback_url = callback_url
         self.tokens_db_path = tokens_db_path
         self.logger = get_logger(app_name='token_service')
+        self._lock = threading.Lock()
+        self.client = None
+        self._client_init_error = None
+        self.last_refresh: Optional[datetime] = None
 
         # Ensure token directory exists
         Path(tokens_db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Thread safety
-        self._lock = threading.Lock()
-
         # Initialize schwabdev client
+        self._initialize_client()
+
+    def _initialize_client(self):
+        """Initialize schwabdev client."""
         self.logger.info("Initializing schwabdev client...")
-        self.client = None
-        self._client_init_error = None
+
+        if not Path(self.tokens_db_path).exists():
+            self.logger.warning(
+                f"Tokens database not found at: {self.tokens_db_path}\n"
+                "OAuth authentication required. Use Admin UI or run:\n"
+                "  python scripts/authorize_schwab.py"
+            )
+            self._client_init_error = "no_token_db"
+            return
 
         try:
-            # Check if tokens exist before initializing
-            # This prevents interactive OAuth prompts in non-interactive environments
-            if not Path(tokens_db_path).exists():
-                self.logger.warning(
-                    f"Tokens database not found at: {tokens_db_path}\n"
-                    "OAuth authentication required. Use Admin UI or run:\n"
-                    "  python scripts/authorize_schwab.py"
-                )
-                self._client_init_error = "no_token_db"
-                # Don't raise - allow service to start
-                return
-
             self.client = schwabdev.Client(
-                app_key=api_key,
-                app_secret=api_secret,
-                callback_url=callback_url,
-                tokens_db=tokens_db_path,
+                app_key=self.api_key,
+                app_secret=self.api_secret,
+                callback_url=self.callback_url,
+                tokens_db=self.tokens_db_path,
             )
-            self.logger.info("✓ Schwabdev client initialized successfully")
-        except EOFError as e:
-            # This happens when schwabdev tries to prompt for OAuth but there's no terminal
+            self.logger.info("Schwabdev client initialized successfully")
+        except EOFError:
             self.logger.warning(
                 "Interactive OAuth required - refresh token expired\n"
                 "Use Admin UI to re-authenticate or run:\n"
-                "  python scripts/authorize_schwab.py\n"
-                f"Original error: {e}"
+                "  python scripts/authorize_schwab.py"
             )
             self._client_init_error = "refresh_token_expired"
-            # Don't raise - allow service to start
         except Exception as e:
             self.logger.warning(f"Failed to initialize schwabdev client: {e}")
             self._client_init_error = str(e)
-            # Don't raise - allow service to start
-
-        # Last refresh time
-        self.last_refresh: Optional[datetime] = None
 
     def get_token_info(self) -> Optional[TokenInfo]:
-        """Get current token information from database.
-
-        Returns:
-            TokenInfo object or None if no token found
-
-        Thread Safety:
-            This method is thread-safe.
-        """
+        """Get current token information from database."""
         with self._lock:
             return self._read_token_from_db()
 
     def _read_token_from_db(self) -> Optional[TokenInfo]:
-        """Read token from schwabdev database.
-
-        Returns:
-            TokenInfo object or None if no token found
-
-        Note:
-            This method is NOT thread-safe. Use get_token_info() instead.
-        """
+        """Read token from schwabdev database (not thread-safe)."""
         if not Path(self.tokens_db_path).exists():
             self.logger.warning(f"Token database not found: {self.tokens_db_path}")
             return None
 
         try:
-            conn = sqlite3.connect(self.tokens_db_path)
-            cursor = conn.cursor()
+            with sqlite3.connect(self.tokens_db_path) as conn:
+                cursor = conn.cursor()
 
-            # Check if schwabdev table exists
-            cursor.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='schwabdev'
-            """)
-
-            if not cursor.fetchone():
-                conn.close()
-                self.logger.warning("Token database exists but schwabdev table not found")
-                return None
-
-            # Query the schwabdev table
-            cursor.execute("""
-                SELECT access_token_issued, refresh_token_issued,
-                       access_token, refresh_token, id_token,
-                       expires_in, token_type, scope
-                FROM schwabdev
-                ORDER BY access_token_issued DESC
-                LIMIT 1
-            """)
-
-            row = cursor.fetchone()
-            conn.close()
-
-            if not row:
-                self.logger.warning("No tokens found in database")
-                return None
-
-            (
-                access_token_issued,
-                refresh_token_issued,
-                access_token,
-                refresh_token,
-                id_token,
-                expires_in,
-                token_type,
-                scope,
-            ) = row
-
-            # Parse timestamps (schwabdev stores as ISO format strings)
-            try:
-                access_issued_dt = datetime.fromisoformat(
-                    access_token_issued.replace("Z", "+00:00")
+                # Check if schwabdev table exists
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='schwabdev'"
                 )
-                refresh_issued_dt = datetime.fromisoformat(
-                    refresh_token_issued.replace("Z", "+00:00")
-                )
-            except (ValueError, AttributeError) as e:
-                self.logger.error(f"Failed to parse token timestamps: {e}")
-                return None
+                if not cursor.fetchone():
+                    self.logger.warning("Token database exists but schwabdev table not found")
+                    return None
 
-            return TokenInfo(
-                access_token=access_token,
-                refresh_token=refresh_token,
-                access_token_issued=access_issued_dt,
-                refresh_token_issued=refresh_issued_dt,
-                expires_in=expires_in or 1800,  # Default 30 minutes
-                token_type=token_type or "Bearer",
-                scope=scope or "",
-            )
+                # Query the schwabdev table
+                cursor.execute("""
+                    SELECT access_token_issued, refresh_token_issued,
+                           access_token, refresh_token, id_token,
+                           expires_in, token_type, scope
+                    FROM schwabdev
+                    ORDER BY access_token_issued DESC
+                    LIMIT 1
+                """)
+
+                row = cursor.fetchone()
+                if not row:
+                    self.logger.warning("No tokens found in database")
+                    return None
+
+                return self._parse_token_row(row)
 
         except sqlite3.Error as e:
             self.logger.error(f"SQLite error reading token database: {e}")
-            return None
         except Exception as e:
             self.logger.error(f"Unexpected error reading token database: {e}")
+
+        return None
+
+    def _parse_token_row(self, row) -> Optional[TokenInfo]:
+        """Parse database row into TokenInfo."""
+        (
+            access_token_issued,
+            refresh_token_issued,
+            access_token,
+            refresh_token,
+            id_token,
+            expires_in,
+            token_type,
+            scope,
+        ) = row
+
+        try:
+            access_issued_dt = datetime.fromisoformat(
+                access_token_issued.replace("Z", "+00:00")
+            )
+            refresh_issued_dt = datetime.fromisoformat(
+                refresh_token_issued.replace("Z", "+00:00")
+            )
+        except (ValueError, AttributeError) as e:
+            self.logger.error(f"Failed to parse token timestamps: {e}")
             return None
 
+        return TokenInfo(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            access_token_issued=access_issued_dt,
+            refresh_token_issued=refresh_issued_dt,
+            expires_in=expires_in or 1800,
+            token_type=token_type or "Bearer",
+            scope=scope or "",
+        )
+
     def refresh_token(self) -> bool:
-        """Refresh OAuth token using schwabdev client.
-
-        Returns:
-            True if refresh successful, False otherwise
-
-        Thread Safety:
-            This method is thread-safe.
-        """
+        """Refresh OAuth token using schwabdev client."""
         with self._lock:
-            if self.client is None:
+            if not self.client:
                 self.logger.error(
                     f"Cannot refresh token - schwabdev client not initialized\n"
                     f"Initialization error: {self._client_init_error}\n"
@@ -292,40 +229,20 @@ class CentralizedTokenManager:
             try:
                 self.logger.info("Refreshing Schwab OAuth token...")
                 self.client.update_tokens()
-                self.last_refresh = datetime.now(timezone.utc)
-                self.logger.info("✓ Token refresh successful")
+                self.last_refresh = now_utc()
+                self.logger.info("Token refresh successful")
                 return True
-
             except Exception as e:
                 self.logger.error(f"Token refresh failed: {e}", exc_info=True)
                 return False
 
     def get_access_token(self) -> Optional[str]:
-        """Get current access token.
-
-        Returns:
-            Access token string or None if not available
-
-        Thread Safety:
-            This method is thread-safe.
-        """
+        """Get current access token."""
         token_info = self.get_token_info()
-        if not token_info:
-            return None
-        return token_info.access_token
+        return token_info.access_token if token_info else None
 
     def needs_refresh(self, threshold_minutes: int = 5) -> bool:
-        """Check if token needs refresh.
-
-        Args:
-            threshold_minutes: Refresh if token expires within this many minutes
-
-        Returns:
-            True if token should be refreshed
-
-        Thread Safety:
-            This method is thread-safe.
-        """
+        """Check if token needs refresh."""
         token_info = self.get_token_info()
 
         if not token_info:
@@ -340,52 +257,30 @@ class CentralizedTokenManager:
             self.logger.error("Refresh token is expired - re-authentication required!")
             return True
 
-        # Check if token expires soon
-        seconds_remaining = token_info.seconds_until_expiration
-        minutes_remaining = seconds_remaining / 60.0
-
+        minutes_remaining = token_info.seconds_until_expiration / 60.0
         if minutes_remaining <= threshold_minutes:
-            self.logger.info(
-                f"Token expires in {minutes_remaining:.1f} minutes - refresh needed"
-            )
+            self.logger.info(f"Token expires in {minutes_remaining:.1f} minutes - refresh needed")
             return True
 
         return False
 
     def get_status(self) -> Dict[str, Any]:
-        """Get comprehensive token status.
-
-        Returns:
-            Dictionary with token status information
-
-        Thread Safety:
-            This method is thread-safe.
-        """
+        """Get comprehensive token status."""
         token_info = self.get_token_info()
 
         if not token_info:
-            status = {
-                "has_token": False,
-                "message": "No token found in database",
-            }
-            # Include initialization error if client failed to init
+            status = {"has_token": False, "message": "No token found in database"}
             if self._client_init_error:
                 status["client_init_error"] = self._client_init_error
                 status["requires_oauth"] = True
             return status
 
-        status = {
-            "has_token": True,
-            **token_info.to_dict(),
-        }
+        status = {"has_token": True, **token_info.to_dict()}
 
         if self.last_refresh:
             status["last_refresh"] = self.last_refresh.isoformat()
-            status["minutes_since_refresh"] = (
-                datetime.now(timezone.utc) - self.last_refresh
-            ).total_seconds() / 60.0
+            status["minutes_since_refresh"] = (now_utc() - self.last_refresh).total_seconds() / 60.0
 
-        # Include client init status
         if self._client_init_error:
             status["client_init_error"] = self._client_init_error
 

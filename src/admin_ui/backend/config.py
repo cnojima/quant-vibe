@@ -5,7 +5,7 @@ Loads settings from environment variables with sensible defaults.
 """
 
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Optional, Union
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -31,9 +31,9 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # Security - loaded from environment variables or .env file
-    admin_username: str = ""  # Required: set ADMIN_USERNAME in .env
-    admin_password: str = ""  # Required: set ADMIN_PASSWORD in .env
-    jwt_secret_key: str = ""  # Required: set JWT_SECRET_KEY in .env
+    admin_username: str = ""
+    admin_password: str = ""
+    jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24 hours
 
@@ -46,7 +46,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="before")
     @classmethod
-    def parse_cors(cls, data: Any) -> Any:
+    def parse_cors(cls, data: dict) -> dict:
         """Parse CORS origins from comma-separated string to list."""
         if isinstance(data, dict) and "cors_origins" in data:
             origins = data["cors_origins"]
@@ -89,17 +89,18 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def select_timescale_config(self) -> "Settings":
         """Select TimescaleDB config based on USE_REMOTE_TIMESCALE flag."""
-        if self.use_remote_timescale and self.remote_timescale_host:
-            # Override with remote config
-            self.timescale_host = self.remote_timescale_host
-            if self.remote_timescale_port:
-                self.timescale_port = self.remote_timescale_port
-            if self.remote_timescale_db:
-                self.timescale_db = self.remote_timescale_db
-            if self.remote_timescale_user:
-                self.timescale_user = self.remote_timescale_user
-            if self.remote_timescale_password:
-                self.timescale_password = self.remote_timescale_password
+        if not self.use_remote_timescale or not self.remote_timescale_host:
+            return self
+
+        self.timescale_host = self.remote_timescale_host
+        if self.remote_timescale_port:
+            self.timescale_port = self.remote_timescale_port
+        if self.remote_timescale_db:
+            self.timescale_db = self.remote_timescale_db
+        if self.remote_timescale_user:
+            self.timescale_user = self.remote_timescale_user
+        if self.remote_timescale_password:
+            self.timescale_password = self.remote_timescale_password
         return self
 
     # Docker

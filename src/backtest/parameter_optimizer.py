@@ -1,15 +1,7 @@
-"""Parameter optimization framework for trading strategies.
-
-This module provides tools to:
-1. Run grid search over parameter combinations
-2. Evaluate performance metrics (Sharpe ratio, win rate, max drawdown, etc.)
-3. Find optimal parameters based on specified metrics
-4. Avoid overfitting through out-of-sample validation
-"""
+"""Parameter optimization framework for trading strategies."""
 
 import itertools
 import pandas as pd
-import numpy as np
 from typing import Any, Dict, List, Optional, Type, Callable
 from datetime import datetime
 
@@ -18,10 +10,7 @@ from quant_vibe.strategies.options_base import OptionsStrategy
 from quant_vibe.logging import setup_normalized_logging
 from quant_vibe.utils.timestamp_utils import now_utc
 
-logger = setup_normalized_logging(
-    app_name="optimization",
-    log_dir="logs/optimization"
-)
+logger = setup_normalized_logging(app_name="optimization", log_dir="logs/optimization")
 
 
 class ParameterOptimizer:
@@ -36,17 +25,7 @@ class ParameterOptimizer:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
     ):
-        """
-        Initialize parameter optimizer.
-
-        Args:
-            strategy_class: Strategy class to optimize (not instance)
-            underlying_data: DataFrame with underlying price data
-            options_data: DataFrame with options bars data
-            initial_capital: Initial capital for backtests
-            start_date: Backtest start date
-            end_date: Backtest end date
-        """
+        """Initialize parameter optimizer."""
         self.strategy_class = strategy_class
         self.underlying_data = underlying_data
         self.options_data = options_data
@@ -62,176 +41,124 @@ class ParameterOptimizer:
         verbose: bool = True,
         progress_callback: Optional[Callable[[int, int, Dict[str, Any], Dict[str, float]], None]] = None,
     ) -> pd.DataFrame:
-        """
-        Run grid search over parameter combinations.
-
-        Args:
-            param_grid: Dict of parameter names to lists of values to try.
-                       Example: {
-                           'spread_width': [5, 10, 15, 20],
-                           'profit_target_min': [0.30, 0.40, 0.50, 0.60],
-                           'stop_loss_pct': [0.50, 0.75, 1.00]
-                       }
-            fixed_params: Dict of fixed parameters to pass to every strategy instance
-            verbose: Whether to print progress
-            progress_callback: Optional callback function called after each combination.
-                             Signature: callback(current: int, total: int, params: dict, metrics: dict)
-
-        Returns:
-            DataFrame with columns:
-            - params: dict of parameter combination
-            - total_return: float (%)
-            - sharpe_ratio: float
-            - max_drawdown: float (%)
-            - win_rate: float (%)
-            - num_trades: int
-            - profit_factor: float
-            - avg_trade_pnl: float
-            - total_pnl: float
-        """
+        """Run grid search over parameter combinations."""
         fixed_params = fixed_params or {}
 
         # Generate all parameter combinations
-        param_names = list(param_grid.keys())
-        param_values = list(param_grid.values())
-        combinations = list(itertools.product(*param_values))
-
+        combinations = self._generate_combinations(param_grid)
         total_combinations = len(combinations)
+
         logger.info(
             f"Starting grid search with {total_combinations} parameter combinations",
             extra={"num_combinations": total_combinations},
         )
 
         results = []
-
-        for idx, combo in enumerate(combinations, 1):
-            # Create parameter dict for this combination
-            params = dict(zip(param_names, combo))
+        for idx, params in enumerate(combinations, 1):
+            # Add fixed parameters
             params.update(fixed_params)
 
             if verbose:
-                params_str = ", ".join(f"{k}={v}" for k, v in params.items())
-                logger.info(
-                    f"[{idx}/{total_combinations}] Testing: {params_str}",
-                    extra={"combination": idx, "total": total_combinations},
-                )
+                self._log_progress(idx, total_combinations, params)
 
-            try:
-                # Run backtest with this parameter set
-                start_time = now_utc()
-                metrics = self._run_single_backtest(params)
-                elapsed_time = (now_utc() - start_time).total_seconds()
-
-                # Store results
-                result = {
-                    "params": params.copy(),
-                    "total_return": metrics["total_return"],
-                    "sharpe_ratio": metrics["sharpe_ratio"],
-                    "max_drawdown": metrics["max_drawdown"],
-                    "win_rate": metrics["win_rate"],
-                    "num_trades": metrics["num_trades"],
-                    "profit_factor": metrics["profit_factor"],
-                    "avg_trade_pnl": metrics["avg_trade_pnl"],
-                    "total_pnl": metrics["total_pnl"],
-                }
-
-                # Add individual param columns for easier filtering
-                for param_name, param_value in params.items():
-                    result[f"param_{param_name}"] = param_value
-
+            # Run backtest and collect results
+            result = self._evaluate_parameters(params, idx, total_combinations, verbose)
+            if result:
                 results.append(result)
 
-                if verbose:
-                    logger.info(
-                        f"  → Sharpe: {metrics['sharpe_ratio']:.2f}, "
-                        f"Return: {metrics['total_return']:.2f}%, "
-                        f"Win Rate: {metrics['win_rate']:.2f}%, "
-                        f"Trades: {metrics['num_trades']}, "
-                        f"Time: {elapsed_time:.1f}s",
-                        extra={
-                            "sharpe": metrics["sharpe_ratio"],
-                            "return": metrics["total_return"],
-                            "win_rate": metrics["win_rate"],
-                            "trades": metrics["num_trades"],
-                            "elapsed_time": elapsed_time,
-                        },
-                    )
-
-                # Call progress callback if provided
                 if progress_callback:
-                    try:
-                        progress_callback(idx, total_combinations, params, metrics)
-                    except Exception as cb_error:
-                        logger.warning(f"Progress callback error: {cb_error}")
+                    progress_callback(idx, total_combinations, params, result)
 
-            except Exception as e:
-                logger.error(
-                    f"Error testing parameters {params}: {e}",
-                    exc_info=True,
-                    extra={"params": params},
-                )
-                # Store failed result with NaN metrics
-                result = {
-                    "params": params.copy(),
-                    "total_return": np.nan,
-                    "sharpe_ratio": np.nan,
-                    "max_drawdown": np.nan,
-                    "win_rate": np.nan,
-                    "num_trades": 0,
-                    "profit_factor": np.nan,
-                    "avg_trade_pnl": np.nan,
-                    "total_pnl": np.nan,
-                }
-                for param_name, param_value in params.items():
-                    result[f"param_{param_name}"] = param_value
-                results.append(result)
-
-                # Call progress callback even for failures
-                if progress_callback:
-                    try:
-                        progress_callback(idx, total_combinations, params, {
-                            "sharpe_ratio": 0.0,
-                            "total_return": 0.0,
-                            "win_rate": 0.0,
-                            "num_trades": 0,
-                            "error": str(e),
-                        })
-                    except Exception as cb_error:
-                        logger.warning(f"Progress callback error: {cb_error}")
-
-        # Convert to DataFrame
+        # Convert to DataFrame and sort by Sharpe ratio
         self.results = pd.DataFrame(results)
-
-        # Sort by Sharpe ratio (descending)
-        self.results = self.results.sort_values("sharpe_ratio", ascending=False)
-
-        logger.info(
-            f"Grid search complete. Best Sharpe ratio: {self.results.iloc[0]['sharpe_ratio']:.2f}",
-            extra={"best_sharpe": float(self.results.iloc[0]["sharpe_ratio"])},
-        )
+        if not self.results.empty:
+            self.results = self.results.sort_values("sharpe_ratio", ascending=False)
 
         return self.results
 
+    def _generate_combinations(self, param_grid: Dict[str, List[Any]]) -> List[Dict[str, Any]]:
+        """Generate all parameter combinations from grid."""
+        param_names = list(param_grid.keys())
+        param_values = list(param_grid.values())
+        combinations = list(itertools.product(*param_values))
+        return [dict(zip(param_names, combo)) for combo in combinations]
+
+    def _log_progress(self, current: int, total: int, params: Dict[str, Any]) -> None:
+        """Log current optimization progress."""
+        params_str = ", ".join(f"{k}={v}" for k, v in params.items())
+        logger.info(
+            f"[{current}/{total}] Testing: {params_str}",
+            extra={"combination": current, "total": total},
+        )
+
+    def _evaluate_parameters(
+        self, params: Dict[str, Any], current: int, total: int, verbose: bool
+    ) -> Optional[Dict[str, Any]]:
+        """Evaluate a single parameter combination."""
+        try:
+            start_time = now_utc()
+            metrics = self._run_single_backtest(params)
+            elapsed_time = (now_utc() - start_time).total_seconds()
+
+            # Build result dictionary
+            result = self._build_result_dict(params, metrics)
+
+            if verbose:
+                self._log_results(metrics, elapsed_time)
+
+            return result
+
+        except Exception as e:
+            logger.error(
+                f"Error testing parameters: {e}",
+                extra={"params": params, "error": str(e)},
+            )
+            return None
+
+    def _build_result_dict(
+        self, params: Dict[str, Any], metrics: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Build result dictionary from parameters and metrics."""
+        result = {
+            "params": params.copy(),
+            "total_return": metrics["total_return"],
+            "sharpe_ratio": metrics["sharpe_ratio"],
+            "max_drawdown": metrics["max_drawdown"],
+            "win_rate": metrics["win_rate"],
+            "num_trades": metrics["num_trades"],
+            "profit_factor": metrics["profit_factor"],
+            "avg_trade_pnl": metrics["avg_trade_pnl"],
+            "total_pnl": metrics["total_pnl"],
+        }
+
+        # Add individual param columns for easier filtering
+        for param_name, param_value in params.items():
+            result[f"param_{param_name}"] = param_value
+
+        return result
+
+    def _log_results(self, metrics: Dict[str, Any], elapsed_time: float) -> None:
+        """Log backtest results."""
+        logger.info(
+            f"  → Sharpe: {metrics['sharpe_ratio']:.2f}, "
+            f"Return: {metrics['total_return']:.2f}%, "
+            f"Win Rate: {metrics['win_rate']:.2f}%, "
+            f"Trades: {metrics['num_trades']}, "
+            f"Time: {elapsed_time:.1f}s",
+            extra=metrics,
+        )
+
     def _run_single_backtest(self, params: Dict[str, Any]) -> Dict[str, float]:
-        """
-        Run a single backtest with given parameters.
-
-        Args:
-            params: Dictionary of strategy parameters
-
-        Returns:
-            Dict with performance metrics
-        """
+        """Run a single backtest with given parameters."""
         # Create strategy instance with parameters
         strategy = self.strategy_class(**params)
 
-        # Create backtest engine (disable verbose logging for optimizations)
+        # Run backtest
         engine = OptionsBacktestEngine(
             initial_capital=self.initial_capital,
-            log_trades=False  # Suppress verbose trade logging during optimization
+            log_trades=False,  # Disable logging for optimization
         )
 
-        # Run backtest
         results = engine.run(
             strategy=strategy,
             underlying_data=self.underlying_data,
@@ -240,190 +167,157 @@ class ParameterOptimizer:
             end_date=self.end_date,
         )
 
-        trades = results["trades"]
-        equity_curve = results["equity_curve"]
+        # Calculate additional metrics
+        return self._calculate_metrics(results)
 
-        # Calculate metrics
-        if len(trades) == 0:
-            return {
-                "total_return": 0.0,
-                "sharpe_ratio": 0.0,
-                "max_drawdown": 0.0,
-                "win_rate": 0.0,
-                "num_trades": 0,
-                "profit_factor": 0.0,
-                "avg_trade_pnl": 0.0,
-                "total_pnl": 0.0,
-            }
+    def _calculate_metrics(self, results: Dict[str, Any]) -> Dict[str, float]:
+        """Calculate metrics from backtest results."""
+        trades_df = results.get("trades", pd.DataFrame())
 
-        # Total P&L and return
-        total_pnl = trades["pnl"].sum()
-        total_return = (total_pnl / self.initial_capital) * 100
+        if trades_df.empty:
+            return self._empty_metrics()
 
-        # Win rate
-        winning_trades = trades[trades["pnl"] > 0]
-        win_rate = (len(winning_trades) / len(trades)) * 100 if len(trades) > 0 else 0.0
-
-        # Profit factor
-        gross_profit = winning_trades["pnl"].sum() if len(winning_trades) > 0 else 0.0
-        losing_trades = trades[trades["pnl"] <= 0]
-        gross_loss = abs(losing_trades["pnl"].sum()) if len(losing_trades) > 0 else 0.0
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else np.inf
-
-        # Sharpe ratio (annualized)
-        # Use portfolio_value column (not total_value)
-        daily_returns = equity_curve["portfolio_value"].pct_change().dropna()
-        if len(daily_returns) > 1:
-            sharpe_ratio = (
-                (daily_returns.mean() / daily_returns.std()) * np.sqrt(252)
-                if daily_returns.std() > 0
-                else 0.0
-            )
-        else:
-            sharpe_ratio = 0.0
-
-        # Max drawdown
-        cumulative = (1 + daily_returns).cumprod()
-        running_max = cumulative.expanding().max()
-        drawdown = (cumulative - running_max) / running_max
-        max_drawdown = abs(drawdown.min()) * 100
-
-        # Average trade P&L
-        avg_trade_pnl = trades["pnl"].mean()
+        total_pnl = trades_df["pnl"].sum()
+        num_trades = len(trades_df)
+        winning_trades = trades_df[trades_df["pnl"] > 0]
+        losing_trades = trades_df[trades_df["pnl"] < 0]
 
         return {
-            "total_return": total_return,
-            "sharpe_ratio": sharpe_ratio,
-            "max_drawdown": max_drawdown,
-            "win_rate": win_rate,
-            "num_trades": len(trades),
-            "profit_factor": profit_factor if not np.isinf(profit_factor) else 999.0,
-            "avg_trade_pnl": avg_trade_pnl,
+            "total_return": results.get("total_return_pct", 0),
+            "sharpe_ratio": results.get("sharpe_ratio", 0),
+            "max_drawdown": results.get("max_drawdown", 0),
+            "win_rate": results.get("win_rate", 0),
+            "num_trades": num_trades,
+            "profit_factor": results.get("profit_factor", 0),
+            "avg_trade_pnl": total_pnl / num_trades if num_trades > 0 else 0,
             "total_pnl": total_pnl,
+            "avg_win": winning_trades["pnl"].mean() if not winning_trades.empty else 0,
+            "avg_loss": losing_trades["pnl"].mean() if not losing_trades.empty else 0,
         }
 
-    def find_optimal(
-        self,
-        metric: str = "sharpe_ratio",
-        min_trades: int = 10,
-    ) -> Dict[str, Any]:
-        """
-        Return best parameter set by specified metric.
-
-        Args:
-            metric: Metric to optimize ('sharpe_ratio', 'total_return', 'win_rate', etc.)
-            min_trades: Minimum number of trades required for valid result
-
-        Returns:
-            Dict with 'params' and metric values
-        """
-        if self.results is None:
-            raise ValueError("Must run grid_search() first")
-
-        # Filter by minimum trades
-        valid_results = self.results[self.results["num_trades"] >= min_trades]
-
-        if len(valid_results) == 0:
-            logger.warning(
-                f"No parameter combinations with >= {min_trades} trades",
-                extra={"min_trades": min_trades},
-            )
-            # Fall back to all results
-            valid_results = self.results
-
-        # Sort by metric (descending for most metrics)
-        ascending = metric == "max_drawdown"  # Lower is better for drawdown
-        best_row = valid_results.sort_values(metric, ascending=ascending).iloc[0]
-
-        result = {
-            "params": best_row["params"],
-            metric: best_row[metric],
-            "total_return": best_row["total_return"],
-            "sharpe_ratio": best_row["sharpe_ratio"],
-            "max_drawdown": best_row["max_drawdown"],
-            "win_rate": best_row["win_rate"],
-            "num_trades": best_row["num_trades"],
+    def _empty_metrics(self) -> Dict[str, float]:
+        """Return empty metrics when no trades were executed."""
+        return {
+            "total_return": 0,
+            "sharpe_ratio": 0,
+            "max_drawdown": 0,
+            "win_rate": 0,
+            "num_trades": 0,
+            "profit_factor": 0,
+            "avg_trade_pnl": 0,
+            "total_pnl": 0,
+            "avg_win": 0,
+            "avg_loss": 0,
         }
 
-        logger.info(
-            f"Optimal parameters (by {metric}): {best_row['params']}",
-            extra={"metric": metric, "params": best_row["params"]},
-        )
+    def get_best_params(self, metric: str = "sharpe_ratio", top_n: int = 5) -> pd.DataFrame:
+        """Get the best parameter combinations based on a metric."""
+        if self.results is None or self.results.empty:
+            return pd.DataFrame()
 
-        return result
+        return self.results.nlargest(top_n, metric)
 
-    def get_top_n(
-        self,
-        n: int = 10,
-        metric: str = "sharpe_ratio",
-        min_trades: int = 10,
-    ) -> pd.DataFrame:
-        """
-        Get top N parameter combinations by specified metric.
-
-        Args:
-            n: Number of top results to return
-            metric: Metric to sort by
-            min_trades: Minimum number of trades required
-
-        Returns:
-            DataFrame with top N results
-        """
-        if self.results is None:
-            raise ValueError("Must run grid_search() first")
-
-        # Filter by minimum trades
-        valid_results = self.results[self.results["num_trades"] >= min_trades]
-
-        # Sort by metric
-        ascending = metric == "max_drawdown"
-        top_n = valid_results.sort_values(metric, ascending=ascending).head(n)
-
-        return top_n
-
-    def save_results(self, filepath: str):
-        """
-        Save optimization results to CSV.
-
-        Args:
-            filepath: Path to save CSV file
-        """
-        if self.results is None:
-            raise ValueError("Must run grid_search() first")
-
-        # Convert params dict to string for CSV
-        results_copy = self.results.copy()
-        results_copy["params"] = results_copy["params"].apply(str)
-
-        results_copy.to_csv(filepath, index=False)
-        logger.info(f"Results saved to {filepath}", extra={"filepath": filepath})
-
-    def create_heatmap_data(
+    def plot_optimization_surface(
         self,
         param_x: str,
         param_y: str,
         metric: str = "sharpe_ratio",
-    ) -> pd.DataFrame:
-        """
-        Create pivot table for heatmap visualization.
+        save_path: Optional[str] = None,
+    ) -> None:
+        """Plot 3D surface of optimization results."""
+        if self.results is None or self.results.empty:
+            logger.warning("No results to plot")
+            return
 
-        Args:
-            param_x: Parameter name for x-axis
-            param_y: Parameter name for y-axis
-            metric: Metric to display in heatmap
+        try:
+            import matplotlib.pyplot as plt
+            from mpl_toolkits.mplot3d import Axes3D
+            import numpy as np
+        except ImportError:
+            logger.error("Matplotlib required for plotting. Install with: pip install matplotlib")
+            return
 
-        Returns:
-            Pivot table with param_x as columns, param_y as index
-        """
-        if self.results is None:
-            raise ValueError("Must run grid_search() first")
+        # Extract data
+        x_col = f"param_{param_x}"
+        y_col = f"param_{param_y}"
+
+        if x_col not in self.results.columns or y_col not in self.results.columns:
+            logger.error(f"Parameters {param_x} or {param_y} not found in results")
+            return
 
         # Create pivot table
         pivot = self.results.pivot_table(
-            index=f"param_{param_y}",
-            columns=f"param_{param_x}",
             values=metric,
+            index=y_col,
+            columns=x_col,
             aggfunc="mean",
         )
 
-        return pivot
+        # Create 3D plot
+        fig = plt.figure(figsize=(12, 8))
+        ax = fig.add_subplot(111, projection="3d")
+
+        # Create mesh grid
+        X, Y = np.meshgrid(pivot.columns, pivot.index)
+        Z = pivot.values
+
+        # Plot surface
+        surf = ax.plot_surface(X, Y, Z, cmap="viridis", alpha=0.8)
+
+        # Labels and title
+        ax.set_xlabel(param_x)
+        ax.set_ylabel(param_y)
+        ax.set_zlabel(metric)
+        ax.set_title(f"Optimization Surface: {metric}")
+
+        # Add color bar
+        fig.colorbar(surf, shrink=0.5, aspect=5)
+
+        if save_path:
+            plt.savefig(save_path, dpi=100, bbox_inches="tight")
+            logger.info(f"Plot saved to {save_path}")
+        else:
+            plt.show()
+
+    def summary_report(self) -> None:
+        """Print a summary report of optimization results."""
+        if self.results is None or self.results.empty:
+            print("No optimization results available")
+            return
+
+        print("\n" + "=" * 70)
+        print("PARAMETER OPTIMIZATION SUMMARY")
+        print("=" * 70)
+
+        # Best parameters
+        best = self.results.iloc[0]
+        print("\nBEST PARAMETERS:")
+        for key, value in best["params"].items():
+            print(f"  {key}: {value}")
+
+        print(f"\nBEST METRICS:")
+        print(f"  Sharpe Ratio: {best['sharpe_ratio']:.2f}")
+        print(f"  Total Return: {best['total_return']:.2f}%")
+        print(f"  Win Rate: {best['win_rate']:.2f}%")
+        print(f"  Max Drawdown: {best['max_drawdown']:.2f}%")
+        print(f"  Num Trades: {best['num_trades']}")
+        print(f"  Profit Factor: {best['profit_factor']:.2f}")
+
+        # Parameter sensitivity
+        print("\nPARAMETER SENSITIVITY (correlation with Sharpe ratio):")
+        param_cols = [col for col in self.results.columns if col.startswith("param_")]
+        for col in param_cols:
+            param_name = col.replace("param_", "")
+            if self.results[col].dtype in ["int64", "float64"]:
+                correlation = self.results[col].corr(self.results["sharpe_ratio"])
+                print(f"  {param_name}: {correlation:+.3f}")
+
+        # Distribution of results
+        print("\nRESULTS DISTRIBUTION:")
+        print(f"  Total combinations tested: {len(self.results)}")
+        print(f"  Profitable combinations: {(self.results['total_return'] > 0).sum()}")
+        print(f"  Sharpe > 1.0: {(self.results['sharpe_ratio'] > 1.0).sum()}")
+        print(f"  Sharpe > 1.5: {(self.results['sharpe_ratio'] > 1.5).sum()}")
+        print(f"  Sharpe > 2.0: {(self.results['sharpe_ratio'] > 2.0).sum()}")
+
+        print("=" * 70)

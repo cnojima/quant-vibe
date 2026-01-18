@@ -29,7 +29,7 @@ class SonicDynDNSClient:
         Args:
             userid: Sonic.net user ID
             apikey: Sonic.net API key for DynDNS
-            hostname: The hostname to update (e.g., 'myserver.sonic.net')
+            hostname:
             api_base_url: Base URL for Sonic.net DynDNS API
         """
         self.userid = userid

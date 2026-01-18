@@ -34,18 +34,7 @@ class LoginResponse(BaseModel):
 
 @router.post("/login", response_model=LoginResponse)
 async def login(request: LoginRequest):
-    """
-    Authenticate user and return JWT token.
-
-    Args:
-        request: Login credentials (username and password)
-
-    Returns:
-        JWT access token and user information
-
-    Raises:
-        HTTPException: 401 if credentials are invalid
-    """
+    """Authenticate user and return JWT token."""
     user = authenticate_user(request.username, request.password)
     if not user:
         raise HTTPException(
@@ -54,7 +43,6 @@ async def login(request: LoginRequest):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Create access token
     access_token = create_access_token(data={"sub": user.username})
 
     return LoginResponse(
@@ -69,42 +57,19 @@ async def logout(current_user: User = Depends(get_current_user)):
     """
     Logout current user.
 
-    Note: With JWT tokens, logout is primarily handled client-side by
-    removing the token. This endpoint is for consistency and can be
-    extended for token blacklisting if needed.
-
-    Args:
-        current_user: The authenticated user (from JWT token)
-
-    Returns:
-        Success message
+    Note: With JWT tokens, logout is primarily handled client-side.
+    This endpoint exists for consistency and future enhancements.
     """
     return {"message": f"User {current_user.username} logged out successfully"}
 
 
 @router.get("/me", response_model=User)
 async def get_me(current_user: User = Depends(get_current_user)):
-    """
-    Get current user information.
-
-    Args:
-        current_user: The authenticated user (from JWT token)
-
-    Returns:
-        Current user information
-    """
+    """Get current user information."""
     return current_user
 
 
 @router.get("/verify")
 async def verify_token(current_user: User = Depends(get_current_user)):
-    """
-    Verify if the current token is valid.
-
-    Args:
-        current_user: The authenticated user (from JWT token)
-
-    Returns:
-        Token validity status
-    """
+    """Verify if the current token is valid."""
     return {"valid": True, "username": current_user.username}

@@ -1,42 +1,28 @@
-"""Heartbeat tracking and management via Redis."""
+"""Heartbeat tracking via Redis."""
 
 import json
 import threading
 from datetime import timedelta
-from typing import Dict, Any
+from typing import Any, Dict
 
-from watcher_service.service_monitor import HealthStatus
 from quant_vibe.utils import now_utc
+from watcher_service.service_monitor import HealthStatus
 
 
 class HeartbeatManager:
     """Manages heartbeat tracking for services via Redis pub/sub."""
 
     def __init__(self, redis_broker, logger, heartbeat_timeout_seconds: int = 90):
-        """Initialize heartbeat manager.
-
-        Args:
-            redis_broker: RedisMessageBroker instance
-            logger: Logger instance
-            heartbeat_timeout_seconds: Time before heartbeat is considered stale
-        """
+        """Initialize heartbeat manager."""
         self.redis_broker = redis_broker
         self.logger = logger
         self.heartbeat_timeout = heartbeat_timeout_seconds
-
-        # Track last heartbeat per service: {service_name: {timestamp, data}}
         self.heartbeats: Dict[str, Dict[str, Any]] = {}
         self.heartbeat_lock = threading.Lock()
-
-        # Subscribed topics
         self.subscribed_topics = []
 
-    def subscribe_to_heartbeats(self, service_topics: Dict[str, str]):
-        """Subscribe to heartbeat topics for services.
-
-        Args:
-            service_topics: Dict of {service_name: topic_name}
-        """
+    def subscribe_to_heartbeats(self, service_topics: Dict[str, str]) -> None:
+        """Subscribe to heartbeat topics for services."""
         topics = list(service_topics.values())
 
         if not topics:
@@ -45,16 +31,10 @@ class HeartbeatManager:
 
         self.logger.info(f"Subscribing to {len(topics)} heartbeat topics")
 
-        # Create callback to handle heartbeat messages
-        def on_heartbeat(topic: str, message: Any):
+        def on_heartbeat(topic: str, message: Any) -> None:
             """Handle incoming heartbeat message."""
             try:
-                # Parse message if it's a string
-                if isinstance(message, str):
-                    data = json.loads(message)
-                else:
-                    data = message
-
+                data = json.loads(message) if isinstance(message, str) else message
                 service_name = data.get("service", "unknown")
 
                 with self.heartbeat_lock:
@@ -74,7 +54,6 @@ class HeartbeatManager:
             except Exception as e:
                 self.logger.error(f"Error handling heartbeat: {e}", exc_info=True)
 
-        # Subscribe to all topics
         try:
             self.redis_broker.subscribe(topics, callback=on_heartbeat)
             self.subscribed_topics = topics
@@ -83,14 +62,7 @@ class HeartbeatManager:
             self.logger.error(f"Failed to subscribe to heartbeats: {e}", exc_info=True)
 
     def get_heartbeat_status(self, service_name: str) -> Dict[str, Any]:
-        """Get heartbeat status for a service.
-
-        Args:
-            service_name: Name of service
-
-        Returns:
-            Dict with status, last_heartbeat, seconds_since_heartbeat, data
-        """
+        """Get heartbeat status for a service."""
         with self.heartbeat_lock:
             heartbeat = self.heartbeats.get(service_name)
 
@@ -103,15 +75,11 @@ class HeartbeatManager:
                 "missed_heartbeats": 0,
             }
 
-        # Calculate time since last heartbeat
         last_timestamp = heartbeat["timestamp"]
         now = now_utc()
         seconds_since = (now - last_timestamp).total_seconds()
-
-        # Estimate missed heartbeats (assuming 30s interval)
         missed_count = max(0, int(seconds_since / 30) - 1)
 
-        # Determine status based on timeout
         if seconds_since < self.heartbeat_timeout:
             status = HealthStatus.HEALTHY
             details = f"Last heartbeat {seconds_since:.0f}s ago"
@@ -132,28 +100,16 @@ class HeartbeatManager:
         }
 
     def get_all_heartbeat_statuses(self) -> Dict[str, Dict[str, Any]]:
-        """Get heartbeat status for all tracked services.
-
-        Returns:
-            Dict of {service_name: status_dict}
-        """
-        statuses = {}
+        """Get heartbeat status for all tracked services."""
         with self.heartbeat_lock:
             service_names = list(self.heartbeats.keys())
 
-        for service_name in service_names:
-            statuses[service_name] = self.get_heartbeat_status(service_name)
+        return {name: self.get_heartbeat_status(name) for name in service_names}
 
-        return statuses
-
-    def publish_heartbeat(self, service_name: str, status: str, metrics: Dict[str, Any]):
-        """Publish a heartbeat message (for testing or local services).
-
-        Args:
-            service_name: Name of service
-            status: Status string (healthy, degraded, unhealthy)
-            metrics: Dict of metrics to include
-        """
+    def publish_heartbeat(
+        self, service_name: str, status: str, metrics: Dict[str, Any]
+    ) -> None:
+        """Publish a heartbeat message."""
         message = {
             "service": service_name,
             "timestamp": now_utc().isoformat(),
@@ -169,12 +125,8 @@ class HeartbeatManager:
         except Exception as e:
             self.logger.error(f"Failed to publish heartbeat: {e}", exc_info=True)
 
-    def cleanup_stale_heartbeats(self, max_age_hours: int = 24):
-        """Remove heartbeats older than max_age_hours.
-
-        Args:
-            max_age_hours: Maximum age in hours before cleanup
-        """
+    def cleanup_stale_heartbeats(self, max_age_hours: int = 24) -> None:
+        """Remove heartbeats older than max_age_hours."""
         cutoff = now_utc() - timedelta(hours=max_age_hours)
         removed = []
 
@@ -187,9 +139,7 @@ class HeartbeatManager:
         if removed:
             self.logger.info(f"Cleaned up stale heartbeats: {', '.join(removed)}")
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop listening to heartbeats."""
         if self.subscribed_topics:
             self.logger.info("Stopping heartbeat listener")
-            # Note: RedisMessageBroker.listen() is blocking,
-            # stopping is handled by the main watcher loop
