@@ -7,6 +7,7 @@ Provides endpoints to run backtests and view results.
 import asyncio
 import csv
 import json
+from logging import log
 import os
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any, Optional
 
 from quant_vibe.utils import now_utc
 from quant_vibe.utils.json_utils import sanitize_for_json
+from quant_vibe.logging import get_logger
 import pandas as pd
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -21,6 +23,8 @@ from pydantic import BaseModel
 
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
+
+logger = get_logger(__name__)
 from backtest.config_loader import BacktestConfig
 from quant_vibe.data.timescale_store import TimescaleStore
 from quant_vibe.utils.backtest_helpers import _convert_decimals_to_float
@@ -57,7 +61,7 @@ def _save_backtests(backtests: dict[str, dict[str, Any]]):
         with open(state_file, 'w') as f:
             json.dump(backtests, f, indent=2, default=str)
     except Exception as e:
-        print(f"Error saving backtest state: {e}")
+        logger.error(f"Error saving backtest state: {e}")
 
 # Load existing state on module init
 _running_backtests: dict[str, dict[str, Any]] = _load_backtests()
@@ -235,22 +239,22 @@ async def run_backtest_task(backtest_id: str, request: BacktestRequest):
 
                             if not trades_df.empty and not equity_df.empty:
                                 db_ready = True
-                                print(f"Database verification successful for {backtest_id}: {len(trades_df)} trades, {len(equity_df)} equity points")
+                                logger.info(f"Database verification successful for {backtest_id}: {len(trades_df)} trades, {len(equity_df)} equity points")
                             else:
-                                print(f"Database check {retry_count + 1}/{max_retries}: Backtest exists but data incomplete (trades: {len(trades_df)}, equity: {len(equity_df)})")
+                                logger.debug(f"Database check {retry_count + 1}/{max_retries}: Backtest exists but data incomplete (trades: {len(trades_df)}, equity: {len(equity_df)})")
                         else:
-                            print(f"Database check {retry_count + 1}/{max_retries}: Backtest not found yet")
+                            logger.debug(f"Database check {retry_count + 1}/{max_retries}: Backtest not found yet")
                     finally:
                         ts_store.close()
                 except Exception as e:
-                    print(f"Database check {retry_count + 1}/{max_retries} failed: {e}")
+                    logger.debug(f"Database check {retry_count + 1}/{max_retries} failed: {e}")
 
                 if not db_ready:
                     await asyncio.sleep(0.5)  # Wait 500ms before retry
                     retry_count += 1
 
             if not db_ready:
-                print(f"WARNING: Database verification failed after {max_retries} retries, marking as completed anyway")
+                logger.warning(f"Database verification failed after {max_retries} retries, marking as completed anyway")
 
             _running_backtests[backtest_id]["status"] = "completed"
             _running_backtests[backtest_id]["completed_at"] = now_utc()
@@ -400,7 +404,7 @@ async def get_backtest_status(
         finally:
             ts_store.close()
     except Exception as e:
-        print(f"Error checking database for backtest status: {e}")
+        logger.error(f"Error checking database for backtest status: {e}")
 
     # Not found in either location
     raise HTTPException(status_code=404, detail="Backtest not found")
@@ -429,7 +433,7 @@ async def get_backtest_results(
         try:
             # Get backtest metadata
             backtest_run = ts_store.get_backtest_run(backtest_id)
-            print(f"Database lookup for {backtest_id}: {'Found' if backtest_run else 'Not found'}")
+            logger.debug(f"Database lookup for {backtest_id}: {'Found' if backtest_run else 'Not found'}")
 
             if backtest_run:
                 # Get trades and equity curve from database
@@ -442,20 +446,21 @@ async def get_backtest_results(
                 try:
                     start_date = backtest_run.get('start_date')
                     end_date = backtest_run.get('end_date')
-                    print(f"📊 Fetching underlying bars for backtest {backtest_id}")
-                    print(f"  Start date: {start_date}, End date: {end_date}")
+                    logger.info(f"Fetching underlying bars for backtest {backtest_id}")
+                    logger.debug(f"  Start date: {start_date}, End date: {end_date}")
 
                     if start_date and end_date:
-                        # Fetch underlying bars from database (returns List[UnderlyingBar])
+                        # Fetch underlying bars from database (returns DataFrame)
+                        # Use SPX as the underlying symbol (Schwab API format)
                         underlying_bars = ts_store.get_underlying_bars(
                             ticker='SPX',
-                            start_time=start_date,
-                            end_time=end_date
+                            start_date=start_date,
+                            end_date=end_date
                         )
-                        print(f"  Retrieved {len(underlying_bars)} underlying bars")
+                        logger.debug(f"  Retrieved {len(underlying_bars)} underlying bars")
 
-                        if underlying_bars:
-                            underlying_df = pd.DataFrame([bar.model_dump() for bar in underlying_bars])
+                        if not underlying_bars.empty:
+                            underlying_df = underlying_bars.copy()
                             underlying_df = _convert_decimals_to_float(underlying_df)
 
                             # Set timestamp as index
@@ -471,7 +476,7 @@ async def get_backtest_results(
 
                             # Ensure index is DatetimeIndex for resampling
                             if not isinstance(underlying_df.index, pd.DatetimeIndex):
-                                print(f"  WARNING: Index is not DatetimeIndex, it's {type(underlying_df.index)}")
+                                logger.warning(f"  Index is not DatetimeIndex, it's {type(underlying_df.index)}")
                                 underlying_df.index = pd.to_datetime(underlying_df.index)
 
                             # Use time-based resampling (handles gaps/holidays correctly)
@@ -485,7 +490,7 @@ async def get_backtest_results(
                                         'close': 'last',
                                         'volume': 'sum'
                                     }).dropna()
-                                    print(f"  Resampled to 15-min bars: {len(underlying_df)} bars (from {num_bars})")
+                                    logger.debug(f"  Resampled to 15-min bars: {len(underlying_df)} bars (from {num_bars})")
                                 elif duration_days > 2:
                                     # 3-7 days: use 5-minute bars
                                     underlying_df = underlying_df.resample('5min').agg({
@@ -495,40 +500,38 @@ async def get_backtest_results(
                                         'close': 'last',
                                         'volume': 'sum'
                                     }).dropna()
-                                    print(f"  Resampled to 5-min bars: {len(underlying_df)} bars (from {num_bars})")
+                                    logger.debug(f"  Resampled to 5-min bars: {len(underlying_df)} bars (from {num_bars})")
                                 else:
                                     # <= 2 days: use all 1-minute bars
-                                    print(f"  Using 1-min bars: {len(underlying_df)} bars")
+                                    logger.debug(f"  Using 1-min bars: {len(underlying_df)} bars")
                             except Exception as resample_error:
-                                print(f"  ERROR during resampling: {resample_error}")
-                                print(f"  Index type: {type(underlying_df.index)}")
-                                print(f"  Index sample: {underlying_df.index[:5] if len(underlying_df) > 0 else 'empty'}")
+                                logger.error(f"  ERROR during resampling: {resample_error}")
+                                logger.debug(f"  Index type: {type(underlying_df.index)}")
+                                logger.debug(f"  Index sample: {underlying_df.index[:5] if len(underlying_df) > 0 else 'empty'}")
                                 # Fall back to simple step sampling
                                 if duration_days > 2:
                                     step = 5 if duration_days <= 7 else 15
                                     underlying_df = underlying_df.iloc[::step]
-                                    print(f"  Fallback: sampled every {step} bars: {len(underlying_df)} bars")
+                                    logger.debug(f"  Fallback: sampled every {step} bars: {len(underlying_df)} bars")
 
                             # If still too many points, downsample further using step sampling
                             if len(underlying_df) > max_points:
                                 step = len(underlying_df) // max_points
                                 underlying_df = underlying_df.iloc[::step]
-                                print(f"  Further downsampled to {len(underlying_df)} bars (step={step})")
+                                logger.debug(f"  Further downsampled to {len(underlying_df)} bars (step={step})")
 
                             # Reset index to include timestamp as a column
                             underlying_df = underlying_df.reset_index()
-                            print(f"  Final bar count: {len(underlying_df)}")
-                            print(f"  Sample bar (with timestamp): {underlying_df.iloc[0].to_dict()}")
+                            logger.debug(f"  Final bar count: {len(underlying_df)}")
+                            logger.debug(f"  Sample bar (with timestamp): {underlying_df.iloc[0].to_dict()}")
                             underlying_data = underlying_df.to_dict('records')
                         else:
                             underlying_data = []
                     else:
-                        print("⚠️  No start/end date found in backtest_run")
+                        logger.warning("  No start/end date found in backtest_run")
                         underlying_fetch_error = "No start/end date in backtest metadata"
                 except Exception as e:
-                    print(f"❌ ERROR: Could not fetch underlying bars: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    logger.error(f"ERROR: Could not fetch underlying bars: {e}", exc_info=True)
                     underlying_data = []
                     underlying_fetch_error = str(e)
 
@@ -580,8 +583,8 @@ async def get_backtest_results(
                     "win_rate": safe_float(backtest_run.get('win_rate')) / 100.0,  # Convert 100.0 → 1.0
                     "sharpe_ratio": safe_float(backtest_run.get('sharpe_ratio')),
                     "total_trades": safe_int(backtest_run.get('total_trades')),
-                    "num_winning_trades": safe_int(backtest_run.get('num_winning_trades')),
-                    "num_losing_trades": safe_int(backtest_run.get('num_losing_trades')),
+                    "winning_trades": safe_int(backtest_run.get('winning_trades')),
+                    "losing_trades": safe_int(backtest_run.get('losing_trades')),
                     "avg_win": safe_float(backtest_run.get('avg_win')),
                     "avg_loss": safe_float(backtest_run.get('avg_loss')),
                     "profit_factor": safe_float(backtest_run.get('profit_factor')),
@@ -593,12 +596,12 @@ async def get_backtest_results(
                     import json
                     parameters = json.loads(parameters)
 
-                print("✅ Returning backtest results:")
-                print(f"  Trades: {len(trades_data)}")
-                print(f"  Equity curve points: {len(equity_data)}")
-                print(f"  Underlying bars: {len(underlying_data)}")
+                logger.info("Returning backtest results:")
+                logger.debug(f"  Trades: {len(trades_data)}")
+                logger.debug(f"  Equity curve points: {len(equity_data)}")
+                logger.debug(f"  Underlying bars: {len(underlying_data)}")
                 if underlying_fetch_error:
-                    print(f"  ⚠️  Underlying fetch error: {underlying_fetch_error}")
+                    logger.warning(f"  Underlying fetch error: {underlying_fetch_error}")
 
                 return {
                     "backtest_id": backtest_id,
@@ -620,9 +623,7 @@ async def get_backtest_results(
         finally:
             ts_store.close()
     except Exception as e:
-        print(f"Failed to fetch from database: {e}, falling back to CSV files")
-        import traceback
-        traceback.print_exc()
+        logger.warning(f"Failed to fetch from database: {e}, falling back to CSV files", exc_info=True)
 
     # Fallback to CSV files (legacy behavior) - only if backtest exists in memory
     if backtest_id not in _running_backtests:
@@ -728,7 +729,7 @@ async def get_backtest_history(
         finally:
             ts_store.close()
     except Exception as e:
-        print(f"Failed to fetch history from database: {e}, using in-memory state")
+        logger.warning(f"Failed to fetch history from database: {e}, using in-memory state")
 
         # Fallback to in-memory state
         history = list(_running_backtests.values())
@@ -787,7 +788,7 @@ async def delete_backtest(
         finally:
             ts_store.close()
     except Exception as e:
-        print(f"Failed to delete from database: {e}")
+        logger.error(f"Failed to delete from database: {e}")
 
     # Also remove from in-memory state if present
     if backtest_id in _running_backtests:
@@ -830,17 +831,28 @@ async def delete_all_backtests(
         ts_store = _get_timescale_store()
         try:
             # Get all backtest IDs first
-            history = ts_store.get_backtest_history(limit=10000)
-            backtest_ids = [b['backtest_id'] for b in history]
+            history_df = ts_store.get_backtest_history(limit=10000)
+            history = history_df.to_dict('records') if not history_df.empty else []
+            logger.info(f"Deleting all backtests: found {len(history)} backtests in database")
+            # backtest_ids = [b['backtest_id'] for b in history]
+            # logger.info(f"Deleting all backtests: found {len(backtest_ids)} backtests in database")
+
 
             # Delete each backtest from database
-            for backtest_id in backtest_ids:
+            # for backtest_id in backtest_ids:
+            for b in history:
                 try:
-                    ts_store.delete_backtest(backtest_id)
+                    logger.info(f"Deleting backtest {b['backtest_id']} from database")
+                    ts_store.delete_backtest(backtest_id=b['backtest_id'])
                     deleted_count += 1
                 except Exception as e:
-                    errors.append(f"Failed to delete {backtest_id} from database: {e}")
+                    logger.error(f"Failed to delete backtest {b['backtest_id']}: {e}")
+                    errors.append(f"Failed to delete {b['backtest_id']} from database: {e}")
+        except Exception as e:
+            logger.error(f"Error retrieving backtest history for deletion: {e}")
+            errors.append(f"Error retrieving backtest history: {e}")
         finally:
+            logger.debug("Closing Timescale store after deleting all backtests")
             ts_store.close()
     except Exception as e:
         errors.append(f"Database error: {e}")
@@ -937,7 +949,7 @@ async def list_strategies(current_user: User = Depends(get_current_user)):
 
     except Exception as e:
         # Fallback to empty list if config can't be loaded
-        print(f"Error loading strategies from config: {e}")
+        logger.error(f"Error loading strategies from config: {e}")
         return {
             "strategies": [],
             "count": 0,
@@ -972,6 +984,8 @@ def calculate_metrics(trades: list[dict], equity_curve: list[dict]) -> dict[str,
         final_equity,
         num_periods=len(equity_curve)
     )
+
+    logger.debug(f"Calculated metrics: Initial Equity={initial_equity}, Final Equity={final_equity}, Total Return={return_metrics['total_return_pct']}%")
 
     # Calculate max drawdown from equity curve using centralized calculator
     portfolio_values = [float(row.get('portfolio_value', 0)) for row in equity_curve]

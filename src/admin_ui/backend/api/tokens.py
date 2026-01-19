@@ -15,7 +15,10 @@ from fastapi.responses import HTMLResponse
 
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
+from quant_vibe.logging import get_logger
 from quant_vibe.utils import now_utc
+
+logger = get_logger(__name__)
 
 # Import token service client
 try:
@@ -132,11 +135,11 @@ def get_token_from_db() -> Optional[dict]:
 
     except sqlite3.Error as e:
         # SQLite error - log it but don't fail
-        print(f"SQLite error reading token database: {e}")
+        logger.error(f"SQLite error reading token database: {e}")
         return None
     except Exception as e:
         # Unexpected error - log it but don't fail
-        print(f"Unexpected error reading token database: {e}")
+        logger.error(f"Unexpected error reading token database: {e}")
         return None
 
 
@@ -162,7 +165,7 @@ async def get_token_status(current_user: User = Depends(get_current_user)):
             return status
         except Exception as e:
             # Fall back to local database
-            print(f"Token service unavailable, falling back to database: {e}")
+            logger.warning(f"Token service unavailable, falling back to database: {e}")
 
     # Fallback: Read from database directly (legacy mode)
     settings = get_settings()
@@ -239,7 +242,7 @@ async def refresh_token(current_user: User = Depends(get_current_user)):
                 }
         except Exception as e:
             # Fall back to local refresh
-            print(f"Token service unavailable, falling back to local refresh: {e}")
+            logger.warning(f"Token service unavailable, falling back to local refresh: {e}")
 
     # Fallback: Use schwabdev directly (legacy mode)
     settings = get_settings()
@@ -278,9 +281,9 @@ async def refresh_token(current_user: User = Depends(get_current_user)):
         )
 
         # Refresh the token
-        print(f"[{now_utc()}] Admin UI: Refreshing Schwab OAuth token...")
+        logger.info(f"[{now_utc()}] Admin UI: Refreshing Schwab OAuth token...")
         client.update_tokens()
-        print(f"[{now_utc()}] Admin UI: Token refresh successful")
+        logger.info(f"[{now_utc()}] Admin UI: Token refresh successful")
 
         # Get updated token status
         updated_status = get_token_from_db()
@@ -300,9 +303,7 @@ async def refresh_token(current_user: User = Depends(get_current_user)):
             "source": "local_database",
         }
     except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        print(f"Token refresh error: {error_trace}")
+        logger.error(f"Token refresh error: {e}", exc_info=True)
 
         return {
             "success": False,
@@ -419,7 +420,7 @@ async def handle_oauth_redirect(code: str, session: str = None):
         # Ensure tokens directory exists
         settings.tokens_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f"[{now_utc()}] Admin UI: Exchanging OAuth code for tokens...")
+        logger.info(f"[{now_utc()}] Admin UI: Exchanging OAuth code for tokens...")
 
         # Use the standalone exchange function (same as schwab_oauth_callback.py script)
         from .tokens_helper import exchange_code_for_tokens, save_tokens_to_db
@@ -428,7 +429,7 @@ async def handle_oauth_redirect(code: str, session: str = None):
         tokens = exchange_code_for_tokens(code, app_key, app_secret, callback_url)
         save_tokens_to_db(tokens, str(token_db_path), issued_time)
 
-        print(f"[{now_utc()}] Admin UI: OAuth token exchange successful")
+        logger.info(f"[{now_utc()}] Admin UI: OAuth token exchange successful")
 
         # Return HTML success page
         return """
@@ -495,9 +496,7 @@ async def handle_oauth_redirect(code: str, session: str = None):
         """
 
     except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        print(f"OAuth redirect error: {error_trace}")
+        logger.error(f"OAuth redirect error: {e}", exc_info=True)
 
         # Return HTML error page
         return f"""
@@ -605,7 +604,7 @@ async def handle_oauth_callback(
         # Ensure tokens directory exists
         settings.tokens_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f"[{now_utc()}] Admin UI: Exchanging OAuth code for tokens...")
+        logger.info(f"[{now_utc()}] Admin UI: Exchanging OAuth code for tokens...")
 
         # Initialize schwabdev client with the authorization code
         # This will automatically exchange the code for tokens and store them
@@ -621,7 +620,7 @@ async def handle_oauth_callback(
         token_status = get_token_from_db()
 
         if token_status and token_status.get("has_token"):
-            print(f"[{now_utc()}] Admin UI: OAuth token exchange successful")
+            logger.info(f"[{now_utc()}] Admin UI: OAuth token exchange successful")
 
             return {
                 "success": True,
@@ -641,9 +640,7 @@ async def handle_oauth_callback(
             "note": "Install schwabdev: pip install schwabdev",
         }
     except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        print(f"OAuth callback error: {error_trace}")
+        logger.error(f"OAuth callback error: {e}", exc_info=True)
 
         return {
             "success": False,

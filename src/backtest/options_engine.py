@@ -126,15 +126,15 @@ class OptionsBacktestEngine:
         # Get unique timestamps from options data
         timestamps = sorted(options_data['timestamp'].unique())
 
-        print(f"\n{'='*70}")
-        print(f"OPTIONS BACKTEST: {strategy.name}")
-        print(f"{'='*70}")
-        print(f"Date Range: {start_date.date()} to {end_date.date()}")
-        print(f"Initial Capital: ${self.initial_capital:,.2f}")
-        print(f"Underlying Data Points: {len(underlying_data):,}")
-        print(f"Options Timestamps: {len(timestamps):,}")
-        print(f"Options Contracts: {options_data['option_ticker'].nunique():,}")
-        print(f"{'='*70}\n")
+        logger.info(f"\n{'='*70}")
+        logger.info(f"OPTIONS BACKTEST: {strategy.name}")
+        logger.info(f"{'='*70}")
+        logger.info(f"Date Range: {start_date.date()} to {end_date.date()}")
+        logger.info(f"Initial Capital: ${self.initial_capital:,.2f}")
+        logger.info(f"Underlying Data Points: {len(underlying_data):,}")
+        logger.info(f"Options Timestamps: {len(timestamps):,}")
+        logger.info(f"Options Contracts: {options_data['option_ticker'].nunique():,}")
+        logger.info(f"{'='*70}\n")
 
         # Initialize tracking
         cash = self.initial_capital
@@ -179,7 +179,7 @@ class OptionsBacktestEngine:
                 if hasattr(strategy, 'reset_daily_state'):
                     strategy.reset_daily_state()
                 current_day = current_date
-                print(f"\n📅 {current_date.strftime('%Y-%m-%d')} ({current_date.strftime('%A')})")
+                logger.info(f"\n📅 {current_date.strftime('%Y-%m-%d')} ({current_date.strftime('%A')})")
 
             # Step 1: Analyze market conditions
             market_analysis = strategy.analyze_market(
@@ -269,7 +269,7 @@ class OptionsBacktestEngine:
                             if self.log_trades:
                                 self._log_position_entry(new_position, cash)
                         else:
-                            print(f"  ⚠️  Insufficient capital: need ${required_capital:.2f}, have ${cash:.2f}")
+                            logger.warning(f"  ⚠️  Insufficient capital: need ${required_capital:.2f}, have ${cash:.2f}")
 
             # Step 4: Record equity snapshot
             portfolio_value = cash
@@ -286,7 +286,7 @@ class OptionsBacktestEngine:
 
         # Close any remaining positions at end of backtest
         if strategy.active_position is not None:
-            print("\n⚠️  Closing position at end of backtest period")
+            logger.warning("\n⚠️  Closing position at end of backtest period")
             # Get final underlying price
             final_underlying_price = underlying_data['close'].iloc[-1] if not underlying_data.empty else None
 
@@ -309,7 +309,17 @@ class OptionsBacktestEngine:
             cash += float(position.exit_value)
 
         # Calculate final results
-        self._calculate_results(strategy, cash)
+        try:
+            self._calculate_results(strategy, cash)
+        except Exception as e:
+            logger.error(f"Error calculating backtest results: {e}", exc_info=True)
+            # Return empty results to avoid total failure
+            self.results = {
+                'error': str(e),
+                'strategy_name': strategy.name if hasattr(strategy, 'name') else 'Unknown',
+                'initial_capital': self.initial_capital,
+                'final_capital': cash,
+            }
 
         return self.results
 
@@ -494,6 +504,8 @@ class OptionsBacktestEngine:
             strategy: Strategy instance
             final_cash: Final cash balance
         """
+        logger.debug(f"_calculate_results called: {len(self.trades)} trades, {len(self.equity_curve)} equity points")
+
         # Convert equity curve to DataFrame
         equity_df = pd.DataFrame(self.equity_curve)
         trades_df = pd.DataFrame(self.trades) if self.trades else pd.DataFrame()
@@ -536,8 +548,8 @@ class OptionsBacktestEngine:
             'total_return': total_return,
             'total_return_pct': total_return,
             'total_trades': total_trades,
-            'num_winning_trades': pnl_stats['num_winners'],
-            'num_losing_trades': pnl_stats['num_losers'],
+            'winning_trades': pnl_stats['num_winners'],
+            'losing_trades': pnl_stats['num_losers'],
             'win_rate': win_rate,
             'avg_win': avg_win,
             'avg_loss': avg_loss,
@@ -549,22 +561,22 @@ class OptionsBacktestEngine:
             'positions': strategy.positions,
         }
 
-        # Print summary
-        print(f"\n{'='*70}")
-        print("BACKTEST RESULTS")
-        print(f"{'='*70}")
-        print(f"Strategy: {strategy.name}")
-        print(f"Initial Capital: ${self.initial_capital:,.2f}")
-        print(f"Final Capital: ${final_cash:,.2f}")
-        print(f"Total Return: ${final_cash - self.initial_capital:+,.2f} ({total_return:+.2f}%)")
-        print("\nTrade Statistics:")
-        print(f"  Total Trades: {total_trades}")
-        print(f"  Winning Trades: {len(winning_trades)} ({win_rate:.1f}%)")
-        print(f"  Losing Trades: {len(losing_trades)}")
-        print(f"  Average Win: ${avg_win:,.2f}")
-        print(f"  Average Loss: ${avg_loss:,.2f}")
-        print(f"  Profit Factor: {self.results['profit_factor']:.2f}")
-        print("\nRisk Metrics:")
-        print(f"  Max Drawdown: {max_drawdown:.2f}%")
-        print(f"  Sharpe Ratio: {sharpe_ratio:.2f}")
-        print(f"{'='*70}\n")
+        # Log summary
+        logger.info(f"\n{'='*70}")
+        logger.info("BACKTEST RESULTS")
+        logger.info(f"{'='*70}")
+        logger.info(f"Strategy: {strategy.name}")
+        logger.info(f"Initial Capital: ${self.initial_capital:,.2f}")
+        logger.info(f"Final Capital: ${final_cash:,.2f}")
+        logger.info(f"Total Return: ${final_cash - self.initial_capital:+,.2f} ({total_return:+.2f}%)")
+        logger.info("\nTrade Statistics:")
+        logger.info(f"  Total Trades: {total_trades}")
+        logger.info(f"  Winning Trades: {len(winning_trades)} ({win_rate:.1f}%)")
+        logger.info(f"  Losing Trades: {len(losing_trades)}")
+        logger.info(f"  Average Win: ${avg_win:,.2f}")
+        logger.info(f"  Average Loss: ${avg_loss:,.2f}")
+        logger.info(f"  Profit Factor: {self.results['profit_factor']:.2f}")
+        logger.info("\nRisk Metrics:")
+        logger.info(f"  Max Drawdown: {max_drawdown:.2f}%")
+        logger.info(f"  Sharpe Ratio: {sharpe_ratio:.2f}")
+        logger.info(f"{'='*70}\n")

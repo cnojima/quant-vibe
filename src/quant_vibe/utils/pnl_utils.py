@@ -342,6 +342,7 @@ class PnLCalculator:
         Returns:
             Dict with return metrics
         """
+
         if initial_capital <= 0:
             return {
                 'total_return': 0.0,

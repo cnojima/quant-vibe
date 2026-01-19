@@ -1064,8 +1064,8 @@ class TimescaleStore:
         query = """
         SELECT * FROM backtest_trades
         WHERE backtest_id = %s
-        ORDER BY trade_number
         """
+        # ORDER BY trade_number
 
         df = pd.read_sql(query, self.engine, params=(backtest_id,))
 
@@ -1126,7 +1126,7 @@ class TimescaleStore:
     def delete_backtest(self, backtest_id: str) -> bool:
         """Delete backtest and all related data."""
         query = "DELETE FROM backtest_runs WHERE backtest_id = %s"
-
+        logger.info(f"Deleting backtest {backtest_id} from database")
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(query, (backtest_id,))

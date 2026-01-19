@@ -19,16 +19,16 @@ from dotenv import load_dotenv
 
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
-
-# Load .env file to ensure environment variables are available for subprocesses
-# In Docker, environment variables are set via docker-compose, but load_dotenv() won't hurt
+from quant_vibe.logging import get_logger
 from quant_vibe.utils import now_utc, to_utc
+
+logger = get_logger(__name__)
 env_path = Path(__file__).parent.parent.parent.parent.parent / ".env"
 if env_path.exists():
     load_dotenv(env_path)
-    print(f"[Optimization] Loaded .env from {env_path}")
+    logger.info(f"[Optimization] Loaded .env from {env_path}")
 else:
-    print(f"[Optimization] No .env file at {env_path}, using docker-compose environment variables")
+    logger.info(f"[Optimization] No .env file at {env_path}, using docker-compose environment variables")
 
 # Import Pushover notifications
 try:
@@ -36,7 +36,7 @@ try:
     PUSHOVER_AVAILABLE = True
 except ImportError:
     PUSHOVER_AVAILABLE = False
-    print("[Optimization] Pushover notifications not available")
+    logger.info("[Optimization] Pushover notifications not available")
 
 router = APIRouter()
 
@@ -67,7 +67,7 @@ def _save_optimizations(optimizations: dict[str, dict[str, Any]]):
         with open(state_file, 'w') as f:
             json.dump(optimizations, f, indent=2, default=str)
     except Exception as e:
-        print(f"Error saving optimization state: {e}")
+        logger.error(f"Error saving optimization state: {e}")
 
 # Load existing state on module init
 _running_optimizations: dict[str, dict[str, Any]] = _load_optimizations()
@@ -137,7 +137,7 @@ def _read_status_file(optimization_id: str) -> dict[str, Any]:
         result["logs"] = logs[-50:]
 
     except Exception as e:
-        print(f"[Optimization] Error reading status file: {e}")
+        logger.error(f"[Optimization] Error reading status file: {e}")
 
     return result
 
@@ -241,7 +241,7 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
         status_file = output_dir / "status.jsonl"
         cmd.extend(["--status-file", str(status_file)])
 
-        print(f"[Optimization] Running: {' '.join(cmd)}")
+        logger.info(f"[Optimization] Running: {' '.join(cmd)}")
 
         # Build environment for subprocess - inherit parent env and add any missing vars
         import os
@@ -249,15 +249,15 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
 
         # Debug: Check what Pushover vars are in the environment
         pushover_vars = ['PUSHOVER_API_TOKEN', 'PUSHOVER_USER_KEY', 'PUSHOVER_DEVICE', 'PUSHOVER_ENABLED']
-        print("[Optimization] Checking Pushover environment variables:")
+        logger.debug("[Optimization] Checking Pushover environment variables:")
         for key in pushover_vars:
             value = os.environ.get(key, "NOT_SET")
             if value and value != "NOT_SET":
                 masked_value = value[:10] + "..." if 'TOKEN' in key or 'KEY' in key else value
-                print(f"[Optimization]   {key}: {masked_value}")
+                logger.debug(f"[Optimization]   {key}: {masked_value}")
                 subprocess_env[key] = value
             else:
-                print(f"[Optimization]   {key}: NOT SET")
+                logger.debug(f"[Optimization]   {key}: NOT SET")
 
         # Run optimization as subprocess
         process = await asyncio.create_subprocess_exec(
@@ -291,7 +291,7 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
 
                 _running_optimizations[optimization_id]["result_files"] = result_files
 
-                print(f"[Optimization] {optimization_id} completed successfully")
+                logger.info(f"[Optimization] {optimization_id} completed successfully")
 
                 # Send success notification
                 if PUSHOVER_AVAILABLE:
@@ -321,7 +321,7 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
                             runtime_minutes=runtime_minutes,
                         )
                     except Exception as e:
-                        print(f"[Optimization] Failed to send success notification: {e}")
+                        logger.error(f"[Optimization] Failed to send success notification: {e}")
 
             else:
                 # Failed
@@ -345,8 +345,8 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
                 _running_optimizations[optimization_id]["error"] = error_msg
                 _running_optimizations[optimization_id]["completed_at"] = end_time
 
-                print(f"[Optimization] {optimization_id} failed with return code {process.returncode}")
-                print(f"[Optimization] Error output: {error_msg[:500]}")
+                logger.error(f"[Optimization] {optimization_id} failed with return code {process.returncode}")
+                logger.error(f"[Optimization] Error output: {error_msg[:500]}")
 
                 # Send failure notification
                 if PUSHOVER_AVAILABLE:
@@ -359,7 +359,7 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
                             runtime_minutes=runtime_minutes,
                         )
                     except Exception as e:
-                        print(f"[Optimization] Failed to send failure notification: {e}")
+                        logger.error(f"[Optimization] Failed to send failure notification: {e}")
 
         except asyncio.TimeoutError:
             # Timeout
@@ -372,7 +372,7 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
             _running_optimizations[optimization_id]["error"] = error_msg
             _running_optimizations[optimization_id]["completed_at"] = end_time
 
-            print(f"[Optimization] {optimization_id} timed out")
+            logger.warning(f"[Optimization] {optimization_id} timed out")
 
             # Send timeout notification
             if PUSHOVER_AVAILABLE:
@@ -385,7 +385,7 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
                         runtime_minutes=runtime_minutes,
                     )
                 except Exception as e:
-                    print(f"[Optimization] Failed to send timeout notification: {e}")
+                    logger.error(f"[Optimization] Failed to send timeout notification: {e}")
 
         _save_optimizations(_running_optimizations)
 
@@ -400,9 +400,7 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
         _running_optimizations[optimization_id]["completed_at"] = end_time
         _save_optimizations(_running_optimizations)
 
-        print(f"[Optimization] {optimization_id} error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"[Optimization] {optimization_id} error: {e}", exc_info=True)
 
         # Send error notification
         if PUSHOVER_AVAILABLE:
@@ -415,7 +413,7 @@ async def run_optimization_task(optimization_id: str, request: OptimizationReque
                     runtime_minutes=runtime_minutes,
                 )
             except Exception as notify_error:
-                print(f"[Optimization] Failed to send error notification: {notify_error}")
+                logger.error(f"[Optimization] Failed to send error notification: {notify_error}")
 
 
 @router.post("/run", response_model=dict)
@@ -672,7 +670,7 @@ async def delete_optimization(
                 os.remove(path)
                 deleted_files += 1
             except Exception as e:
-                print(f"Error deleting file {path}: {e}")
+                logger.error(f"Error deleting file {path}: {e}")
 
     # Remove from state
     del _running_optimizations[optimization_id]
@@ -716,7 +714,7 @@ async def delete_all_optimizations(
                     os.remove(path)
                     deleted_files += 1
                 except Exception as e:
-                    print(f"Error deleting file {path}: {e}")
+                    logger.error(f"Error deleting file {path}: {e}")
 
         # Also try to delete the optimization directory
         output_dir = settings.project_root / "results" / "optimization" / optimization_id
@@ -725,7 +723,7 @@ async def delete_all_optimizations(
                 import shutil
                 shutil.rmtree(output_dir)
             except Exception as e:
-                print(f"Error deleting directory {output_dir}: {e}")
+                logger.error(f"Error deleting directory {output_dir}: {e}")
 
         deleted_count += 1
 
@@ -787,9 +785,7 @@ async def test_notification(
             }
 
     except Exception as e:
-        print(f"[Optimization] Test notification error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"[Optimization] Test notification error: {e}", exc_info=True)
 
         return {
             "sent": False,

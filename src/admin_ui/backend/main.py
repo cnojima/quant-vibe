@@ -39,6 +39,9 @@ from admin_ui.backend.api import (
     tokens,
     watcher,
 )
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -47,19 +50,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     settings = get_settings()
 
     # Startup
-    print(f"Starting {settings.app_name}...")
+    logger.info(f"Starting {settings.app_name}...")
     await init_db_pool()
     await init_redis()
-    print("Database and Redis connections initialized")
+    logger.info("Database and Redis connections initialized")
 
     # Start Redis listener in background
     redis_task = asyncio.create_task(listen_to_redis())
-    print("Redis listener started")
+    logger.info("Redis listener started")
 
     yield
 
     # Shutdown
-    print("Shutting down...")
+    logger.info("Shutting down...")
     redis_task.cancel()
     try:
         await redis_task
@@ -68,7 +71,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     await close_db_pool()
     await close_redis()
-    print("Connections closed")
+    logger.info("Connections closed")
 
 
 settings = get_settings()
@@ -135,7 +138,7 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     await websocket.accept()
     register_websocket(websocket)
-    print(f"[WebSocket] Client connected from {websocket.client}")
+    logger.info(f"[WebSocket] Client connected from {websocket.client}")
 
     try:
         await websocket.send_json({
@@ -143,9 +146,9 @@ async def websocket_endpoint(websocket: WebSocket):
             "message": "Connected to live trading events",
             "timestamp": asyncio.get_event_loop().time()
         })
-        print("[WebSocket] Welcome message sent")
+        logger.debug("[WebSocket] Welcome message sent")
     except Exception as e:
-        print(f"[WebSocket] Failed to send welcome message: {type(e).__name__}: {e}")
+        logger.error(f"[WebSocket] Failed to send welcome message: {type(e).__name__}: {e}")
         unregister_websocket(websocket)
         return
 
@@ -154,24 +157,22 @@ async def websocket_endpoint(websocket: WebSocket):
             message = await websocket.receive()
 
             if message["type"] == "websocket.disconnect":
-                print("[WebSocket] Client initiated disconnect")
+                logger.debug("[WebSocket] Client initiated disconnect")
                 break
 
             if message["type"] == "websocket.receive" and "text" in message:
                 data = message["text"]
                 if data == "ping":
                     await websocket.send_json({"type": "pong"})
-                    print("[WebSocket] Responded to ping")
+                    logger.debug("[WebSocket] Responded to ping")
 
     except WebSocketDisconnect:
-        print("[WebSocket] Client disconnected (WebSocketDisconnect)")
+        logger.info("[WebSocket] Client disconnected (WebSocketDisconnect)")
     except Exception as e:
-        print(f"[WebSocket] Error: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"[WebSocket] Error: {type(e).__name__}: {e}", exc_info=True)
     finally:
         unregister_websocket(websocket)
-        print("[WebSocket] Connection closed and unregistered")
+        logger.debug("[WebSocket] Connection closed and unregistered")
 
 
 @app.exception_handler(Exception)

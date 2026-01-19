@@ -20,6 +20,7 @@ from .options_base import (
     SpreadType
 )
 from quant_vibe.utils import generate_position_id
+from quant_vibe.utils.pricing_utils import get_mark_price_from_row
 
 
 class BearishIVScalpStrategy(OptionsStrategy):
@@ -460,9 +461,13 @@ class BearishIVScalpStrategy(OptionsStrategy):
         # Bid/ask spread filter
         if 'bid' in liquid_options.columns and 'ask' in liquid_options.columns:
             liquid_options = liquid_options.copy()
+            # Calculate mark price for spread calculation
+            liquid_options['mark_calc'] = liquid_options.apply(
+                lambda row: get_mark_price_from_row(row), axis=1
+            )
             liquid_options['bid_ask_spread_pct'] = (
                 (liquid_options['ask'] - liquid_options['bid']) /
-                liquid_options['mark'] * 100
+                liquid_options['mark_calc'] * 100
             )
 
             liquid_options = liquid_options[
@@ -507,11 +512,12 @@ class BearishIVScalpStrategy(OptionsStrategy):
         short_call_data = short_call.iloc[0]
         long_call_data = long_call.iloc[0]
 
+        # Calculate mark prices using pricing utilities
+        short_call_price = get_mark_price_from_row(short_call_data)
+        long_call_price = get_mark_price_from_row(long_call_data)
+
         # Validate prices
-        if (pd.isna(short_call_data['mark']) or
-            pd.isna(long_call_data['mark']) or
-            short_call_data['mark'] <= 0 or
-            long_call_data['mark'] <= 0):
+        if short_call_price <= 0 or long_call_price <= 0:
             print("  ⚠️  Invalid mark prices for selected strikes")
             return None
 
@@ -522,11 +528,11 @@ class BearishIVScalpStrategy(OptionsStrategy):
         if 'bid' in short_call_data and 'ask' in short_call_data:
             spread_pct = (
                 (short_call_data['ask'] - short_call_data['bid']) /
-                short_call_data['mark'] * 100
+                short_call_price * 100
             )
             print(f"       Bid/Ask: ${short_call_data['bid']:.2f}/${short_call_data['ask']:.2f} "
                   f"(spread: {spread_pct:.2f}%)")
-        print(f"       Mark: ${short_call_data['mark']:.2f}")
+        print(f"       Mark: ${short_call_price:.2f}")
         if 'implied_volatility' in short_call_data:
             print(f"       IV: {short_call_data['implied_volatility']:.2%}")
 
@@ -535,11 +541,11 @@ class BearishIVScalpStrategy(OptionsStrategy):
         if 'bid' in long_call_data and 'ask' in long_call_data:
             spread_pct = (
                 (long_call_data['ask'] - long_call_data['bid']) /
-                long_call_data['mark'] * 100
+                long_call_price * 100
             )
             print(f"       Bid/Ask: ${long_call_data['bid']:.2f}/${long_call_data['ask']:.2f} "
                   f"(spread: {spread_pct:.2f}%)")
-        print(f"       Mark: ${long_call_data['mark']:.2f}")
+        print(f"       Mark: ${long_call_price:.2f}")
         if 'implied_volatility' in long_call_data:
             print(f"       IV: {long_call_data['implied_volatility']:.2%}")
 
@@ -569,9 +575,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
             print("  ⚠️  Skipping trade - insufficient data completeness (need ≥80% for 0DTE)")
             return None
 
-        # Calculate net credit
-        short_call_price = short_call_data['mark']
-        long_call_price = long_call_data['mark']
+        # Calculate net credit (prices already calculated above)
         net_credit_per_spread = (short_call_price - long_call_price) * 100
         net_credit = net_credit_per_spread * self.num_spreads
 

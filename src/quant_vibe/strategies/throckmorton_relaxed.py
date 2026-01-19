@@ -29,6 +29,7 @@ from .options_base import (
     SpreadType
 )
 from quant_vibe.utils import generate_position_id
+from quant_vibe.utils.pricing_utils import get_mark_price_from_row
 
 
 class ThrockmortonRelaxedStrategy(OptionsStrategy):
@@ -221,10 +222,10 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
             return zones
 
         # Calculate ATM straddle price (sum of call + put)
-        call_price = atm_call.iloc[0]['mark']
-        put_price = atm_put.iloc[0]['mark']
+        call_price = get_mark_price_from_row(atm_call.iloc[0])
+        put_price = get_mark_price_from_row(atm_put.iloc[0])
 
-        if pd.isna(call_price) or pd.isna(put_price):
+        if call_price <= 0 or put_price <= 0:
             return zones
 
         atm_straddle = float(call_price + put_price)
@@ -498,14 +499,14 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
         short_data = short_option.iloc[0]
         long_data = long_option.iloc[0]
 
-        if (pd.isna(short_data['mark']) or pd.isna(long_data['mark']) or
-            short_data['mark'] <= 0 or long_data['mark'] <= 0):
+        short_price = get_mark_price_from_row(short_data)
+        long_price = get_mark_price_from_row(long_data)
+
+        if short_price <= 0 or long_price <= 0:
             print("  ⚠️  Invalid mark prices for selected strikes")
             return None
 
         # Calculate net credit
-        short_price = float(short_data['mark'])
-        long_price = float(long_data['mark'])
         net_credit_per_spread = (short_price - long_price) * 100
         net_credit = net_credit_per_spread * self.num_spreads
 

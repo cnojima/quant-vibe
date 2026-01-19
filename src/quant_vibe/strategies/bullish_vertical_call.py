@@ -12,6 +12,7 @@ from .options_base import (
     SpreadType
 )
 from quant_vibe.utils import generate_position_id
+from quant_vibe.utils.pricing_utils import get_mark_price_from_row
 
 
 class BullishVerticalCallStrategy(OptionsStrategy):
@@ -386,16 +387,15 @@ class BullishVerticalCallStrategy(OptionsStrategy):
         long_call_data = long_call.iloc[0]
         short_call_data = short_call.iloc[0]
 
+        # Calculate mark prices using pricing utilities
+        long_call_price = get_mark_price_from_row(long_call_data)
+        short_call_price = get_mark_price_from_row(short_call_data)
+
         # Check for valid prices
-        if (pd.isna(long_call_data['mark']) or
-            pd.isna(short_call_data['mark']) or
-            long_call_data['mark'] <= 0 or
-            short_call_data['mark'] <= 0):
+        if long_call_price <= 0 or short_call_price <= 0:
             return None
 
         # Calculate net debit (cost to enter) per spread, then multiply by number of spreads
-        long_call_price = long_call_data['mark']
-        short_call_price = short_call_data['mark']
         net_debit_per_spread = (long_call_price - short_call_price) * 100  # Per contract
         net_debit = net_debit_per_spread * self.num_spreads  # Total for all spreads
 

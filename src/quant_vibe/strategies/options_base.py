@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass
 from datetime import datetime, timedelta, date
-
+from quant_vibe.utils.pricing_utils import get_mark_price_from_row
 import pandas as pd
 
 from quant_vibe.logging import get_logger
@@ -288,13 +288,17 @@ class OptionsStrategy(ABC):
         # Apply bid-ask spread filter if requested and data is available
         if (max_bid_ask_spread_pct is not None and
             'bid' in liquid_options.columns and
-            'ask' in liquid_options.columns and
-            'mark' in liquid_options.columns):
+            'ask' in liquid_options.columns):
 
-            # First filter out rows with invalid mark prices (None or zero)
-            # This prevents TypeError when dividing by None or division by zero
+            # Calculate mark prices using pricing utilities for each row
+            liquid_options = liquid_options.copy()
+            liquid_options['mark_calc'] = liquid_options.apply(
+                lambda row: get_mark_price_from_row(row), axis=1
+            )
+
+            # Filter out rows with invalid mark prices (zero)
             liquid_options = liquid_options[
-                (liquid_options['mark'].notna()) & (liquid_options['mark'] > 0)
+                liquid_options['mark_calc'] > 0
             ].copy()
 
             if liquid_options.empty:
@@ -304,7 +308,7 @@ class OptionsStrategy(ABC):
             # Convert to float to handle decimal.Decimal types from database
             liquid_options['bid_ask_spread_pct'] = (
                 (liquid_options['ask'].astype(float) - liquid_options['bid'].astype(float)) /
-                liquid_options['mark'].astype(float) * 100
+                liquid_options['mark_calc'].astype(float) * 100
             )
 
             # Filter out wide spreads
@@ -618,12 +622,11 @@ class OptionsStrategy(ABC):
                         strike_above = strikes_above.iloc[0]
                         strike_below = strikes_below.iloc[0]
 
-                        # Check if mark prices are valid before interpolating
-                        mark_above = strike_above['mark']
-                        mark_below = strike_below['mark']
+                        # Get mark prices using pricing utilities
+                        mark_above = get_mark_price_from_row(strike_above)
+                        mark_below = get_mark_price_from_row(strike_below)
 
-                        if (mark_above is not None and mark_below is not None and
-                            not pd.isna(mark_above) and not pd.isna(mark_below)):
+                        if mark_above > 0 and mark_below > 0:
                             # Interpolate mark price (convert Decimals to floats)
                             strike_diff = float(strike_above['strike_price']) - float(strike_below['strike_price'])
                             if strike_diff > 0:

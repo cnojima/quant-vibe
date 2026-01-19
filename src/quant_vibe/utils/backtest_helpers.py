@@ -12,6 +12,9 @@ from .output import TeeOutput
 from .dataframe_utils import convert_decimals_to_float
 from ..data.timescale_store import TimescaleStore
 from quant_vibe.utils.timestamp_utils import market_hours, now_utc
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Avoid circular import: models → utils.timestamp_utils → utils.__init__ → backtest_helpers
 if TYPE_CHECKING:
@@ -146,14 +149,14 @@ def load_options_backtest_data(
         db_profile = "remote" if use_remote else "local"
 
     if verbose:
-        print("=" * 70)
-        print("LOADING DATA")
-        print("=" * 70)
+        logger.info("=" * 70)
+        logger.info("LOADING DATA")
+        logger.info("=" * 70)
 
     # Load data from TimescaleDB
     if verbose:
         db_location = "remote" if db_profile == "remote" else "local"
-        print(f"\n1. Loading {underlying_ticker} options data from TimescaleDB ({db_location})...")
+        logger.info(f"\n1. Loading {underlying_ticker} options data from TimescaleDB ({db_location})...")
 
     # Create TimescaleStore based on profile
     if db_profile == "remote":
@@ -175,7 +178,7 @@ def load_options_backtest_data(
     if verbose:
         memory_savings = {"5min": "95%", "15min": "98%", "1hour": "99%", "daily": "99.9%"}
         if timeframe != "1min":
-            print(f"   Using {timeframe} aggregated data (saves ~{memory_savings.get(timeframe, '90%')} memory)")
+            logger.info(f"   Using {timeframe} aggregated data (saves ~{memory_savings.get(timeframe, '90%')} memory)")
 
     try:
         # Load options data (returns DataFrame)
@@ -205,19 +208,19 @@ def load_options_backtest_data(
             raise ValueError(error_msg)
 
         if verbose:
-            print(f"✅ Loaded {len(options_data):,} options bars")
-            print(f"   Unique timestamps: {options_data['timestamp'].nunique():,}")
-            print(f"   Unique contracts: {options_data['option_ticker'].nunique():,}")
-            print(
+            logger.info(f"✅ Loaded {len(options_data):,} options bars")
+            logger.info(f"   Unique timestamps: {options_data['timestamp'].nunique():,}")
+            logger.info(f"   Unique contracts: {options_data['option_ticker'].nunique():,}")
+            logger.info(
                 f"   Date range: {options_data['timestamp'].min()} to "
                 f"{options_data['timestamp'].max()}"
             )
-            print(f"   Expirations: {sorted(options_data['expiration_date'].unique())}")
+            logger.info(f"   Expirations: {sorted(options_data['expiration_date'].unique())}")
 
         # Load underlying price data
         # Try loading from underlying_bars table first (more accurate)
         if verbose:
-            print(
+            logger.info(
                 f"\n2. Loading {underlying_ticker} underlying price data from "
                 f"underlying_bars table..."
             )
@@ -238,8 +241,8 @@ def load_options_backtest_data(
         # Fall back to deriving from options if underlying_bars is empty
         if underlying_data.empty:
             if verbose:
-                print(
-                    "⚠️  No data in underlying_bars table, falling back to deriving "
+                logger.warning(
+                    "No data in underlying_bars table, falling back to deriving "
                     "from options bid/ask..."
                 )
 
@@ -276,23 +279,20 @@ def load_options_backtest_data(
             data_source = "underlying_bars (actual)"
 
         if verbose:
-            print(f"✅ Loaded {len(underlying_data):,} underlying price bars ({data_source})")
-            print(f"   Date range: {underlying_data.index[0]} to {underlying_data.index[-1]}")
-            print(
+            logger.info(f"✅ Loaded {len(underlying_data):,} underlying price bars ({data_source})")
+            logger.info(f"   Date range: {underlying_data.index[0]} to {underlying_data.index[-1]}")
+            logger.info(
                 f"   Price range: ${underlying_data['low'].min():.2f} - "
                 f"${underlying_data['high'].max():.2f}"
             )
-            print(f"   Latest close: ${underlying_data['close'].iloc[-1]:.2f}")
-            print()
+            logger.info(f"   Latest close: ${underlying_data['close'].iloc[-1]:.2f}")
+            logger.info("")
 
         return options_data, underlying_data
 
     except Exception as e:
         if verbose:
-            print(f"❌ Error loading data: {e}")
-            import traceback
-
-            traceback.print_exc()
+            logger.error(f"Error loading data: {e}", exc_info=True)
         raise
 
     finally:
@@ -338,7 +338,7 @@ def save_backtest_results(
         saved_files["trades"] = trades_file
 
         if verbose:
-            print(f"\n✅ Trades saved to: {trades_file}")
+            logger.info(f"\n✅ Trades saved to: {trades_file}")
 
     # Save equity curve
     if not results["equity_curve"].empty:
@@ -347,7 +347,7 @@ def save_backtest_results(
         saved_files["equity"] = equity_file
 
         if verbose:
-            print(f"✅ Equity curve saved to: {equity_file}")
+            logger.info(f"✅ Equity curve saved to: {equity_file}")
 
     return saved_files
 
@@ -414,23 +414,23 @@ def save_backtest_to_db(
     try:
         if verbose:
             db_location = "remote" if db_profile == "remote" else "local"
-            print(f"\n💾 Saving backtest results to PostgreSQL ({db_location})...")
+            logger.info(f"\n💾 Saving backtest results to PostgreSQL ({db_location})...")
 
         # 1. Save backtest run metadata
         ts_store.save_backtest_run(
-            ticker="SPX",  # Currently only SPX supported
             backtest_id=backtest_id,
-            strategy_name=strategy_name,
-            start_date=start_date,
             end_date=end_date,
             initial_capital=initial_capital,
-            parameters=parameters,
             max_positions=max_positions,
+            parameters=parameters,
+            start_date=start_date,
             status="completed",
+            strategy_name=strategy_name,
+            ticker="SPX",  # Currently only SPX supported
         )
 
         if verbose:
-            print(f"   ✅ Backtest metadata saved (ID: {backtest_id})")
+            logger.info(f"   ✅ Backtest metadata saved (ID: {backtest_id})")
 
         # 2. Save performance metrics
         # Convert NumPy types to Python native types for PostgreSQL compatibility
@@ -451,8 +451,8 @@ def save_backtest_to_db(
             "total_return": total_return,
             "total_return_pct": to_python_type(results.get("total_return_pct")),
             "total_trades": to_python_type(results.get("total_trades")),
-            "num_winning_trades": to_python_type(results.get("num_winning_trades")),
-            "num_losing_trades": to_python_type(results.get("num_losing_trades")),
+            "winning_trades": to_python_type(results.get("winning_trades")),
+            "losing_trades": to_python_type(results.get("losing_trades")),
             "win_rate": to_python_type(results.get("win_rate")),
             "avg_win": to_python_type(results.get("avg_win")),
             "avg_loss": to_python_type(results.get("avg_loss")),
@@ -461,34 +461,33 @@ def save_backtest_to_db(
             "sharpe_ratio": to_python_type(results.get("sharpe_ratio")),
         }
 
+        logger.debug(f"Backtest performance metrics to save: {metrics}")
+
         ts_store.update_backtest_metrics(backtest_id, metrics)
 
         if verbose:
-            print("   ✅ Performance metrics saved")
+            logger.info("   ✅ Performance metrics saved")
 
         # 3. Save trades
         if not results["trades"].empty:
             ts_store.save_backtest_trades(backtest_id, results["trades"])
             if verbose:
-                print(f"   ✅ {len(results['trades'])} trades saved")
+                logger.info(f"   ✅ {len(results['trades'])} trades saved")
 
         # 4. Save equity curve
         if not results["equity_curve"].empty:
             ts_store.save_backtest_equity_curve(backtest_id, results["equity_curve"])
             if verbose:
-                print(
+                logger.info(
                     f"   ✅ {len(results['equity_curve'])} equity curve points saved"
                 )
 
         if verbose:
-            print("\n✅ Backtest results saved to database successfully!")
+            logger.info("\n✅ Backtest results saved to database successfully!")
 
     except Exception as e:
         if verbose:
-            print(f"❌ Error saving to database: {e}")
-            import traceback
-
-            traceback.print_exc()
+            logger.error(f"Error saving to database: {e}", exc_info=True)
         raise
 
     finally:

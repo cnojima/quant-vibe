@@ -11,7 +11,8 @@ from .options_base import (
     OptionType,
     SpreadType
 )
-from quant_vibe.utils import generate_position_id, calculate_mark_price
+from quant_vibe.utils import generate_position_id
+from quant_vibe.utils.pricing_utils import get_mark_price_from_row
 
 
 class BullishVerticalPutStrategy(OptionsStrategy):
@@ -382,16 +383,8 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             max_bid_ask_spread_pct=self.min_bid_ask_spread_pct
         )
 
-        # Calculate mark price (midpoint of bid and ask) if not present
-        if 'mark' not in liquid_options.columns:
-            # Ensure bid and ask are numeric before calculating mark
-            liquid_options['bid'] = pd.to_numeric(liquid_options['bid'], errors='coerce')
-            liquid_options['ask'] = pd.to_numeric(liquid_options['ask'], errors='coerce')
-            # Use utility function for consistent mark calculation
-            liquid_options['mark'] = liquid_options.apply(
-                lambda row: calculate_mark_price(row['bid'], row['ask']),
-                axis=1
-            )
+        # Note: Mark price calculation is now handled by pricing_utils.get_mark_price_from_row()
+        # which intelligently falls back from bid/ask to existing mark column to other price columns
 
         if liquid_options.empty:
             print(f"  ⚠️  No liquid options found (volume >= {self.min_volume}, spread <= {self.min_bid_ask_spread_pct}%)")
@@ -434,11 +427,12 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         short_put_data = short_put.iloc[0]
         long_put_data = long_put.iloc[0]
 
+        # Calculate mark prices using pricing utilities
+        short_put_price = get_mark_price_from_row(short_put_data)
+        long_put_price = get_mark_price_from_row(long_put_data)
+
         # Check for valid prices
-        if (pd.isna(short_put_data['mark']) or
-            pd.isna(long_put_data['mark']) or
-            short_put_data['mark'] <= 0 or
-            long_put_data['mark'] <= 0):
+        if short_put_price <= 0 or long_put_price <= 0:
             print("  ⚠️  Invalid mark prices for selected strikes")
             return None
 
@@ -446,16 +440,16 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         print("\n  📋 Selected Contracts (passed liquidity filters):")
         print(f"     Short {short_strike} PUT:")
         print(f"       Volume: {short_put_data['volume']:.0f}")
-        if 'bid' in short_put_data and 'ask' in short_put_data and short_put_data['mark'] > 0:
-            spread_pct = (float(short_put_data['ask']) - float(short_put_data['bid'])) / float(short_put_data['mark']) * 100
+        if 'bid' in short_put_data and 'ask' in short_put_data and short_put_price > 0:
+            spread_pct = (float(short_put_data['ask']) - float(short_put_data['bid'])) / float(short_put_price) * 100
             print(f"       Bid/Ask: ${short_put_data['bid']:.2f}/${short_put_data['ask']:.2f} (spread: {spread_pct:.2f}%)")
-        print(f"       Mark: ${short_put_data['mark']:.2f}")
+        print(f"       Mark: ${short_put_price:.2f}")
         print(f"     Long {long_strike} PUT:")
         print(f"       Volume: {long_put_data['volume']:.0f}")
-        if 'bid' in long_put_data and 'ask' in long_put_data and long_put_data['mark'] > 0:
-            spread_pct = (float(long_put_data['ask']) - float(long_put_data['bid'])) / float(long_put_data['mark']) * 100
+        if 'bid' in long_put_data and 'ask' in long_put_data and long_put_price > 0:
+            spread_pct = (float(long_put_data['ask']) - float(long_put_data['bid'])) / float(long_put_price) * 100
             print(f"       Bid/Ask: ${long_put_data['bid']:.2f}/${long_put_data['ask']:.2f} (spread: {spread_pct:.2f}%)")
-        print(f"       Mark: ${long_put_data['mark']:.2f}")
+        print(f"       Mark: ${long_put_price:.2f}")
 
         # Validate data completeness for selected contracts
         # This checks that these contracts have been present in recent historical data
@@ -488,8 +482,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             return None
 
         # Calculate net credit (premium received) per spread, then multiply by number of spreads
-        short_put_price = float(short_put_data['mark'])
-        long_put_price = float(long_put_data['mark'])
+        # (prices already calculated above using pricing utilities)
         net_credit_per_spread = (short_put_price - long_put_price) * 100  # Per contract
         net_credit = net_credit_per_spread * self.num_spreads  # Total for all spreads
 

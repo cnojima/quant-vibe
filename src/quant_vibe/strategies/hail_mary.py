@@ -12,6 +12,7 @@ from .options_base import (
     SpreadType
 )
 from quant_vibe.utils import generate_position_id
+from quant_vibe.utils.pricing_utils import get_mark_price_from_row
 
 
 class HailMaryStrategy(OptionsStrategy):
@@ -293,8 +294,11 @@ class HailMaryStrategy(OptionsStrategy):
         strike = selected_option['strike_price']
         expiration = selected_option['expiration_date']
 
+        # Get mark price using pricing utilities
+        call_price = get_mark_price_from_row(selected_option)
+
         # Check for valid price
-        if pd.isna(selected_option['mark']) or selected_option['mark'] <= 0:
+        if call_price <= 0:
             print("  ⚠️  Invalid mark price for selected strike")
             return None
 
@@ -302,19 +306,18 @@ class HailMaryStrategy(OptionsStrategy):
         print("\n  📋 Selected Contract:")
         print(f"     {strike} CALL (expiring {expiration.strftime('%Y-%m-%d')})")
         print(f"     Volume: {selected_option['volume']:.0f}")
-        if 'bid' in selected_option and 'ask' in selected_option and selected_option['mark'] > 0:
+        if 'bid' in selected_option and 'ask' in selected_option and call_price > 0:
             spread_pct = (
-                (float(selected_option['ask']) - float(selected_option['bid'])) / float(selected_option['mark']) * 100
+                (float(selected_option['ask']) - float(selected_option['bid'])) / float(call_price) * 100
             )
             print(
                 f"     Bid/Ask: ${selected_option['bid']:.2f}/${selected_option['ask']:.2f} "
                 f"(spread: {spread_pct:.2f}%)"
             )
-        print(f"     Mark: ${selected_option['mark']:.2f}")
+        print(f"     Mark: ${call_price:.2f}")
         print(f"     OTM: {((strike - current_price) / current_price * 100):.2f}%")
 
         # Calculate entry cost
-        call_price = selected_option['mark']
         entry_cost = call_price * 100 * self.num_contracts  # Total cost for all contracts
 
         # Create single leg position

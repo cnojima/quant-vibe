@@ -1023,7 +1023,7 @@ class OptimizationService:
                     INSERT INTO optimization_results (
                         optimization_id, params, param_hash,
                         sharpe_ratio, total_return, total_return_pct,
-                        total_trades, num_winning_trades, num_losing_trades,
+                        total_trades, winning_trades, losing_trades,
                         win_rate, avg_win, avg_loss, profit_factor,
                         max_drawdown, final_capital
                     )

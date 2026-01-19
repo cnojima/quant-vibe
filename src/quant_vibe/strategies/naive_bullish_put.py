@@ -14,6 +14,7 @@ from .options_base import (
 )
 from quant_vibe.utils import generate_position_id
 from quant_vibe.utils.pnl_utils import PnLCalculator
+from quant_vibe.utils.pricing_utils import get_mark_price_from_row
 
 
 class NaiveBullishPutStrategy(OptionsStrategy):
@@ -263,22 +264,21 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         short_put_data = short_put.iloc[0]
         long_put_data = long_put.iloc[0]
 
+        # Calculate mark prices using pricing utilities
+        short_put_price = get_mark_price_from_row(short_put_data)
+        long_put_price = get_mark_price_from_row(long_put_data)
+
         # Check for valid prices
-        if (pd.isna(short_put_data['mark']) or
-            pd.isna(long_put_data['mark']) or
-            short_put_data['mark'] <= 0 or
-            long_put_data['mark'] <= 0):
+        if short_put_price <= 0 or long_put_price <= 0:
             print("NBP ❌ [CONSTRUCT_SPREAD] Invalid mark prices")
-            print(f"NBP    Short mark: ${short_put_data['mark']}, Long mark: ${long_put_data['mark']}")
+            print(f"NBP    Short mark: ${short_put_price}, Long mark: ${long_put_price}")
             return None
 
         print("\nNBP 📋 [CONSTRUCT_SPREAD] Opening Spread:")
-        print(f"NBP    SELL {self.num_spreads}x {short_strike} PUT @ ${short_put_data['mark']:.2f}")
-        print(f"NBP    BUY  {self.num_spreads}x {long_strike} PUT @ ${long_put_data['mark']:.2f}")
+        print(f"NBP    SELL {self.num_spreads}x {short_strike} PUT @ ${short_put_price:.2f}")
+        print(f"NBP    BUY  {self.num_spreads}x {long_strike} PUT @ ${long_put_price:.2f}")
 
         # Calculate net credit
-        short_put_price = short_put_data['mark']
-        long_put_price = long_put_data['mark']
         net_credit_per_spread = (short_put_price - long_put_price) * 100
         net_credit = net_credit_per_spread * self.num_spreads
 
