@@ -348,8 +348,16 @@ class TimescaleStore:
         min_bid: float = 0.0,
         timeframe: str = "5min",
         additional_filters: Optional[str] = None,
+        timestamp_tolerance_seconds: int = 120,
     ) -> pd.DataFrame:
-        """Get options data optimized for backtesting with DTE and filtering."""
+        """Get options data optimized for backtesting with DTE and filtering.
+
+        Args:
+            timestamp_tolerance_seconds: Maximum time difference (in seconds) between
+                options bars and underlying bars for matching. Default is 120 seconds
+                (±2 minutes). Uses LATERAL JOIN to find closest underlying timestamp
+                within this window.
+        """
         table_map = {
             "1min": "options_bars",
             "5min": "options_bars_5min",
@@ -423,16 +431,27 @@ class TimescaleStore:
                 {columns},
                 (ob.expiration_date::date - ob.{timestamp_col}::date) as dte,
                 ub.close as underlying_price,
-                ABS(ob.strike_price - ub.close) as strike_distance
+                ABS(ob.strike_price - ub.close) as strike_distance,
+                ABS(EXTRACT(EPOCH FROM (ub.timestamp - ob.{timestamp_col}))) as time_diff_seconds
             FROM {table_name} ob
-            JOIN underlying_bars ub
-                ON date_trunc('minute', ob.{timestamp_col}) = date_trunc('minute', ub.timestamp)
-                AND ob.underlying_ticker = ub.ticker
+            LEFT JOIN LATERAL (
+                SELECT
+                    timestamp,
+                    close,
+                    ticker
+                FROM underlying_bars
+                WHERE ticker = ob.underlying_ticker
+                  AND timestamp >= ob.{timestamp_col} - INTERVAL '{timestamp_tolerance_seconds} seconds'
+                  AND timestamp <= ob.{timestamp_col} + INTERVAL '{timestamp_tolerance_seconds} seconds'
+                ORDER BY ABS(EXTRACT(EPOCH FROM (timestamp - ob.{timestamp_col})))
+                LIMIT 1
+            ) ub ON TRUE
             WHERE ob.{timestamp_col} >= %s
                 AND ob.{timestamp_col} <= %s
                 AND ob.underlying_ticker = %s
                 AND (ob.expiration_date::date - ob.{timestamp_col}::date) >= %s
                 AND (ob.expiration_date::date - ob.{timestamp_col}::date) <= %s
+                AND ub.timestamp IS NOT NULL
         """
 
         params = [start_date, end_date, underlying_ticker, min_dte, max_dte]
@@ -471,11 +490,30 @@ class TimescaleStore:
             parse_dates=["timestamp", "expiration_date"]
         )
 
-        logger.info(
-            f"Retrieved {len(df)} option bars for backtest "
-            f"({underlying_ticker}, {start_date} to {end_date}, "
-            f"DTE {min_dte}-{max_dte}, timeframe={timeframe})"
-        )
+        # Log match quality statistics
+        if not df.empty and 'time_diff_seconds' in df.columns:
+            avg_diff = df['time_diff_seconds'].mean()
+            max_diff = df['time_diff_seconds'].max()
+            perfect_matches = (df['time_diff_seconds'] == 0).sum()
+            close_matches = (df['time_diff_seconds'] <= 5).sum()  # Within 5 seconds
+
+            logger.info(
+                f"Retrieved {len(df)} option bars for backtest "
+                f"({underlying_ticker}, {start_date} to {end_date}, "
+                f"DTE {min_dte}-{max_dte}, timeframe={timeframe})"
+            )
+            logger.info(
+                f"Timestamp match quality: "
+                f"perfect={perfect_matches} ({perfect_matches/len(df)*100:.1f}%), "
+                f"within_5s={close_matches} ({close_matches/len(df)*100:.1f}%), "
+                f"avg_diff={avg_diff:.2f}s, max_diff={max_diff:.2f}s"
+            )
+        else:
+            logger.info(
+                f"Retrieved {len(df)} option bars for backtest "
+                f"({underlying_ticker}, {start_date} to {end_date}, "
+                f"DTE {min_dte}-{max_dte}, timeframe={timeframe})"
+            )
 
         return df
 

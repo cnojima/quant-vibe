@@ -563,6 +563,9 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         # Get current underlying price for intrinsic value calculation
         underlying_price = underlying_data['close'].iloc[-1] if not underlying_data.empty else None
 
+        if underlying_price is None:
+            return False, "No underlying price available"
+
         # Update position value (with underlying price for intrinsic value)
         self.update_position_value(position, options_data, underlying_price)
 

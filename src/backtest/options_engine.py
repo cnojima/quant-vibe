@@ -467,13 +467,13 @@ class OptionsBacktestEngine:
 
     def _log_position_entry(self, position: OptionsPosition, cash_after: float) -> None:
         """Log position entry details."""
-        logger.debug("\n  ✅ POSITION OPENED")
-        logger.debug(f"     Position ID: {position.position_id}")
-        logger.debug(f"     Spread Type: {position.spread_type.value}")
-        logger.debug(f"     Entry Time: {self._format_time_et(position.entry_time)}")
-        logger.debug(f"     Entry Cost: ${position.entry_cost:.2f}")
-        logger.debug(f"     Underlying Price: ${position.underlying_price_at_entry:.2f}")
-        logger.debug(f"     Cash Remaining: ${cash_after:,.2f}")
+        logger.info("\n  ✅ POSITION OPENED")
+        logger.info(f"     Position ID: {position.position_id}")
+        logger.info(f"     Spread Type: {position.spread_type.value}")
+        logger.info(f"     Entry Time: {self._format_time_et(position.entry_time)}")
+        logger.info(f"     Entry Cost: ${position.entry_cost:.2f}")
+        logger.info(f"     Underlying Price: ${position.underlying_price_at_entry:.2f}")
+        logger.info(f"     Cash Remaining: ${cash_after:,.2f}")
 
         # Log legs
         for i, leg in enumerate(position.legs, 1):
@@ -490,15 +490,15 @@ class OptionsBacktestEngine:
         duration = (position.exit_time - position.entry_time).total_seconds() / 60
 
         emoji = "🟢" if pnl_result.is_winner else "🔴"
-        logger.debug(f"\n  {emoji} POSITION CLOSED")
-        logger.debug(f"     Position ID: {position.position_id}")
-        logger.debug(f"     Exit Time: {self._format_time_et(position.exit_time)}")
-        logger.debug(f"     Exit Reason: {exit_reason}")
-        logger.debug(f"     Duration: {duration:.0f} minutes")
-        logger.debug(f"     Entry Cost: ${position.entry_cost:.2f}")
-        logger.debug(f"     Exit Value: ${position.exit_value:.2f}")
-        logger.debug(f"     P&L: {PnLCalculator.format_pnl_display(pnl_result.pnl, pnl_result.pnl_pct)}")
-        logger.debug(f"     Cash After: ${cash_after:,.2f}")
+        logger.info(f"\n  {emoji} POSITION CLOSED")
+        logger.info(f"     Position ID: {position.position_id}")
+        logger.info(f"     Exit Time: {self._format_time_et(position.exit_time)}")
+        logger.info(f"     Exit Reason: {exit_reason}")
+        logger.info(f"     Duration: {duration:.0f} minutes")
+        logger.info(f"     Entry Cost: ${position.entry_cost:.2f}")
+        logger.info(f"     Exit Value: ${position.exit_value:.2f}")
+        logger.info(f"     P&L: {PnLCalculator.format_pnl_display(pnl_result.pnl, pnl_result.pnl_pct)}")
+        logger.info(f"     Cash After: ${cash_after:,.2f}")
 
     def _calculate_results(self, strategy: OptionsStrategy, final_cash: float) -> None:
         """Calculate and store backtest results.
