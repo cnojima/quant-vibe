@@ -210,7 +210,7 @@ class TimescaleStore:
             implied_volatility, delta, gamma, theta, vega, rho,
             data_source
         ) VALUES %s
-        ON CONFLICT (timestamp, option_ticker) DO NOTHING
+        ON CONFLICT (id, timestamp) DO NOTHING
         """
 
         total_inserted = 0

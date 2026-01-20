@@ -256,7 +256,7 @@ class OptimizationExecutor:
         logger.debug(f" underlying_ticker={underlying_ticker}, start_date={start_date}, end_date={end_date}, min_dte={min_dte}, max_dte={max_dte}, timeframe={timeframe}")
 
         # Validate date range - don't query future dates
-        from datetime import datetime, timedelta
+        from datetime import datetime
         today = datetime.now().date()
         if end_date.date() > today:
             logger.warning(f"[Executor] End date {end_date.date()} is in the future, adjusting to today {today}")
