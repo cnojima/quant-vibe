@@ -30,6 +30,9 @@ from .options_base import (
 )
 from quant_vibe.utils import generate_position_id
 from quant_vibe.utils.pricing_utils import get_mark_price_from_row
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class ThrockmortonRelaxedStrategy(OptionsStrategy):
@@ -308,11 +311,11 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
                 self.observation_complete = True
                 analysis['zones_calculated'] = True
 
-                print("\n  📊 ZONES CALCULATED at 10:30 ET")
-                print(f"     Reference Price: ${self.reference_price:.2f}")
-                print(f"     ATM Straddle: ${self.atm_straddle_price:.2f}")
-                print(f"     1SD Range: ${self.one_sd_strike_low:.2f} - ${self.one_sd_strike_high:.2f}")
-                print(f"     2SD Range: ${self.two_sd_strike_low:.2f} - ${self.two_sd_strike_high:.2f}")
+                logger.info("\n  📊 ZONES CALCULATED at 10:30 ET")
+                logger.info(f"     Reference Price: ${self.reference_price:.2f}")
+                logger.info(f"     ATM Straddle: ${self.atm_straddle_price:.2f}")
+                logger.info(f"     1SD Range: ${self.one_sd_strike_low:.2f} - ${self.one_sd_strike_high:.2f}")
+                logger.info(f"     2SD Range: ${self.two_sd_strike_low:.2f} - ${self.two_sd_strike_high:.2f}")
 
         # After observation, check if 2SD has been touched
         if self.observation_complete:
@@ -323,16 +326,16 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
                 analysis['two_sd_touched'] = True
                 analysis['direction'] = 'put'  # Price moved up, sell put spreads
                 if not self.two_sd_touched:
-                    print("\n  🎯 2SD TOUCHED (UPSIDE)")
-                    print(f"     Current: ${current_price:.2f} >= ${self.two_sd_strike_high:.2f}")
+                    logger.info("\n  🎯 2SD TOUCHED (UPSIDE)")
+                    logger.info(f"     Current: ${current_price:.2f} >= ${self.two_sd_strike_high:.2f}")
                     self.two_sd_touched = True
 
             elif current_price <= self.two_sd_strike_low:
                 analysis['two_sd_touched'] = True
                 analysis['direction'] = 'call'  # Price moved down, sell call spreads
                 if not self.two_sd_touched:
-                    print("\n  🎯 2SD TOUCHED (DOWNSIDE)")
-                    print(f"     Current: ${current_price:.2f} <= ${self.two_sd_strike_low:.2f}")
+                    logger.info("\n  🎯 2SD TOUCHED (DOWNSIDE)")
+                    logger.info(f"     Current: ${current_price:.2f} <= ${self.two_sd_strike_low:.2f}")
                     self.two_sd_touched = True
 
         return analysis
@@ -377,10 +380,10 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
         direction = market_analysis.get('direction')
         current_price = market_analysis.get('current_price')
 
-        print("\n  🚀 LADDER ENTRY SIGNAL!")
-        print(f"     Direction: {direction.upper()} spreads")
-        print(f"     Current Price: ${current_price:.2f}")
-        print(f"     Ladder Count: {self.ladder_count + 1}/{self.max_ladders}")
+        logger.info("\n  🚀 LADDER ENTRY SIGNAL!")
+        logger.info(f"     Direction: {direction.upper()} spreads")
+        logger.info(f"     Current Price: ${current_price:.2f}")
+        logger.info(f"     Ladder Count: {self.ladder_count + 1}/{self.max_ladders}")
 
         return True
 
@@ -427,7 +430,7 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
         valid_options = dte_filtered[dte_filtered['contract_type'] == option_type]
 
         if valid_options.empty:
-            print(f"  ⚠️  No {option_type} options found in DTE range")
+            logger.warning(f"  ⚠️  No {option_type} options found in DTE range")
             return None
 
         # Apply liquidity filters
@@ -438,7 +441,7 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
         )
 
         if liquid_options.empty:
-            print(f"  ⚠️  No liquid {option_type} options found")
+            logger.warning(f"  ⚠️  No liquid {option_type} options found")
             return None
 
         # Get nearest expiration
@@ -457,7 +460,7 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
             ].sort_values('strike_price', ascending=False)
 
             if short_strike_candidates.empty:
-                print(f"  ⚠️  No put strikes <= ${current_price:.2f}")
+                logger.warning(f"  ⚠️  No put strikes <= ${current_price:.2f}")
                 return None
 
             short_strike = short_strike_candidates.iloc[0]['strike_price']
@@ -472,7 +475,7 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
             ].sort_values('strike_price', ascending=True)
 
             if short_strike_candidates.empty:
-                print(f"  ⚠️  No call strikes >= ${current_price:.2f}")
+                logger.warning(f"  ⚠️  No call strikes >= ${current_price:.2f}")
                 return None
 
             short_strike = short_strike_candidates.iloc[0]['strike_price']
@@ -492,7 +495,7 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
                 missing.append(f"short ${short_strike:.2f}")
             if long_option.empty:
                 missing.append(f"long ${long_strike:.2f}")
-            print(f"  ⚠️  Missing {option_type} contracts: {', '.join(missing)}")
+            logger.warning(f"  ⚠️  Missing {option_type} contracts: {', '.join(missing)}")
             return None
 
         # Get prices
@@ -503,7 +506,7 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
         long_price = get_mark_price_from_row(long_data)
 
         if short_price <= 0 or long_price <= 0:
-            print("  ⚠️  Invalid mark prices for selected strikes")
+            logger.warning("  ⚠️  Invalid mark prices for selected strikes")
             return None
 
         # Calculate net credit
@@ -570,11 +573,11 @@ class ThrockmortonRelaxedStrategy(OptionsStrategy):
         # Increment ladder count
         self.ladder_count += 1
 
-        print(f"\n  ✅ LADDER #{self.ladder_count} DEPLOYED")
-        print(f"     Type: {direction.upper()} spread")
-        print(f"     Strikes: ${short_strike:.2f} / ${long_strike:.2f}")
-        print(f"     Credit: ${net_credit:.2f}")
-        print(f"     Max Risk: ${max_risk:.2f}")
+        logger.info(f"\n  ✅ LADDER #{self.ladder_count} DEPLOYED")
+        logger.info(f"     Type: {direction.upper()} spread")
+        logger.info(f"     Strikes: ${short_strike:.2f} / ${long_strike:.2f}")
+        logger.info(f"     Credit: ${net_credit:.2f}")
+        logger.info(f"     Max Risk: ${max_risk:.2f}")
 
         return position
 

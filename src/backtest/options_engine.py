@@ -171,6 +171,9 @@ class OptionsBacktestEngine:
             options_slice = options_data[options_data['timestamp'] == current_time]
 
             if underlying_slice.empty:
+                logger.warning(
+                    f"⚠️  No underlying data available at {current_time.strftime('%Y-%m-%d %H:%M:%S')} - skipping timestamp"
+                )
                 continue
 
             # Check if we've moved to a new day

@@ -21,6 +21,9 @@ from .options_base import (
 )
 from quant_vibe.utils import generate_position_id
 from quant_vibe.utils.pricing_utils import get_mark_price_from_row
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class BearishIVScalpStrategy(OptionsStrategy):
@@ -304,15 +307,15 @@ class BearishIVScalpStrategy(OptionsStrategy):
             if time_since_open >= self.observation_period - 1:
                 self.observation_complete = True
 
-                print(f"\n  📊 OBSERVATION COMPLETE (after {self.observation_period} mins)")
-                print(f"     Direction: {analysis['direction'].upper()}")
-                print(f"     Momentum: {analysis.get('momentum', 0):.4f} pts/bar")
-                print(f"     Current Price: ${current_price:.2f}")
+                logger.info(f"\n  📊 OBSERVATION COMPLETE (after {self.observation_period} mins)")
+                logger.info(f"     Direction: {analysis['direction'].upper()}")
+                logger.info(f"     Momentum: {analysis.get('momentum', 0):.4f} pts/bar")
+                logger.info(f"     Current Price: ${current_price:.2f}")
 
                 if self.is_bearish:
-                    print("     → Monitoring for IV spike on bearish day")
+                    logger.info("     → Monitoring for IV spike on bearish day")
                 else:
-                    print("     → No entry - market not bearish")
+                    logger.info("     → No entry - market not bearish")
 
         # After observation - check for IV spike on bearish days
         elif self.observation_complete and self.is_bearish:
@@ -334,13 +337,13 @@ class BearishIVScalpStrategy(OptionsStrategy):
                     should_log = True
 
             if should_log:
-                print(f"  📍 {current_time.strftime('%H:%M')} - Monitoring IV")
-                print(f"     Current Price: ${current_price:.2f}")
+                logger.info(f"  📍 {current_time.strftime('%H:%M')} - Monitoring IV")
+                logger.info(f"     Current Price: ${current_price:.2f}")
                 if iv_metrics['current_iv'] is not None:
-                    print(f"     Current IV: {iv_metrics['current_iv']:.2%}")
+                    logger.info(f"     Current IV: {iv_metrics['current_iv']:.2%}")
                 if iv_metrics['recent_avg_iv'] is not None:
-                    print(f"     Recent Avg IV: {iv_metrics['recent_avg_iv']:.2%}")
-                    print(f"     IV Change: {iv_metrics['iv_change_pct']:+.2%}")
+                    logger.info(f"     Recent Avg IV: {iv_metrics['recent_avg_iv']:.2%}")
+                    logger.info(f"     IV Change: {iv_metrics['iv_change_pct']:+.2%}")
                 self.last_monitoring_log_time = current_time
 
             # Entry signal if IV spike detected
@@ -389,7 +392,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
 
         # Check options data availability
         if options_data.empty:
-            print("  ⚠️  No options data available")
+            logger.warning("  ⚠️  No options data available")
             return False
 
         # All conditions met - log entry signal
@@ -405,12 +408,12 @@ class BearishIVScalpStrategy(OptionsStrategy):
         current_iv = market_analysis.get('current_iv')
         iv_change = market_analysis.get('iv_change_pct', 0)
 
-        print("\n  🎯 IV SPIKE SIGNAL - BEARISH ENTRY!")
-        print(f"     Current Price: ${current_price:.2f}")
+        logger.info("\n  🎯 IV SPIKE SIGNAL - BEARISH ENTRY!")
+        logger.info(f"     Current Price: ${current_price:.2f}")
         if current_iv is not None:
-            print(f"     Current IV: {current_iv:.2%}")
-            print(f"     IV Change: {iv_change:+.2%}")
-        print(f"     Time: {current_time_et.strftime('%H:%M:%S %Z')}")
+            logger.info(f"     Current IV: {current_iv:.2%}")
+            logger.info(f"     IV Change: {iv_change:+.2%}")
+        logger.info(f"     Time: {current_time_et.strftime('%H:%M:%S %Z')}")
 
         return True
 
@@ -448,14 +451,14 @@ class BearishIVScalpStrategy(OptionsStrategy):
         ]
 
         if valid_options.empty:
-            print(f"  ⚠️  No 0DTE call options found for {today}")
+            logger.warning(f"  ⚠️  No 0DTE call options found for {today}")
             return None
 
         # Apply liquidity filters
         liquid_options = valid_options[valid_options['volume'] >= self.min_volume]
 
         if liquid_options.empty:
-            print(f"  ⚠️  No options with volume >= {self.min_volume}")
+            logger.warning(f"  ⚠️  No options with volume >= {self.min_volume}")
             return None
 
         # Bid/ask spread filter
@@ -475,7 +478,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
             ]
 
             if liquid_options.empty:
-                print(f"  ⚠️  No options with bid/ask spread <= {self.min_bid_ask_spread_pct}%")
+                logger.warning(f"  ⚠️  No options with bid/ask spread <= {self.min_bid_ask_spread_pct}%")
                 return None
 
         valid_options = liquid_options
@@ -487,7 +490,7 @@ class BearishIVScalpStrategy(OptionsStrategy):
         ].sort_values('strike_price', ascending=True)
 
         if short_strike_candidates.empty:
-            print(f"  ⚠️  No call strikes above current price ${current_price:.2f}")
+            logger.warning(f"  ⚠️  No call strikes above current price ${current_price:.2f}")
             return None
 
         short_strike = short_strike_candidates.iloc[0]['strike_price']
@@ -503,9 +506,9 @@ class BearishIVScalpStrategy(OptionsStrategy):
         ]
 
         if short_call.empty or long_call.empty:
-            print("  ⚠️  Could not find both legs of spread")
-            print(f"     Short {short_strike} CALL: {'found' if not short_call.empty else 'MISSING'}")
-            print(f"     Long {long_strike} CALL: {'found' if not long_call.empty else 'MISSING'}")
+            logger.warning("  ⚠️  Could not find both legs of spread")
+            logger.info(f"     Short {short_strike} CALL: {'found' if not short_call.empty else 'MISSING'}")
+            logger.info(f"     Long {long_strike} CALL: {'found' if not long_call.empty else 'MISSING'}")
             return None
 
         # Get prices
@@ -518,36 +521,36 @@ class BearishIVScalpStrategy(OptionsStrategy):
 
         # Validate prices
         if short_call_price <= 0 or long_call_price <= 0:
-            print("  ⚠️  Invalid mark prices for selected strikes")
+            logger.warning("  ⚠️  Invalid mark prices for selected strikes")
             return None
 
         # Log selected contracts
-        print("\n  📋 Selected 0DTE Contracts:")
-        print(f"     Short {short_strike} CALL:")
-        print(f"       Volume: {short_call_data['volume']:.0f}")
+        logger.info("\n  📋 Selected 0DTE Contracts:")
+        logger.info(f"     Short {short_strike} CALL:")
+        logger.info(f"       Volume: {short_call_data['volume']:.0f}")
         if 'bid' in short_call_data and 'ask' in short_call_data:
             spread_pct = (
                 (short_call_data['ask'] - short_call_data['bid']) /
                 short_call_price * 100
             )
-            print(f"       Bid/Ask: ${short_call_data['bid']:.2f}/${short_call_data['ask']:.2f} "
+            logger.info(f"       Bid/Ask: ${short_call_data['bid']:.2f}/${short_call_data['ask']:.2f} "
                   f"(spread: {spread_pct:.2f}%)")
-        print(f"       Mark: ${short_call_price:.2f}")
+        logger.info(f"       Mark: ${short_call_price:.2f}")
         if 'implied_volatility' in short_call_data:
-            print(f"       IV: {short_call_data['implied_volatility']:.2%}")
+            logger.info(f"       IV: {short_call_data['implied_volatility']:.2%}")
 
-        print(f"     Long {long_strike} CALL:")
-        print(f"       Volume: {long_call_data['volume']:.0f}")
+        logger.info(f"     Long {long_strike} CALL:")
+        logger.info(f"       Volume: {long_call_data['volume']:.0f}")
         if 'bid' in long_call_data and 'ask' in long_call_data:
             spread_pct = (
                 (long_call_data['ask'] - long_call_data['bid']) /
                 long_call_price * 100
             )
-            print(f"       Bid/Ask: ${long_call_data['bid']:.2f}/${long_call_data['ask']:.2f} "
+            logger.info(f"       Bid/Ask: ${long_call_data['bid']:.2f}/${long_call_data['ask']:.2f} "
                   f"(spread: {spread_pct:.2f}%)")
-        print(f"       Mark: ${long_call_price:.2f}")
+        logger.info(f"       Mark: ${long_call_price:.2f}")
         if 'implied_volatility' in long_call_data:
-            print(f"       IV: {long_call_data['implied_volatility']:.2%}")
+            logger.info(f"       IV: {long_call_data['implied_volatility']:.2%}")
 
         # Validate data completeness
         option_tickers = [
@@ -565,14 +568,14 @@ class BearishIVScalpStrategy(OptionsStrategy):
             min_completeness_pct=80.0  # Lower threshold for 0DTE
         )
 
-        print("\n  📊 Data Completeness Check:")
+        logger.info("\n  📊 Data Completeness Check:")
         for symbol, pct in completeness.items():
             strike = short_strike if symbol == short_call_data['option_ticker'] else long_strike
             status = "✅" if pct >= 80.0 else "❌"
-            print(f"     {status} {strike} CALL: {pct:.1f}% coverage")
+            logger.info(f"     {status} {strike} CALL: {pct:.1f}% coverage")
 
         if not is_valid:
-            print("  ⚠️  Skipping trade - insufficient data completeness (need ≥80% for 0DTE)")
+            logger.warning("  ⚠️  Skipping trade - insufficient data completeness (need ≥80% for 0DTE)")
             return None
 
         # Calculate net credit (prices already calculated above)
@@ -582,10 +585,10 @@ class BearishIVScalpStrategy(OptionsStrategy):
         # Max risk
         max_risk = self.spread_width * 100 * self.num_spreads
 
-        print("\n  💰 Spread Economics:")
-        print(f"     Net Credit: ${net_credit:,.2f}")
-        print(f"     Max Risk: ${max_risk:,.2f}")
-        print(f"     Return on Risk: {(net_credit / max_risk * 100):.2f}%")
+        logger.info("\n  💰 Spread Economics:")
+        logger.info(f"     Net Credit: ${net_credit:,.2f}")
+        logger.info(f"     Max Risk: ${max_risk:,.2f}")
+        logger.info(f"     Return on Risk: {(net_credit / max_risk * 100):.2f}%")
 
         # Create legs
         legs = [

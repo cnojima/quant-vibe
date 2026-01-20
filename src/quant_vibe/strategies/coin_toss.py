@@ -25,6 +25,9 @@ from quant_vibe.strategies.options_base import (
 )
 from quant_vibe.utils import generate_position_id
 from quant_vibe.utils.pnl_utils import PnLCalculator
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class CoinTossStrategy(OptionsStrategy):
@@ -179,16 +182,16 @@ class CoinTossStrategy(OptionsStrategy):
 
         # Early return if no data
         if options_data.empty:
-            print("[CoinToss] No options data available")
+            logger.info("[CoinToss] No options data available")
             return None
 
         # Check for required columns
         if 'contract_type' not in options_data.columns:
-            print("[CoinToss] ERROR: 'contract_type' column missing from options data")
+            logger.info("[CoinToss] ERROR: 'contract_type' column missing from options data")
             return None
 
         if 'expiration_date' not in options_data.columns:
-            print("[CoinToss] ERROR: 'expiration_date' column missing from options data")
+            logger.info("[CoinToss] ERROR: 'expiration_date' column missing from options data")
             return None
 
         # Filter by contract type first
@@ -203,7 +206,7 @@ class CoinTossStrategy(OptionsStrategy):
         )
 
         if options_filtered.empty:
-            print(f"[CoinToss] No {direction} options found in DTE range {self.min_dte}-{self.max_dte} days")
+            logger.info(f"[CoinToss] No {direction} options found in DTE range {self.min_dte}-{self.max_dte} days")
             return None
 
         # Find options with ask price near target_price
@@ -217,7 +220,7 @@ class CoinTossStrategy(OptionsStrategy):
         ].copy()
 
         if options_filtered.empty:
-            print(f"[CoinToss] No {direction} options found in price range ${price_min:.2f}-${price_max:.2f} (target: ${self.target_price:.2f} ± ${self.price_tolerance:.2f})")
+            logger.info(f"[CoinToss] No {direction} options found in price range ${price_min:.2f}-${price_max:.2f} (target: ${self.target_price:.2f} ± ${self.price_tolerance:.2f})")
             return None
 
         # Sort by how close to target price and pick the closest one

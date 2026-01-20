@@ -13,6 +13,9 @@ from .options_base import (
 )
 from quant_vibe.utils import generate_position_id
 from quant_vibe.utils.pricing_utils import get_mark_price_from_row
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class BullishVerticalCallStrategy(OptionsStrategy):
@@ -203,23 +206,23 @@ class BullishVerticalCallStrategy(OptionsStrategy):
                 self.observation_complete = True
 
                 # Log observation results
-                print(f"\n  📊 OBSERVATION COMPLETE (after {self.observation_period} mins)")
-                print(f"     Direction: {analysis['direction'].upper()}")
-                print(f"     Momentum: {analysis.get('momentum', 0):.4f} pts/bar")
-                print(f"     Price Change: ${analysis.get('price_change', 0):.2f}")
+                logger.info(f"\n  📊 OBSERVATION COMPLETE (after {self.observation_period} mins)")
+                logger.info(f"     Direction: {analysis['direction'].upper()}")
+                logger.info(f"     Momentum: {analysis.get('momentum', 0):.4f} pts/bar")
+                logger.info(f"     Price Change: ${analysis.get('price_change', 0):.2f}")
 
                 # Only print range stats if we have valid data
                 if self.opening_low is not None and self.opening_high is not None:
-                    print(f"     Opening Range: ${self.opening_low:.2f} - ${self.opening_high:.2f}")
-                    print(f"     Opening Mean: ${self.opening_mean:.2f}, Std Dev: ${self.opening_std:.2f}")
+                    logger.info(f"     Opening Range: ${self.opening_low:.2f} - ${self.opening_high:.2f}")
+                    logger.info(f"     Opening Mean: ${self.opening_mean:.2f}, Std Dev: ${self.opening_std:.2f}")
                 else:
-                    print("     Opening Range: Insufficient data")
+                    logger.info("     Opening Range: Insufficient data")
 
                 if self.is_bullish and self.opening_high is not None:
                     pullback_threshold = self.opening_high - self.pullback_amount
-                    print(f"     → Waiting for pullback to ${pullback_threshold:.2f}")
+                    logger.info(f"     → Waiting for pullback to ${pullback_threshold:.2f}")
                 else:
-                    print("     → No entry - market not bullish or insufficient data")
+                    logger.info("     → No entry - market not bullish or insufficient data")
 
         # After observation period - check for pullback
         elif self.observation_complete and self.is_bullish:
@@ -243,8 +246,8 @@ class BullishVerticalCallStrategy(OptionsStrategy):
 
                 if should_log:
                     distance_to_pullback = current_price - pullback_threshold
-                    print(f"  📍 {current_time.strftime('%H:%M')} - Monitoring for pullback")
-                    print(f"     Current: ${current_price:.2f} | Target: ${pullback_threshold:.2f} | Distance: ${distance_to_pullback:.2f}")
+                    logger.info(f"  📍 {current_time.strftime('%H:%M')} - Monitoring for pullback")
+                    logger.info(f"     Current: ${current_price:.2f} | Target: ${pullback_threshold:.2f} | Distance: ${distance_to_pullback:.2f}")
                     self.last_monitoring_log_time = current_time
 
                 if current_price <= pullback_threshold:
@@ -295,7 +298,7 @@ class BullishVerticalCallStrategy(OptionsStrategy):
 
         # Check if we have options data
         if options_data.empty:
-            print("  ⚠️  No options data available")
+            logger.warning("  ⚠️  No options data available")
             return False
 
         # All conditions met - log entry signal
@@ -308,11 +311,11 @@ class BullishVerticalCallStrategy(OptionsStrategy):
             current_time_utc = current_time
         current_time_et = current_time_utc.astimezone(et_tz)
 
-        print("\n  🎯 BUY SIGNAL TRIGGERED!")
-        print(f"     Current Price: ${current_price:.2f}")
-        print(f"     Pullback Threshold: ${pullback_threshold:.2f}")
-        print(f"     Pullback Amount: ${pullback_threshold - current_price:.2f} ({((pullback_threshold - current_price) / current_price * 100):.2f}%)")
-        print(f"     Time: {current_time_et.strftime('%H:%M:%S %Z')}")
+        logger.info("\n  🎯 BUY SIGNAL TRIGGERED!")
+        logger.info(f"     Current Price: ${current_price:.2f}")
+        logger.info(f"     Pullback Threshold: ${pullback_threshold:.2f}")
+        logger.info(f"     Pullback Amount: ${pullback_threshold - current_price:.2f} ({((pullback_threshold - current_price) / current_price * 100):.2f}%)")
+        logger.info(f"     Time: {current_time_et.strftime('%H:%M:%S %Z')}")
 
         return True
 

@@ -15,6 +15,9 @@ from .options_base import (
 from quant_vibe.utils import generate_position_id
 from quant_vibe.utils.pnl_utils import PnLCalculator
 from quant_vibe.utils.pricing_utils import get_mark_price_from_row
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class NaiveBullishPutStrategy(OptionsStrategy):
@@ -83,7 +86,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         current_time: datetime
     ) -> Dict:
         """Simple market analysis - always ready to trade during market hours."""
-        print(f"\nNBP 🔍 [ANALYZE_MARKET] Called at {current_time}")
+        logger.info(f"NBP 🔍 [ANALYZE_MARKET] Called at {current_time}")
 
         analysis = {
             'market_open': False,
@@ -93,7 +96,7 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         # Check if new trading day
         current_day = current_time.date()
         if self.current_day is None or current_day != self.current_day:
-            print(f"NBP 📅 [ANALYZE_MARKET] New trading day detected: {current_day}")
+            logger.info(f"NBP 📅 [ANALYZE_MARKET] New trading day detected: {current_day}")
             self.reset_daily_state()
             self.current_day = current_day
 
@@ -110,22 +113,22 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         market_hour = current_time_et.hour
         market_minute = current_time_et.minute
 
-        print(f"NBP ⏰ [ANALYZE_MARKET] Current time ET: {current_time_et.strftime('%H:%M:%S')}")
+        logger.info(f"NBP ⏰ [ANALYZE_MARKET] Current time ET: {current_time_et.strftime('%H:%M:%S')}")
 
         # Check if within market hours (9:30 AM - 4:00 PM ET)
         if (market_hour > 9 or (market_hour == 9 and market_minute >= 30)) and market_hour < 16:
             analysis['market_open'] = True
-            print("NBP ✅ [ANALYZE_MARKET] Market IS OPEN (within market hours)")
+            logger.info("NBP ✅ [ANALYZE_MARKET] Market IS OPEN (within market hours)")
         else:
-            print("NBP ❌ [ANALYZE_MARKET] Market NOT open (outside market hours)")
+            logger.warning("NBP ❌ [ANALYZE_MARKET] Market NOT open (outside market hours)")
 
         # Get current price if available
         if underlying_data.empty:
-            print("NBP ⚠️  [ANALYZE_MARKET] No underlying data available")
+            logger.warning("NBP ⚠️  [ANALYZE_MARKET] No underlying data available")
         else:
             current_price = underlying_data['close'].iloc[-1]
             analysis['current_price'] = current_price
-            print(f"NBP 💰 [ANALYZE_MARKET] Current price: ${current_price:.2f}")
+            logger.info(f"NBP 💰 [ANALYZE_MARKET] Current price: ${current_price:.2f}")
 
         return analysis
 
@@ -139,43 +142,43 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         """
         Enter immediately during market hours if we haven't traded today.
         """
-        print(f"\nNBP 🚦 [SHOULD_ENTER] Called at {current_time}")
-        print(f"NBP    Active position: {self.active_position is not None}")
-        print(f"NBP    Can enter new position: {self.can_enter_new_position()}")
-        print(f"NBP    Daily trades: {self.trades_today}/{self.max_trades_daily}")
+        logger.info(f"NBP 🚦 [SHOULD_ENTER] Called at {current_time}")
+        logger.info(f"NBP    Active position: {self.active_position is not None}")
+        logger.info(f"NBP    Can enter new position: {self.can_enter_new_position()}")
+        logger.info(f"NBP    Daily trades: {self.trades_today}/{self.max_trades_daily}")
 
         # Don't enter if we have an active position
         if self.active_position is not None:
-            print("NBP ❌ [SHOULD_ENTER] Already have active position")
+            logger.warning("NBP ❌ [SHOULD_ENTER] Already have active position")
             return False
 
         # Check daily trade limit (handled by parent class)
         if not self.can_enter_new_position():
-            print("NBP ❌ [SHOULD_ENTER] Cannot enter new position (daily limit reached)")
+            logger.warning("NBP ❌ [SHOULD_ENTER] Cannot enter new position (daily limit reached)")
             return False
 
         # Enter at market open
         market_open = market_analysis.get('market_open', False)
-        print(f"NBP    Market open status: {market_open}")
+        logger.info(f"NBP    Market open status: {market_open}")
         if not market_open:
-            print("NBP ❌ [SHOULD_ENTER] Market not open")
+            logger.warning("NBP ❌ [SHOULD_ENTER] Market not open")
             return False
 
         # Check if we have options data
         if options_data.empty:
-            print("NBP ⚠️  [SHOULD_ENTER] No options data available")
+            logger.warning("NBP ⚠️  [SHOULD_ENTER] No options data available")
             return False
 
-        print(f"NBP    Options data rows: {len(options_data)}")
+        logger.info(f"NBP    Options data rows: {len(options_data)}")
 
         # Check if we have current price
         current_price = market_analysis.get('current_price', 0)
         if current_price == 0:
-            print("NBP ❌ [SHOULD_ENTER] No current price available (underlying data missing)")
+            logger.warning("NBP ❌ [SHOULD_ENTER] No current price available (underlying data missing)")
             return False
 
-        print("\nNBP 🎯 [SHOULD_ENTER] ✅ ENTRY SIGNAL - Market Open")
-        print(f"NBP    Current Price: ${current_price:.2f}")
+        logger.info("NBP 🎯 [SHOULD_ENTER] ✅ ENTRY SIGNAL - Market Open")
+        logger.info(f"NBP    Current Price: ${current_price:.2f}")
 
         return True
 
@@ -194,17 +197,17 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         - Sell 1 put at higher strike (closer to ATM)
         - Buy 1 put at lower strike (further OTM)
         """
-        print(f"\nNBP 🏗️  [CONSTRUCT_SPREAD] Called at {current_time}")
+        logger.info(f"NBP 🏗️  [CONSTRUCT_SPREAD] Called at {current_time}")
 
         current_price = market_analysis.get('current_price', 0)
-        print(f"NBP    Current price: ${current_price:.2f}")
+        logger.info(f"NBP    Current price: ${current_price:.2f}")
 
         if current_price == 0:
-            print("NBP ❌ [CONSTRUCT_SPREAD] Invalid current price")
+            logger.warning("NBP ❌ [CONSTRUCT_SPREAD] Invalid current price")
             return None
 
         # Filter options by DTE range using base class utility
-        print(f"NBP    DTE range: {self.min_dte}-{self.max_dte} days")
+        logger.info(f"NBP    DTE range: {self.min_dte}-{self.max_dte} days")
 
         # Use base class method to filter by DTE (handles date type conversion)
         dte_filtered = self._filter_by_dte(
@@ -217,11 +220,11 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         # Further filter for PUT options
         valid_options = dte_filtered[dte_filtered['contract_type'] == 'put']
 
-        print(f"NBP    Total options in data: {len(options_data)}")
-        print(f"NBP    Valid PUT options in DTE range: {len(valid_options)}")
+        logger.info(f"NBP    Total options in data: {len(options_data)}")
+        logger.info(f"NBP    Valid PUT options in DTE range: {len(valid_options)}")
 
         if valid_options.empty:
-            print(f"NBP ❌ [CONSTRUCT_SPREAD] No options found in DTE range {self.min_dte}-{self.max_dte}")
+            logger.warning(f"NBP ❌ [CONSTRUCT_SPREAD] No options found in DTE range {self.min_dte}-{self.max_dte}")
             return None
 
         # Get the nearest expiration
@@ -229,24 +232,24 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         expiration_options = valid_options[
             valid_options['expiration_date'] == nearest_expiration
         ]
-        print(f"NBP    Nearest expiration: {nearest_expiration}")
-        print(f"NBP    Options at nearest expiration: {len(expiration_options)}")
+        logger.info(f"NBP    Nearest expiration: {nearest_expiration}")
+        logger.info(f"NBP    Options at nearest expiration: {len(expiration_options)}")
 
         # Find strike for short put (just below current price)
         short_strike_candidates = expiration_options[
             expiration_options['strike_price'] <= current_price
         ].sort_values('strike_price', ascending=False)
 
-        print(f"NBP    Short strike candidates: {len(short_strike_candidates)}")
+        logger.info(f"NBP    Short strike candidates: {len(short_strike_candidates)}")
 
         if short_strike_candidates.empty:
-            print("NBP ❌ [CONSTRUCT_SPREAD] No short strike candidates found")
+            logger.warning("NBP ❌ [CONSTRUCT_SPREAD] No short strike candidates found")
             return None
 
         short_strike = short_strike_candidates.iloc[0]['strike_price']
         long_strike = short_strike - self.spread_width
 
-        print(f"NBP    Selected strikes: Short=${short_strike}, Long=${long_strike}")
+        logger.info(f"NBP    Selected strikes: Short=${short_strike}, Long=${long_strike}")
 
         # Find the contracts
         short_put = expiration_options[
@@ -257,8 +260,8 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         ]
 
         if short_put.empty or long_put.empty:
-            print(f"NBP ❌ [CONSTRUCT_SPREAD] Cannot find both strikes: ${short_strike} and ${long_strike}")
-            print(f"NBP    Short put found: {not short_put.empty}, Long put found: {not long_put.empty}")
+            logger.warning(f"NBP ❌ [CONSTRUCT_SPREAD] Cannot find both strikes: ${short_strike} and ${long_strike}")
+            logger.info(f"NBP    Short put found: {not short_put.empty}, Long put found: {not long_put.empty}")
             return None
 
         short_put_data = short_put.iloc[0]
@@ -270,19 +273,19 @@ class NaiveBullishPutStrategy(OptionsStrategy):
 
         # Check for valid prices
         if short_put_price <= 0 or long_put_price <= 0:
-            print("NBP ❌ [CONSTRUCT_SPREAD] Invalid mark prices")
-            print(f"NBP    Short mark: ${short_put_price}, Long mark: ${long_put_price}")
+            logger.warning("NBP ❌ [CONSTRUCT_SPREAD] Invalid mark prices")
+            logger.info(f"NBP    Short mark: ${short_put_price}, Long mark: ${long_put_price}")
             return None
 
-        print("\nNBP 📋 [CONSTRUCT_SPREAD] Opening Spread:")
-        print(f"NBP    SELL {self.num_spreads}x {short_strike} PUT @ ${short_put_price:.2f}")
-        print(f"NBP    BUY  {self.num_spreads}x {long_strike} PUT @ ${long_put_price:.2f}")
+        logger.info("NBP 📋 [CONSTRUCT_SPREAD] Opening Spread:")
+        logger.info(f"NBP    SELL {self.num_spreads}x {short_strike} PUT @ ${short_put_price:.2f}")
+        logger.info(f"NBP    BUY  {self.num_spreads}x {long_strike} PUT @ ${long_put_price:.2f}")
 
         # Calculate net credit
         net_credit_per_spread = (short_put_price - long_put_price) * 100
         net_credit = net_credit_per_spread * self.num_spreads
 
-        print(f"NBP    Net Credit: ${net_credit:.2f} (per spread: ${net_credit_per_spread:.2f})")
+        logger.info(f"NBP    Net Credit: ${net_credit:.2f} (per spread: ${net_credit_per_spread:.2f})")
 
         # Create legs
         legs = [
@@ -316,11 +319,11 @@ class NaiveBullishPutStrategy(OptionsStrategy):
             profit_target_pct=self.profit_target_pct,
         )
 
-        print(f"NBP ✅ [CONSTRUCT_SPREAD] Position created: {position_id}")
+        logger.info(f"NBP ✅ [CONSTRUCT_SPREAD] Position created: {position_id}")
 
         # Increment trade counter
         self.increment_daily_trade_count()
-        print(f"NBP    Daily trades now: {self.trades_today}/{self.max_trades_daily}")
+        logger.info(f"NBP    Daily trades now: {self.trades_today}/{self.max_trades_daily}")
 
         return position
 
@@ -337,25 +340,25 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         Note: Absolute stop loss is automatically checked by base class.
         Exit at profit target or end of day.
         """
-        print(f"\nNBP 🚪 [SHOULD_EXIT] Called at {current_time}")
-        print(f"NBP    Position ID: {position.position_id}")
+        logger.info(f"NBP 🚪 [SHOULD_EXIT] Called at {current_time}")
+        logger.info(f"NBP    Position ID: {position.position_id}")
 
         # Get current underlying price
         underlying_price = underlying_data['close'].iloc[-1] if not underlying_data.empty else None
-        print(f"NBP    Current underlying price: ${underlying_price:.2f}" if underlying_price else "NBP    No underlying price")
+        logger.info(f"NBP    Current underlying price: ${underlying_price:.2f}" if underlying_price else "NBP    No underlying price")
 
         # Update position value
         self.update_position_value(position, options_data, underlying_price)
-        print(f"NBP    Position current value: ${position.current_value:.2f}")
+        logger.info(f"NBP    Position current value: ${position.current_value:.2f}")
         if position.pnl is not None:
-            print(f"NBP    Position P&L: ${position.pnl:.2f}")
+            logger.info(f"NBP    Position P&L: ${position.pnl:.2f}")
             # Use position.pnl_percent property which now uses centralized calculator
             if position.pnl_percent is not None:
-                print(f"NBP    P&L %: {position.pnl_percent*100:.2f}%")
+                logger.info(f"NBP    P&L %: {position.pnl_percent*100:.2f}%")
 
         # Check profit target
         if self.check_profit_target(position):
-            print("NBP ✅ [SHOULD_EXIT] Profit target reached!")
+            logger.info("NBP ✅ [SHOULD_EXIT] Profit target reached!")
             return True, "Profit target reached"
 
         # Check if end of day (4:00 PM ET)
@@ -365,21 +368,21 @@ class NaiveBullishPutStrategy(OptionsStrategy):
         else:
             current_time_et = current_time.astimezone(et_tz)
 
-        print(f"NBP    Current time ET: {current_time_et.strftime('%H:%M:%S')}")
+        logger.info(f"NBP    Current time ET: {current_time_et.strftime('%H:%M:%S')}")
 
         if current_time_et.hour >= 16:
-            print("NBP ✅ [SHOULD_EXIT] End of trading day")
+            logger.info("NBP ✅ [SHOULD_EXIT] End of trading day")
             return True, "End of trading day"
 
         # Close early if expiring today
         if position.legs:
             expiration = position.legs[0].expiration_date
             days_to_expiration = (expiration - current_time_et.date()).days
-            print(f"NBP    DTE: {days_to_expiration}")
+            logger.info(f"NBP    DTE: {days_to_expiration}")
 
             if days_to_expiration == 0 and current_time_et.hour >= 15 and current_time_et.minute >= 45:
-                print("NBP ✅ [SHOULD_EXIT] Expiration approaching")
+                logger.info("NBP ✅ [SHOULD_EXIT] Expiration approaching")
                 return True, "Expiration approaching"
 
-        print("NBP ❌ [SHOULD_EXIT] No exit conditions met")
+        logger.warning("NBP ❌ [SHOULD_EXIT] No exit conditions met")
         return False, None

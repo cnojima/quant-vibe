@@ -29,6 +29,9 @@ from quant_vibe.strategies.options_base import (
 )
 from quant_vibe.utils import generate_position_id
 from quant_vibe.utils.pnl_utils import PnLCalculator
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class OrderStatus(Enum):
@@ -263,9 +266,9 @@ class BollingerBandLimitStrategy(OptionsStrategy):
         target_date = current_time + timedelta(days=self.min_dte)
         max_date = current_time + timedelta(days=self.max_dte)
 
-        # Normalize dates for comparison
-        target_date = target_date.date()
-        max_date = max_date.date()
+        # Normalize dates for comparison (convert to pandas Timestamp for DataFrame compatibility)
+        target_date = pd.Timestamp(target_date.date())
+        max_date = pd.Timestamp(max_date.date())
 
         # Filter options by type, DTE, and strike range
         options_filtered = options_data[
@@ -365,7 +368,7 @@ class BollingerBandLimitStrategy(OptionsStrategy):
         if contract_data.iloc[0]["ask"]:
             current_ask = float(contract_data.iloc[0]["ask"])
         else:
-            print("Warning: No ask price available for contract", order.option_ticker, contract_data.iloc[0]["ask"], current_time.astimezone(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %H:%M"))
+            logger.info("Warning: No ask price available for contract", order.option_ticker, contract_data.iloc[0]["ask"], current_time.astimezone(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %H:%M"))
             return False
 
         # Buy order fills when ask <= limit price

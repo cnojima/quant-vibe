@@ -184,9 +184,9 @@ class CoinTossLimitStrategy(OptionsStrategy):
         target_date = current_time + timedelta(days=self.min_dte)
         max_date = current_time + timedelta(days=self.max_dte)
 
-        # Normalize dates for comparison
-        target_date = target_date.date()
-        max_date = max_date.date()
+        # Normalize dates for comparison (convert to pandas Timestamp for DataFrame compatibility)
+        target_date = pd.Timestamp(target_date.date())
+        max_date = pd.Timestamp(max_date.date())
 
         # Filter options by type, DTE, and strike range
         options_filtered = options_data[

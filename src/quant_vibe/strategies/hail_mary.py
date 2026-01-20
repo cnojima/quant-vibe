@@ -13,6 +13,9 @@ from .options_base import (
 )
 from quant_vibe.utils import generate_position_id
 from quant_vibe.utils.pricing_utils import get_mark_price_from_row
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class HailMaryStrategy(OptionsStrategy):
@@ -197,7 +200,7 @@ class HailMaryStrategy(OptionsStrategy):
 
         # Check if we have options data
         if options_data.empty:
-            print("  ⚠️  No options data available")
+            logger.warning("  ⚠️  No options data available")
             return False
 
         # All conditions met - log entry signal
@@ -209,10 +212,10 @@ class HailMaryStrategy(OptionsStrategy):
             current_time_utc = current_time
         current_time_et = current_time_utc.astimezone(et_tz)
 
-        print("\n  🚀 HAIL MARY BUY SIGNAL!")
-        print(f"     Current Price: ${current_price:.2f}")
-        print(f"     Time: {current_time_et.strftime('%H:%M:%S %Z')}")
-        print(f"     Minutes to close: {market_analysis.get('minutes_to_close', 0):.1f}")
+        logger.info("\n  🚀 HAIL MARY BUY SIGNAL!")
+        logger.info(f"     Current Price: ${current_price:.2f}")
+        logger.info(f"     Time: {current_time_et.strftime('%H:%M:%S %Z')}")
+        logger.info(f"     Minutes to close: {market_analysis.get('minutes_to_close', 0):.1f}")
 
         return True
 
@@ -268,7 +271,7 @@ class HailMaryStrategy(OptionsStrategy):
         ]
 
         if valid_options.empty:
-            print(f"  ⚠️  No call options found in strike range ${min_strike:.2f}-${max_strike:.2f}")
+            logger.warning(f"  ⚠️  No call options found in strike range ${min_strike:.2f}-${max_strike:.2f}")
             return None
 
         # Apply liquidity filters using base class utility method
@@ -279,7 +282,7 @@ class HailMaryStrategy(OptionsStrategy):
         )
 
         if liquid_options.empty:
-            print(f"  ⚠️  No liquid options found (volume >= {self.min_volume}, spread <= {self.max_bid_ask_spread_pct}%)")
+            logger.warning(f"  ⚠️  No liquid options found (volume >= {self.min_volume}, spread <= {self.max_bid_ask_spread_pct}%)")
             return None
 
         # Select strike closest to middle of range (7.5% OTM)
@@ -299,23 +302,23 @@ class HailMaryStrategy(OptionsStrategy):
 
         # Check for valid price
         if call_price <= 0:
-            print("  ⚠️  Invalid mark price for selected strike")
+            logger.warning("  ⚠️  Invalid mark price for selected strike")
             return None
 
         # Log selected contract
-        print("\n  📋 Selected Contract:")
-        print(f"     {strike} CALL (expiring {expiration.strftime('%Y-%m-%d')})")
-        print(f"     Volume: {selected_option['volume']:.0f}")
+        logger.info("\n  📋 Selected Contract:")
+        logger.info(f"     {strike} CALL (expiring {expiration.strftime('%Y-%m-%d')})")
+        logger.info(f"     Volume: {selected_option['volume']:.0f}")
         if 'bid' in selected_option and 'ask' in selected_option and call_price > 0:
             spread_pct = (
                 (float(selected_option['ask']) - float(selected_option['bid'])) / float(call_price) * 100
             )
-            print(
+            logger.info(
                 f"     Bid/Ask: ${selected_option['bid']:.2f}/${selected_option['ask']:.2f} "
                 f"(spread: {spread_pct:.2f}%)"
             )
-        print(f"     Mark: ${call_price:.2f}")
-        print(f"     OTM: {((strike - current_price) / current_price * 100):.2f}%")
+        logger.info(f"     Mark: ${call_price:.2f}")
+        logger.info(f"     OTM: {((strike - current_price) / current_price * 100):.2f}%")
 
         # Calculate entry cost
         entry_cost = call_price * 100 * self.num_contracts  # Total cost for all contracts
@@ -348,7 +351,7 @@ class HailMaryStrategy(OptionsStrategy):
         self.entered_today = True
         self.increment_daily_trade_count()
 
-        print(f"     Total Cost: ${entry_cost:.2f}")
+        logger.info(f"     Total Cost: ${entry_cost:.2f}")
 
         return position
 

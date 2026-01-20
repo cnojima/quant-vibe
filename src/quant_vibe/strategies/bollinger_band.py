@@ -26,6 +26,9 @@ from quant_vibe.strategies.options_base import (
 )
 from quant_vibe.utils import generate_position_id
 from quant_vibe.utils.pnl_utils import PnLCalculator
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class BollingerBandStrategy(OptionsStrategy):
@@ -264,7 +267,7 @@ class BollingerBandStrategy(OptionsStrategy):
 
         # Get current underlying price
         if underlying_data.empty:
-            print("[BollingerBand] No underlying data available")
+            logger.info("[BollingerBand] No underlying data available")
             return None
 
         current_underlying = underlying_data.iloc[-1]["close"]
@@ -273,9 +276,9 @@ class BollingerBandStrategy(OptionsStrategy):
         target_date = current_time + timedelta(days=self.min_dte)
         max_date = current_time + timedelta(days=self.max_dte)
 
-        # Normalize dates for comparison (expiration_date is timezone-naive)
-        target_date = target_date.date()
-        max_date = max_date.date()
+        # Normalize dates for comparison (convert to pandas Timestamp for DataFrame compatibility)
+        target_date = pd.Timestamp(target_date.date())
+        max_date = pd.Timestamp(max_date.date())
 
         # Calculate target strike range (10-15% OTM)
         if direction == "call":
@@ -289,16 +292,16 @@ class BollingerBandStrategy(OptionsStrategy):
 
         # Early return if no data
         if options_data.empty:
-            print("[BollingerBand] No options data available")
+            logger.info("[BollingerBand] No options data available")
             return None
 
         # Check for required columns
         if 'contract_type' not in options_data.columns:
-            print("[BollingerBand] ERROR: 'contract_type' column missing from options data")
+            logger.info("[BollingerBand] ERROR: 'contract_type' column missing from options data")
             return None
 
         if 'expiration_date' not in options_data.columns:
-            print("[BollingerBand] ERROR: 'expiration_date' column missing from options data")
+            logger.info("[BollingerBand] ERROR: 'expiration_date' column missing from options data")
             return None
 
         # Filter options by type, DTE, and strike range
@@ -328,7 +331,7 @@ class BollingerBandStrategy(OptionsStrategy):
                 ].copy()
 
         if options_filtered.empty:
-            print(f"[BollingerBand] No {direction} options found in DTE range {self.min_dte}-{self.max_dte} days, strike range ${strike_min:.2f}-${strike_max:.2f}")
+            logger.info(f"[BollingerBand] No {direction} options found in DTE range {self.min_dte}-{self.max_dte} days, strike range ${strike_min:.2f}-${strike_max:.2f}")
             return None
 
         # Find options with ask price near target_price

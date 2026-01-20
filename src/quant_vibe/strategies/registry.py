@@ -52,6 +52,7 @@ from quant_vibe.strategies.hail_mary import HailMaryStrategy
 from quant_vibe.strategies.throckmorton_credit_ladder import ThrockmortonCreditLadderStrategy
 from quant_vibe.strategies.throckmorton_relaxed import ThrockmortonRelaxedStrategy
 
+logger = get_logger(__name__)
 
 class StrategyRegistry:
     """
@@ -246,6 +247,7 @@ class StrategyRegistry:
         # Validate params if requested
         if validate:
             validated_params = cls.validate_params(strategy_name, params)
+            logger.info(f"Validated params for strategy '{strategy_name}': {validated_params}")
         else:
             # Fallback: filter by constructor signature
             sig = inspect.signature(strategy_class.__init__)
@@ -253,6 +255,7 @@ class StrategyRegistry:
                 k: v for k, v in params.items()
                 if k in sig.parameters
             }
+            logger.info(f"Skipping validation for strategy '{strategy_name}'. Using filtered params: {validated_params}")
 
         # Instantiate strategy
         try:

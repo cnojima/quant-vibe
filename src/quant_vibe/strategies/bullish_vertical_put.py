@@ -2,6 +2,7 @@
 
 from typing import Optional, Dict, Tuple
 from datetime import datetime
+from numpy import log
 import pandas as pd
 
 from .options_base import (
@@ -13,6 +14,9 @@ from .options_base import (
 )
 from quant_vibe.utils import generate_position_id
 from quant_vibe.utils.pricing_utils import get_mark_price_from_row
+from quant_vibe.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class BullishVerticalPutStrategy(OptionsStrategy):
@@ -216,23 +220,23 @@ class BullishVerticalPutStrategy(OptionsStrategy):
                 self.observation_complete = True
 
                 # Log observation results
-                print(f"\n  📊 OBSERVATION COMPLETE (after {self.observation_period} mins)")
-                print(f"     Direction: {analysis['direction'].upper()}")
-                print(f"     Momentum: {analysis.get('momentum', 0):.4f} pts/bar")
-                print(f"     Price Change: ${analysis.get('price_change', 0):.2f}")
+                logger.info(f"📊 OBSERVATION COMPLETE (after {self.observation_period} mins)")
+                logger.info(f"Direction: {analysis['direction'].upper()}")
+                logger.info(f"Momentum: {analysis.get('momentum', 0):.4f} pts/bar")
+                logger.info(f"Price Change: ${analysis.get('price_change', 0):.2f}")
 
-                # Only print range stats if we have valid data
+                # Only log range stats if we have valid data
                 if self.opening_low is not None and self.opening_high is not None:
-                    print(f"     Opening Range: ${self.opening_low:.2f} - ${self.opening_high:.2f}")
-                    print(f"     Opening Mean: ${self.opening_mean:.2f}, Std Dev: ${self.opening_std:.2f}")
+                    logger.info(f"Opening Range: ${self.opening_low:.2f} - ${self.opening_high:.2f}")
+                    logger.info(f"Opening Mean: ${self.opening_mean:.2f}, Std Dev: ${self.opening_std:.2f}")
                 else:
-                    print("     Opening Range: Insufficient data")
+                    logger.info("Opening Range: Insufficient data")
 
                 if self.is_bullish and self.opening_high is not None:
                     pullback_threshold = self.opening_high - self.pullback_amount
-                    print(f"     → Waiting for pullback to ${pullback_threshold:.2f}")
+                    logger.info(f"→ Waiting for pullback to ${pullback_threshold:.2f}")
                 else:
-                    print("     → No entry - market not bullish or insufficient data")
+                    logger.info("→ No entry - market not bullish or insufficient data")
 
         # After observation period - check for pullback
         elif self.observation_complete and self.is_bullish:
@@ -256,8 +260,8 @@ class BullishVerticalPutStrategy(OptionsStrategy):
 
                 if should_log:
                     distance_to_pullback = current_price - pullback_threshold
-                    print(f"  📍 {current_time.strftime('%H:%M')} - Monitoring for pullback")
-                    print(f"     Current: ${current_price:.2f} | Target: ${pullback_threshold:.2f} | Distance: ${distance_to_pullback:.2f}")
+                    logger.debug(f"📍 {current_time.strftime('%H:%M')} - Monitoring for pullback")
+                    logger.debug(f"Current: ${current_price:.2f} | Target: ${pullback_threshold:.2f} | Distance: ${distance_to_pullback:.2f}")
                     self.last_monitoring_log_time = current_time
 
                 if current_price <= pullback_threshold:
@@ -308,7 +312,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
 
         # Check if we have options data
         if options_data.empty:
-            print("  ⚠️  No options data available")
+            logger.warning("⚠️  No options data available")
             return False
 
         # All conditions met - log entry signal
@@ -321,11 +325,11 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             current_time_utc = current_time
         current_time_et = current_time_utc.astimezone(et_tz)
 
-        print("\n  🎯 BUY SIGNAL TRIGGERED!")
-        print(f"     Current Price: ${current_price:.2f}")
-        print(f"     Pullback Threshold: ${pullback_threshold:.2f}")
-        print(f"     Pullback Amount: ${pullback_threshold - current_price:.2f} ({((pullback_threshold - current_price) / current_price * 100):.2f}%)")
-        print(f"     Time: {current_time_et.strftime('%H:%M:%S %Z')}")
+        logger.info("🎯 BUY SIGNAL TRIGGERED!")
+        logger.info(f"Current Price: ${current_price:.2f}")
+        logger.info(f"Pullback Threshold: ${pullback_threshold:.2f}")
+        logger.info(f"Pullback Amount: ${pullback_threshold - current_price:.2f} ({((pullback_threshold - current_price) / current_price * 100):.2f}%)")
+        logger.info(f"Time: {current_time_et.strftime('%H:%M:%S %Z')}")
 
         return True
 
@@ -362,18 +366,22 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             return None
 
         # Filter options by DTE range using base class utility
+        logger.debug(f"  Total Options Data: {len(options_data)} rows")
+        logger.debug(f"  Filtering options for DTE between {self.min_dte} and {self.max_dte} days")
+        logger.debug(f"  Current Time: {current_time}")
         dte_filtered = self._filter_by_dte(
             options_data=options_data,
             current_time=current_time,
             min_dte=self.min_dte,
             max_dte=self.max_dte
         )
+        logger.debug(f"DTE Filtered Options: {len(dte_filtered)} rows")
 
         # Filter for PUT options
         valid_options = dte_filtered[dte_filtered['contract_type'] == 'put']
 
         if valid_options.empty:
-            print(f"  ⚠️  No options found in DTE range {self.min_dte}-{self.max_dte}")
+            logger.warning(f"⚠️  No options found in DTE range {self.min_dte}-{self.max_dte}")
             return None
 
         # Apply liquidity filters using base class utility method
@@ -387,7 +395,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         # which intelligently falls back from bid/ask to existing mark column to other price columns
 
         if liquid_options.empty:
-            print(f"  ⚠️  No liquid options found (volume >= {self.min_volume}, spread <= {self.min_bid_ask_spread_pct}%)")
+            logger.warning(f"⚠️  No liquid options found (volume >= {self.min_volume}, spread <= {self.min_bid_ask_spread_pct}%)")
             return None
 
         # Use liquid_options for strike selection
@@ -433,23 +441,23 @@ class BullishVerticalPutStrategy(OptionsStrategy):
 
         # Check for valid prices
         if short_put_price <= 0 or long_put_price <= 0:
-            print("  ⚠️  Invalid mark prices for selected strikes")
+            logger.warning("⚠️  Invalid mark prices for selected strikes")
             return None
 
         # Log selected contracts and their liquidity metrics
-        print("\n  📋 Selected Contracts (passed liquidity filters):")
-        print(f"     Short {short_strike} PUT:")
-        print(f"       Volume: {short_put_data['volume']:.0f}")
+        logger.info("📋 Selected Contracts (passed liquidity filters):")
+        logger.info(f"Short {short_strike} PUT:")
+        logger.info(f"  Volume: {short_put_data['volume']:.0f}")
         if 'bid' in short_put_data and 'ask' in short_put_data and short_put_price > 0:
             spread_pct = (float(short_put_data['ask']) - float(short_put_data['bid'])) / float(short_put_price) * 100
-            print(f"       Bid/Ask: ${short_put_data['bid']:.2f}/${short_put_data['ask']:.2f} (spread: {spread_pct:.2f}%)")
-        print(f"       Mark: ${short_put_price:.2f}")
-        print(f"     Long {long_strike} PUT:")
-        print(f"       Volume: {long_put_data['volume']:.0f}")
+            logger.info(f"  Bid/Ask: ${short_put_data['bid']:.2f}/${short_put_data['ask']:.2f} (spread: {spread_pct:.2f}%)")
+        logger.info(f"  Mark: ${short_put_price:.2f}")
+        logger.info(f"Long {long_strike} PUT:")
+        logger.info(f"  Volume: {long_put_data['volume']:.0f}")
         if 'bid' in long_put_data and 'ask' in long_put_data and long_put_price > 0:
             spread_pct = (float(long_put_data['ask']) - float(long_put_data['bid'])) / float(long_put_price) * 100
-            print(f"       Bid/Ask: ${long_put_data['bid']:.2f}/${long_put_data['ask']:.2f} (spread: {spread_pct:.2f}%)")
-        print(f"       Mark: ${long_put_price:.2f}")
+            logger.info(f"  Bid/Ask: ${long_put_data['bid']:.2f}/${long_put_data['ask']:.2f} (spread: {spread_pct:.2f}%)")
+        logger.info(f"  Mark: ${long_put_price:.2f}")
 
         # Validate data completeness for selected contracts
         # This checks that these contracts have been present in recent historical data
@@ -460,8 +468,8 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         data_for_validation = full_options_data if full_options_data is not None else options_data
 
         # DEBUG: Show what dataset is being used
-        print(f"     [DEBUG] Validation dataset: {len(data_for_validation)} rows, {data_for_validation['timestamp'].nunique()} unique timestamps")
-        print(f"     [DEBUG] Using {'FULL dataset' if full_options_data is not None else 'CURRENT SLICE only'}")
+        logger.debug(f"[DEBUG] Validation dataset: {len(data_for_validation)} rows, {data_for_validation['timestamp'].nunique()} unique timestamps")
+        logger.debug(f"[DEBUG] Using {'FULL dataset' if full_options_data is not None else 'CURRENT SLICE only'}")
 
         is_valid, completeness = self.validate_data_completeness(
             option_tickers=option_tickers,
@@ -471,14 +479,14 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             min_completeness_pct=95.0
         )
 
-        print("\n  📊 Data Completeness Check:")
+        logger.info("📊 Data Completeness Check:")
         for symbol, pct in completeness.items():
             strike = short_strike if 'option_ticker' in short_put_data and short_put_data['option_ticker'] == symbol else long_strike
             status = "✅" if pct >= 95.0 else "❌"
-            print(f"     {status} {strike} PUT: {pct:.1f}% coverage")
+            logger.info(f"{status} {strike} PUT: {pct:.1f}% coverage")
 
         if not is_valid:
-            print("  ⚠️  Skipping trade - insufficient data completeness (need ≥95%)")
+            logger.warning("⚠️  Skipping trade - insufficient data completeness (need ≥95%)")
             return None
 
         # Calculate net credit (premium received) per spread, then multiply by number of spreads
@@ -571,17 +579,17 @@ class BullishVerticalPutStrategy(OptionsStrategy):
 
                 duration = (current_time - position.entry_time).total_seconds() / 60 if position.entry_time else 0
 
-                print(f"\n  💰 PROFIT TARGET REACHED at {current_time_et.strftime('%H:%M:%S %Z')}")
-                print(f"     P&L: ${position.pnl:.2f} ({position.pnl_percent:.1f}%)")
-                print(f"     Target: {position.profit_target_pct * 100:.0f}%")
-                print(f"     Duration: {duration:.1f} minutes")
-                print(f"     Entry cost: ${position.entry_cost:.2f}")
-                print(f"     Current value: ${position.current_value:.2f}")
+                logger.info(f"💰 PROFIT TARGET REACHED at {current_time_et.strftime('%H:%M:%S %Z')}")
+                logger.info(f"P&L: ${position.pnl:.2f} ({position.pnl_percent:.1f}%)")
+                logger.info(f"Target: {position.profit_target_pct * 100:.0f}%")
+                logger.info(f"Duration: {duration:.1f} minutes")
+                logger.info(f"Entry cost: ${position.entry_cost:.2f}")
+                logger.info(f"Current value: ${position.current_value:.2f}")
 
                 # Warn if exit is suspiciously fast
                 if duration < 5:
-                    print(f"     ⚠️  WARNING: Exit after only {duration:.1f} minutes - possible data quality issue")
-                    print(f"     Check if options prices are stale or incorrect")
+                    logger.warning(f"⚠️  WARNING: Exit after only {duration:.1f} minutes - possible data quality issue")
+                    logger.warning(f"Check if options prices are stale or incorrect")
 
             return True, "Profit target reached"
 
