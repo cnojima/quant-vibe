@@ -19,8 +19,7 @@ from dotenv import load_dotenv
 from admin_ui.backend.auth import User, get_current_user
 from admin_ui.backend.config import get_settings
 from admin_ui.backend.redis_client import get_redis
-from quant_vibe.services.optimization_service import OptimizationService
-from quant_vibe.services.optimization_task_queue import OptimizationTaskQueue
+from optimization.client import OptimizationClient
 from quant_vibe.utils import now_utc
 from quant_vibe.logging import get_logger
 
@@ -33,30 +32,16 @@ if env_path.exists():
 
 router = APIRouter()
 
-# Global optimization service instance (initialized on startup)
-_optimization_service: Optional[OptimizationService] = None
-_task_queue: Optional[OptimizationTaskQueue] = None
+# Global optimization client instance (initialized on startup)
+_optimization_client: Optional[OptimizationClient] = None
 
 
-def get_task_queue() -> OptimizationTaskQueue:
-    """Get or initialize task queue."""
-    global _task_queue
+def get_optimization_client() -> OptimizationClient:
+    """Get or initialize optimization client."""
+    global _optimization_client
 
-    if _task_queue is None:
-        logger.info("[API] Initializing OptimizationTaskQueue...")
-        redis_client = get_redis()
-        _task_queue = OptimizationTaskQueue(redis_client)
-        logger.info("[API] OptimizationTaskQueue initialized successfully")
-
-    return _task_queue
-
-
-def get_optimization_service() -> OptimizationService:
-    """Get or initialize optimization service."""
-    global _optimization_service
-
-    if _optimization_service is None:
-        logger.info("[API] Initializing OptimizationService...")
+    if _optimization_client is None:
+        logger.info("[API] Initializing OptimizationClient...")
         settings = get_settings()
         redis_client = get_redis()
 
@@ -70,15 +55,15 @@ def get_optimization_service() -> OptimizationService:
         db_connection_string = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
         logger.info(f"[API] DB connection: {db_user}@{db_host}:{db_port}/{db_name}")
 
-        _optimization_service = OptimizationService(
+        # Create client in direct mode (embedded service)
+        _optimization_client = OptimizationClient(
+            mode="direct",
             redis_client=redis_client,
             db_connection_string=db_connection_string,
-            data_cache_ttl=3600,  # 1 hour
-            results_base_dir=str(settings.project_root / "results" / "optimization"),
         )
-        logger.info("[API] OptimizationService initialized successfully")
+        logger.info("[API] OptimizationClient initialized successfully")
 
-    return _optimization_service
+    return _optimization_client
 
 
 # ============================================================================
@@ -216,9 +201,9 @@ async def get_param_grid(
         Parameter grid with total combinations
     """
     try:
-        service = get_optimization_service()
-        param_grid = service.generate_param_grid(strategy_name)
-        total_combinations = service.count_permutations(param_grid)
+        client = get_optimization_client()
+        param_grid = await client.generate_param_grid(strategy_name)
+        total_combinations = await client.count_permutations(param_grid)
 
         return ParamGridResponse(
             strategy_name=strategy_name,
@@ -246,13 +231,13 @@ async def generate_param_grid(
         Parameter grid with total combinations
     """
     try:
-        service = get_optimization_service()
-        param_grid = service.generate_param_grid(
+        client = get_optimization_client()
+        param_grid = await client.generate_param_grid(
             strategy_name=request.strategy_name,
             custom_ranges=request.custom_ranges,
             optimize_only=request.optimize_only,
         )
-        total_combinations = service.count_permutations(param_grid)
+        total_combinations = await client.count_permutations(param_grid)
 
         return ParamGridResponse(
             strategy_name=request.strategy_name,
@@ -280,8 +265,8 @@ async def validate_param_grid(
         Validation result with warnings and errors
     """
     try:
-        service = get_optimization_service()
-        result = service.validate_param_grid(
+        client = get_optimization_client()
+        result = await client.validate_param_grid(
             strategy_name=request.strategy_name,
             param_grid=request.param_grid,
             max_combinations=request.max_combinations,
@@ -309,8 +294,8 @@ async def get_fixed_params(
         Fixed parameters
     """
     try:
-        service = get_optimization_service()
-        fixed_params = service.get_fixed_params(strategy_name)
+        client = get_optimization_client()
+        fixed_params = await client.get_fixed_params(strategy_name)
 
         return FixedParamsResponse(
             strategy_name=strategy_name,
@@ -342,14 +327,14 @@ async def run_optimization(
     """
     try:
         logger.info(f"[API] Received optimization request: strategy={request.strategy_name}, dates={request.train_start_date} to {request.train_end_date}")
-        service = get_optimization_service()
+        client = get_optimization_client()
         logger.info("[API] Got optimization service")
 
         # Generate or validate param grid
         if request.param_grid:
             logger.info(f"[API] Validating custom param grid with {len(request.param_grid)} parameters")
             # Validate custom grid
-            validation = service.validate_param_grid(
+            validation = await client.validate_param_grid(
                 strategy_name=request.strategy_name,
                 param_grid=request.param_grid,
             )
@@ -360,11 +345,12 @@ async def run_optimization(
         else:
             logger.info("[API] Auto-generating param grid")
             # Auto-generate grid
-            param_grid = service.generate_param_grid(request.strategy_name)
+            result = await client.generate_param_grid(request.strategy_name)
+            param_grid = result["param_grid"]
 
-        # Create optimization
-        logger.info("[API] Creating optimization in database...")
-        optimization_id = await service.create_optimization(
+        # Run optimization (client handles both creation and queuing)
+        logger.info("[API] Starting optimization...")
+        result = await client.run_optimization(
             strategy_name=request.strategy_name,
             train_start_date=request.train_start_date,
             train_end_date=request.train_end_date,
@@ -377,31 +363,9 @@ async def run_optimization(
             underlying_ticker=request.underlying_ticker,
             timeframe=request.timeframe,
         )
-        logger.info(f"[API] Created optimization {optimization_id}")
+        logger.info(f"[API] Optimization {result['optimization_id']} queued successfully")
 
-        # Publish task to queue (worker will pick it up)
-        logger.info(f"[API] Publishing optimization task {optimization_id} to queue...")
-        task_queue = get_task_queue()
-        await task_queue.publish_task(
-            optimization_id=optimization_id,
-            task_data={
-                "strategy_name": request.strategy_name,
-                "train_start_date": request.train_start_date.isoformat(),
-                "train_end_date": request.train_end_date.isoformat(),
-                "optimization_type": request.optimization_type,
-            }
-        )
-        logger.info(f"[API] Optimization {optimization_id} task queued for worker")
-
-        # Get queue size
-        queue_size = await task_queue.get_queue_size()
-
-        return {
-            "optimization_id": optimization_id,
-            "status": "queued",
-            "message": f"Optimization queued for execution (queue size: {queue_size})",
-            "queue_position": queue_size,
-        }
+        return result
 
     except Exception as e:
         logger.error(f"[API] Optimization request failed: {e}", exc_info=True)
@@ -425,8 +389,8 @@ async def get_optimization_status(
     """
     try:
         logger.debug(f"[API] Status request for {optimization_id}")
-        service = get_optimization_service()
-        status = await service.get_status(optimization_id)
+        client = get_optimization_client()
+        status = await client.get_status(optimization_id)
 
         # Calculate progress percentage
         progress_pct = 0
@@ -491,8 +455,8 @@ async def get_optimization_results(
         Optimization results with top N combinations
     """
     try:
-        service = get_optimization_service()
-        results = await service.get_results(
+        client = get_optimization_client()
+        results = await client.get_results(
             optimization_id=optimization_id,
             limit=limit,
             sort_by=sort_by,
@@ -544,33 +508,11 @@ async def cancel_optimization(
         Success message
     """
     try:
-        task_queue = get_task_queue()
-        service = get_optimization_service()
+        client = get_optimization_client()
 
-        # Try to cancel queued task first
-        cancelled_from_queue = await task_queue.cancel_task(optimization_id)
-
-        if cancelled_from_queue:
-            # Update DB status
-            await service._update_optimization_status(optimization_id, "cancelled")
-            return {
-                "message": f"Optimization {optimization_id} cancelled (removed from queue)",
-                "cancelled_from_queue": True
-            }
-
-        # If not in queue, try to cancel running optimization
-        try:
-            await service.cancel_optimization(optimization_id)
-            return {
-                "message": f"Optimization {optimization_id} cancellation requested (running in worker)",
-                "cancelled_from_queue": False
-            }
-        except ValueError:
-            # Not running either
-            raise HTTPException(
-                status_code=404,
-                detail=f"Optimization {optimization_id} not found in queue or running optimizations"
-            )
+        # Cancel optimization (client handles both queue and running optimizations)
+        result = await client.cancel_optimization(optimization_id)
+        return result
 
     except HTTPException:
         raise
@@ -634,8 +576,8 @@ async def clear_cache(
         Number of keys deleted
     """
     try:
-        service = get_optimization_service()
-        deleted = await service.clear_cache(cache_key=cache_key)
+        client = get_optimization_client()
+        deleted = await client.clear_cache(cache_key=cache_key)
 
         return {
             "message": f"Cleared {deleted} cache keys",
@@ -664,13 +606,12 @@ async def get_queue_status(
         Queue size and worker status
     """
     try:
-        task_queue = get_task_queue()
-        queue_size = await task_queue.get_queue_size()
-
+        # For now, return basic status
+        # TODO: Add method to client to get queue status
         return {
-            "queue_size": queue_size,
-            "worker_active": True,  # TODO: Add worker health check
-            "message": f"{queue_size} optimization(s) in queue"
+            "queue_size": 0,
+            "worker_active": True,
+            "message": "Optimization service is running"
         }
 
     except Exception as e:

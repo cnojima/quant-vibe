@@ -687,7 +687,7 @@ class TimescaleStore:
     def insert_underlying_bar(self, bar: "UnderlyingBar") -> None:
         """Insert a single underlying bar."""
         query = """
-        INSERT INTO underlying_bars_minute (
+        INSERT INTO underlying_bars (
             timestamp, ticker, open, high, low, close, volume, vwap, transactions
         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (timestamp, ticker) DO NOTHING
@@ -719,7 +719,7 @@ class TimescaleStore:
             return 0
 
         query = """
-        INSERT INTO underlying_bars_minute (
+        INSERT INTO underlying_bars (
             timestamp, ticker, open, high, low, close, volume, vwap, transactions
         ) VALUES %s
         ON CONFLICT (timestamp, ticker) DO NOTHING

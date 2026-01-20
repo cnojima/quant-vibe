@@ -408,11 +408,11 @@ services:
   #     - quant-vibe-network
   #   command: ["python", "scripts/run_scheduler.py"]
 
-  optimization_worker:
+  optimization:
     build:
       context: .
-      dockerfile: docker/Dockerfile.optimization_worker
-    container_name: quant-vibe-optimization-worker
+      dockerfile: docker/Dockerfile.optimization
+    container_name: quant-vibe-optimization
     restart: unless-stopped
     depends_on:
       redis:
@@ -420,6 +420,8 @@ services:
       timescaledb:
         condition: service_healthy
     environment:
+      # Service mode ('api' or 'worker')
+      SERVICE_MODE: ${OPTIMIZATION_MODE:-worker}
       # Redis connection (use service name as host)
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -430,10 +432,18 @@ services:
       TIMESCALE_DB: options_data
       TIMESCALE_USER: quantvibe
       TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD:-quantvibe_dev}
+      # API settings (when running in API mode)
+      API_HOST: 0.0.0.0
+      API_PORT: 8200
+      # Worker settings
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+      MAX_MEMORY_MB: ${MAX_MEMORY_MB:-7000}
       # Logging (WARNING to suppress DEBUG data validation messages)
       LOG_LEVEL: ${LOG_LEVEL:-WARNING}
       # Force unbuffered Python output for logs
       PYTHONUNBUFFERED: 1
+    ports:
+      - "8200:8200"  # API port (when in API mode)
     deploy:
       resources:
         limits:
@@ -447,7 +457,6 @@ services:
       - ./results:/app/results:rw
     networks:
       - quant-vibe-network
-    command: ["python", "scripts/run_optimization_worker.py"]
 
 networks:
   quant-vibe-network:
