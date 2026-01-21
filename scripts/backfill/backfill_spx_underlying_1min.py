@@ -225,8 +225,8 @@ def detect_gaps(
         # Query bars for this day
         day_bars = ts_store.get_underlying_bars(
             ticker='SPX',
-            start_time=market_open,
-            end_time=market_close
+            start_date=market_open,
+            end_date=market_close
         )
 
         bar_count = len(day_bars)
