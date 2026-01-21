@@ -1,0 +1,71 @@
+# Multi-stage build for efficient image
+FROM python:3.11-slim AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    python3-dev \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements and source code for building
+COPY pyproject.toml .
+COPY ./src ./src
+
+# Install Python dependencies
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install --user --no-cache-dir .[all]
+
+# Runtime stage
+FROM python:3.11-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 appuser
+
+# Set working directory
+WORKDIR /app
+
+# Copy Python packages from builder
+COPY --from=builder /root/.local /home/appuser/.local
+
+# Application code will be mounted as volumes
+# No need to copy - this allows live code updates without rebuilding
+
+# Add Python packages to PATH
+ENV PATH=/home/appuser/.local/bin:$PATH
+ENV PYTHONPATH=/app:$PYTHONPATH
+# Create results directory
+RUN mkdir -p /app/results/backtests
+RUN chown -R appuser:appuser /app/results
+
+# Switch to non-root user
+USER appuser
+
+# Default environment variables
+ENV REDIS_URL=redis://redis:6379/0
+ENV DATABASE_URL=postgresql://quantvibe:quantvibe_dev@db:5432/options_data
+ENV CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+ENV DATA_CACHE_TTL=3600
+ENV RESULTS_BASE_DIR=/app/results/backtests
+ENV MAX_CONCURRENT_BACKTESTS=5
+ENV WORKER_MODE=false
+ENV PORT=8001
+
+# Expose port
+EXPOSE 8001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8001/health')" || exit 1
+
+# Default command (can be overridden in docker-compose)
+CMD ["uvicorn", "backtest.main:app", "--host", "0.0.0.0", "--port", "8001"]

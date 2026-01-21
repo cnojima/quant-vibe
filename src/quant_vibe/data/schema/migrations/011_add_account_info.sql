@@ -1,6 +1,7 @@
 -- Migration 011: Add broker account information and multi-account support
 -- This migration adds comprehensive account management capabilities
-
+--  Usage:  
+--    PGPASSWORD=quantvibe_dev psql -h localhost -U quantvibe -d options_data < src/quant_vibe/data/schema/migrations/011_add_account_info.sql
 -- =====================================================
 -- REAL TRADING SCHEMA
 -- =====================================================

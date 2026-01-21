@@ -7,18 +7,20 @@ data loading, execution, and reporting.
 
 import sys
 from datetime import datetime
-from quant_vibe.utils import now_utc
 from typing import Any, Dict, List, Optional
 
 from .config_loader import BacktestConfig
 from .reporter import BacktestReporter
 from .options_engine import OptionsBacktestEngine
+from .utils import (
+    save_backtest_to_db,
+    save_backtest_results,
+    setup_backtest_output,
+)
 from quant_vibe.utils import (
     get_date_range,
     load_options_backtest_data,
-    save_backtest_results,
-    save_backtest_to_db,
-    setup_backtest_output,
+    now_utc
 )
 from quant_vibe.logging import setup_normalized_logging
 

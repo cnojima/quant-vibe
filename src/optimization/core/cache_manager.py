@@ -1,27 +1,35 @@
 """
 Cache management for optimization data.
 
-Handles Redis-based caching of options and underlying data for optimization runs.
+This module now delegates to the shared DataService for data loading
+and CacheManager for general caching operations.
 """
 
 import hashlib
-import pickle
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 import redis.asyncio as aioredis
-from sqlalchemy import create_engine, text
 
 from quant_vibe.logging import get_logger
-from quant_vibe.utils import load_options_backtest_data, now_utc
+from quant_vibe.utils import now_utc
+
+# Import shared components
+from backtest.data_service import DataService
+from backtest.cache import CacheManager
 
 
 logger = get_logger(__name__)
 
 
 class OptimizationCacheManager:
-    """Manages caching of optimization data in Redis."""
+    """
+    Manages caching of optimization data using shared components.
+
+    This is now a thin wrapper around the shared DataService and CacheManager,
+    maintaining backward compatibility while eliminating duplicate code.
+    """
 
     def __init__(
         self,
@@ -29,7 +37,7 @@ class OptimizationCacheManager:
         db_connection_string: str,
         data_cache_ttl: int = 3600,  # 1 hour
     ):
-        """Initialize cache manager.
+        """Initialize cache manager with shared components.
 
         Args:
             redis_client: Async Redis client (text mode)
@@ -40,30 +48,27 @@ class OptimizationCacheManager:
         self.db_connection_string = db_connection_string
         self.data_cache_ttl = data_cache_ttl
 
-        # Create binary Redis client for pickle data
-        self._binary_redis = None
-        self._binary_redis_factory = self._create_binary_client_factory()
+        # Get Redis URL from connection info
+        redis_host = redis_client.connection_pool.connection_kwargs.get('host', 'localhost')
+        redis_port = redis_client.connection_pool.connection_kwargs.get('port', 6379)
+        redis_db = redis_client.connection_pool.connection_kwargs.get('db', 0)
+        redis_url = f"redis://{redis_host}:{redis_port}/{redis_db}"
 
-    def _create_binary_client_factory(self):
-        """Create factory for binary Redis client."""
-        # Extract connection info from main client
-        redis_url = str(self.redis.connection_pool.connection_kwargs.get('host', 'localhost'))
-        redis_port = self.redis.connection_pool.connection_kwargs.get('port', 6379)
-        redis_db = self.redis.connection_pool.connection_kwargs.get('db', 0)
+        # Initialize shared components
+        self.data_service = DataService(
+            redis_url=redis_url,
+            db_url=db_connection_string,
+            cache_ttl=data_cache_ttl,
+            cache_prefix="optimization:data"
+        )
 
-        async def create_binary_client():
-            return await aioredis.from_url(
-                f"redis://{redis_url}:{redis_port}/{redis_db}",
-                decode_responses=False,  # Return bytes for pickle
-            )
+        self.cache_manager = CacheManager(
+            redis_url=redis_url,
+            default_ttl=data_cache_ttl,
+            prefix="optimization"
+        )
 
-        return create_binary_client
-
-    async def _get_binary_redis(self) -> aioredis.Redis:
-        """Get or create binary Redis client for pickle operations."""
-        if self._binary_redis is None:
-            self._binary_redis = await self._binary_redis_factory()
-        return self._binary_redis
+        logger.info("[Cache] Initialized with shared DataService and CacheManager")
 
     def generate_cache_key(
         self,
@@ -113,6 +118,9 @@ class OptimizationCacheManager:
     ) -> Optional[Tuple[pd.DataFrame, pd.DataFrame]]:
         """Get cached data or load and cache it.
 
+        This method now delegates to the shared DataService which handles
+        all caching and data loading logic.
+
         Args:
             underlying_ticker: Underlying ticker symbol
             start_date: Start date for data
@@ -122,44 +130,31 @@ class OptimizationCacheManager:
             timeframe: Time aggregation
 
         Returns:
-            Tuple of (options_df, underlying_df) or None if not cached
+            Tuple of (options_df, underlying_df) or None if loading fails
         """
-        cache_key = self.generate_cache_key(
-            underlying_ticker, start_date, end_date, min_dte, max_dte, timeframe
-        )
+        try:
+            # Delegate to shared data service
+            options_df, underlying_df = await self.data_service.load_backtest_data(
+                ticker=underlying_ticker,
+                start_date=start_date,
+                end_date=end_date,
+                min_dte=min_dte,
+                max_dte=max_dte,
+                timeframe=timeframe,
+                use_cache=True,
+                verbose=False,  # Less verbose for optimization runs
+            )
 
-        logger.info(f"[Cache] Checking cache for key: {cache_key}")
+            logger.info(
+                f"[Cache] Loaded {len(options_df):,} option rows, "
+                f"{len(underlying_df):,} underlying rows"
+            )
 
-        # Try to get from cache
-        binary_redis = await self._get_binary_redis()
-        cached_data = await binary_redis.get(cache_key)
+            return options_df, underlying_df
 
-        if cached_data:
-            logger.info(f"[Cache] HIT for {cache_key}")
-            try:
-                # Update access stats
-                await self._update_cache_stats(cache_key)
-
-                # Unpickle the data
-                data = pickle.loads(cached_data)
-                options_df = pd.DataFrame(data['options_data'])
-                underlying_df = pd.DataFrame(data['underlying_data'])
-
-                logger.info(
-                    f"[Cache] Loaded {len(options_df):,} option rows, "
-                    f"{len(underlying_df):,} underlying rows from cache"
-                )
-
-                return options_df, underlying_df
-
-            except Exception as e:
-                logger.error(f"[Cache] Error loading cached data: {e}")
-                # Delete corrupted cache entry
-                await binary_redis.delete(cache_key)
-                return None
-
-        logger.info(f"[Cache] MISS for {cache_key}")
-        return None
+        except Exception as e:
+            logger.error(f"[Cache] Error loading data: {e}")
+            return None
 
     async def store_cached_data(
         self,
@@ -170,182 +165,129 @@ class OptimizationCacheManager:
     ) -> bool:
         """Store data in cache.
 
+        Note: The shared DataService handles caching automatically,
+        so this method is maintained for backward compatibility but
+        doesn't need to do anything.
+
         Args:
-            cache_key: Cache key
-            options_df: Options data
-            underlying_df: Underlying data
-            metadata: Cache metadata
+            cache_key: Cache key (ignored)
+            options_df: Options data (ignored)
+            underlying_df: Underlying data (ignored)
+            metadata: Cache metadata (ignored)
 
         Returns:
-            True if stored successfully
+            Always returns True for compatibility
         """
-        try:
-            # Prepare data for pickling
-            cache_data = {
-                'options_data': options_df.to_dict('records'),
-                'underlying_data': underlying_df.to_dict('records'),
-                'metadata': {
-                    'cached_at': now_utc().isoformat(),
-                    'options_rows': len(options_df),
-                    'underlying_rows': len(underlying_df),
-                    **metadata
-                }
-            }
+        # Data is automatically cached by DataService
+        logger.debug(f"[Cache] Data automatically cached by DataService")
+        return True
 
-            # Pickle and store
-            binary_redis = await self._get_binary_redis()
-            pickled_data = pickle.dumps(cache_data, protocol=pickle.HIGHEST_PROTOCOL)
-
-            # Store with TTL
-            await binary_redis.setex(
-                cache_key,
-                self.data_cache_ttl,
-                pickled_data
-            )
-
-            # Store metadata
-            await self._store_cache_metadata(
-                cache_key,
-                metadata['underlying_ticker'],
-                metadata['start_date'],
-                metadata['end_date'],
-                metadata['timeframe'],
-                len(options_df),
-                len(underlying_df),
-                len(pickled_data),
-            )
-
-            logger.info(
-                f"[Cache] Stored {len(options_df):,} option rows, "
-                f"{len(underlying_df):,} underlying rows "
-                f"({len(pickled_data) / 1024 / 1024:.2f} MB) with TTL={self.data_cache_ttl}s"
-            )
-
-            return True
-
-        except Exception as e:
-            logger.error(f"[Cache] Error storing data: {e}")
-            return False
-
-    async def _store_cache_metadata(
+    async def load_data_with_cache(
         self,
-        cache_key: str,
         underlying_ticker: str,
         start_date: datetime,
         end_date: datetime,
-        timeframe: str,
-        num_options_rows: int,
-        num_underlying_rows: int,
-        data_size_bytes: int,
-    ) -> None:
-        """Store cache metadata in PostgreSQL for monitoring.
+        min_dte: int = 0,
+        max_dte: int = 60,
+        timeframe: str = "5min",
+        verbose: bool = False,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """Load data with caching support.
+
+        This is the main entry point for optimization data loading.
+        It delegates to the shared DataService for consistent behavior.
 
         Args:
-            cache_key: Redis cache key
-            underlying_ticker: Ticker symbol
-            start_date: Data start date
-            end_date: Data end date
+            underlying_ticker: Underlying ticker symbol
+            start_date: Start date
+            end_date: End date
+            min_dte: Minimum days to expiration
+            max_dte: Maximum days to expiration
             timeframe: Time aggregation
-            num_options_rows: Number of option rows
-            num_underlying_rows: Number of underlying rows
-            data_size_bytes: Size of cached data in bytes
-        """
-        try:
-            engine = create_engine(self.db_connection_string)
-
-            query = text("""
-                INSERT INTO optimization_cache_status
-                (cache_key, underlying_ticker, start_date, end_date, timeframe,
-                 num_options_rows, num_underlying_rows, data_size_mb,
-                 created_at, last_accessed_at, hit_count)
-                VALUES
-                (:cache_key, :ticker, :start_date, :end_date, :timeframe,
-                 :num_options, :num_underlying, :size_mb,
-                 :created_at, :accessed_at, 1)
-                ON CONFLICT (cache_key) DO UPDATE SET
-                    hit_count = optimization_cache_status.hit_count + 1,
-                    last_accessed_at = EXCLUDED.last_accessed_at
-            """)
-
-            with engine.connect() as conn:
-                conn.execute(
-                    query,
-                    {
-                        "cache_key": cache_key,
-                        "ticker": underlying_ticker,
-                        "start_date": start_date,
-                        "end_date": end_date,
-                        "timeframe": timeframe,
-                        "num_options": num_options_rows,
-                        "num_underlying": num_underlying_rows,
-                        "size_mb": round(data_size_bytes / 1024 / 1024, 2),
-                        "created_at": now_utc(),
-                        "accessed_at": now_utc(),
-                    }
-                )
-                conn.commit()
-
-        except Exception as e:
-            logger.error(f"[Cache] Error storing metadata: {e}")
-
-    async def _update_cache_stats(self, cache_key: str) -> None:
-        """Update cache hit statistics.
-
-        Args:
-            cache_key: Cache key
-        """
-        try:
-            engine = create_engine(self.db_connection_string)
-
-            query = text("""
-                UPDATE optimization_cache_status
-                SET hit_count = hit_count + 1,
-                    last_accessed_at = :accessed_at
-                WHERE cache_key = :cache_key
-            """)
-
-            with engine.connect() as conn:
-                conn.execute(
-                    query,
-                    {"cache_key": cache_key, "accessed_at": now_utc()}
-                )
-                conn.commit()
-
-        except Exception as e:
-            logger.error(f"[Cache] Error updating stats: {e}")
-
-    async def clear_cache(self, cache_key: Optional[str] = None) -> int:
-        """Clear cached data.
-
-        Args:
-            cache_key: Specific cache key or None for all optimization data
+            verbose: Print loading information
 
         Returns:
-            Number of keys deleted
+            Tuple of (options_df, underlying_df)
+
+        Raises:
+            ValueError: If data cannot be loaded
+        """
+        # Delegate to shared data service
+        result = await self.data_service.load_backtest_data(
+            ticker=underlying_ticker,
+            start_date=start_date,
+            end_date=end_date,
+            min_dte=min_dte,
+            max_dte=max_dte,
+            timeframe=timeframe,
+            use_cache=True,
+            verbose=verbose,
+        )
+
+        if result is None or len(result) != 2:
+            raise ValueError(f"Failed to load data for {underlying_ticker}")
+
+        return result
+
+    async def _update_cache_stats(self, cache_key: str):
+        """Update cache statistics.
+
+        Args:
+            cache_key: Cache key that was accessed
         """
         try:
-            binary_redis = await self._get_binary_redis()
+            # Track in general cache
+            stats_key = self.cache_manager.make_key("stats", "access")
+            await self.cache_manager.set(stats_key, {
+                "last_access": now_utc().isoformat(),
+                "cache_key": cache_key,
+            })
 
-            if cache_key:
-                # Delete specific key
-                result = await binary_redis.delete(cache_key)
-                logger.info(f"[Cache] Deleted key: {cache_key}")
-                return result
-
-            else:
-                # Delete all optimization data keys
-                pattern = "optimization:data:*"
-                keys = []
-                async for key in binary_redis.scan_iter(match=pattern):
-                    keys.append(key)
-
-                if keys:
-                    result = await binary_redis.delete(*keys)
-                    logger.info(f"[Cache] Deleted {result} keys matching {pattern}")
-                    return result
-
-                return 0
+            # Increment hit counter
+            counter_key = self.cache_manager.make_key("stats", "hits")
+            await self.redis.incr(counter_key)
 
         except Exception as e:
-            logger.error(f"[Cache] Error clearing cache: {e}")
-            return 0
+            logger.debug(f"[Cache] Could not update stats: {e}")
+
+    async def get_cache_statistics(self) -> Dict[str, Any]:
+        """Get cache statistics.
+
+        Returns:
+            Dictionary with cache statistics
+        """
+        # Get stats from shared components
+        data_stats = self.data_service.get_cache_stats()
+        cache_stats = self.cache_manager.get_stats()
+
+        return {
+            "data_service": data_stats,
+            "cache_manager": cache_stats,
+            "combined": {
+                "total_hits": data_stats["cache_hits"] + cache_stats["hits"],
+                "total_misses": data_stats["cache_misses"] + cache_stats["misses"],
+                "data_hit_rate": data_stats.get("hit_rate", "0%"),
+                "general_hit_rate": cache_stats.get("hit_rate", "0%"),
+            }
+        }
+
+    async def clear_cache(self, pattern: Optional[str] = None):
+        """Clear cache entries.
+
+        Args:
+            pattern: Optional pattern to match keys
+        """
+        # Clear from both shared components
+        await self.data_service.clear_cache(pattern)
+
+        if pattern:
+            await self.cache_manager.delete_pattern(pattern)
+        else:
+            await self.cache_manager.clear_all()
+
+        logger.info(f"[Cache] Cleared cache entries matching: {pattern or '*'}")
+
+    async def close(self):
+        """Close connections."""
+        await self.data_service.close()
+        await self.cache_manager.close()

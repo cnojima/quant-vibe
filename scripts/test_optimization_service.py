@@ -2,6 +2,12 @@
 """
 Test script for OptimizationService.
 
+⚠️ DEPRECATED: This script tests the old monolithic OptimizationService.
+Please use one of the newer test scripts instead:
+- test_refactored_optimization.py - Tests the modular optimization service
+- test_optimization_execution.py - Tests full optimization execution
+- test_optimization_final.py - Tests the final optimization implementation
+
 This script validates the core functionality of the optimization service:
 1. Parameter grid generation
 2. Parameter validation
@@ -21,9 +27,20 @@ import asyncio
 import os
 from datetime import datetime
 from dotenv import load_dotenv
+import warnings
 
 # Load environment variables
 load_dotenv()
+
+# Warn about deprecated usage
+warnings.warn(
+    "\n" + "=" * 70 + "\n"
+    "⚠️  This test script uses the deprecated OptimizationService.\n"
+    "   Please use test_refactored_optimization.py instead.\n"
+    "=" * 70,
+    DeprecationWarning,
+    stacklevel=2
+)
 
 from quant_vibe.services.optimization_service import OptimizationService
 

@@ -458,6 +458,97 @@ services:
     networks:
       - quant-vibe-network
 
+  backtest:
+    build:
+      # context: ./src/backtest
+      dockerfile: docker/Dockerfile.backtest
+    container_name: quant-vibe-backtest
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    environment:
+      # Service configuration
+      WORKER_MODE: "false"  # Set to true to run as worker
+      PORT: 8001
+      # Redis connection
+      REDIS_URL: redis://redis:6379/0
+      # Database connection
+      DATABASE_URL: postgresql://quantvibe:${TIMESCALE_PASSWORD:-quantvibe_dev}@timescaledb:5432/options_data
+      # TimescaleStore specific variables
+      TIMESCALE_HOST: timescaledb
+      TIMESCALE_PORT: 5432
+      TIMESCALE_DB: options_data
+      TIMESCALE_USER: quantvibe
+      TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD:-quantvibe_dev}
+      # CORS configuration
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:8000}
+      # Data caching
+      DATA_CACHE_TTL: 3600
+      RESULTS_BASE_DIR: /app/results/backtests
+      MAX_CONCURRENT_BACKTESTS: 5
+      # Logging
+      DEBUG: ${DEBUG:-false}
+    volumes:
+      - ./src/backtest:/app/backtest:ro
+      - ./src/quant_vibe:/app/quant_vibe:ro
+      - ./results/backtests:/app/results/backtests:rw
+      - ./logs:/app/logs:rw
+      - ./reports:/app/reports:rw
+    networks:
+      - quant-vibe-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  backtest-worker:
+    build:
+      # context: ./src/backtest
+      dockerfile: docker/Dockerfile.backtest
+    container_name: quant-vibe-backtest-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      backtest:
+        condition: service_healthy
+    environment:
+      # Worker mode
+      WORKER_MODE: "true"
+      # Redis connection
+      REDIS_URL: redis://redis:6379/0
+      # Database connection
+      DATABASE_URL: postgresql://quantvibe:${TIMESCALE_PASSWORD:-quantvibe_dev}@timescaledb:5432/options_data
+      # TimescaleStore specific variables
+      TIMESCALE_HOST: timescaledb
+      TIMESCALE_PORT: 5432
+      TIMESCALE_DB: options_data
+      TIMESCALE_USER: quantvibe
+      TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD:-quantvibe_dev}
+      # Data caching
+      DATA_CACHE_TTL: 3600
+      RESULTS_BASE_DIR: /app/results/backtests
+      # Logging
+      DEBUG: ${DEBUG:-false}
+    volumes:
+      - ./src/backtest:/app/backtest:ro
+      - ./src/quant_vibe:/app/quant_vibe:ro
+      - ./results/backtests:/app/results/backtests:rw
+      - ./logs:/app/logs:rw
+      - ./reports:/app/reports:rw
+    networks:
+      - quant-vibe-network
+    command: ["python", "-m", "backtest.worker"]
+
 networks:
   quant-vibe-network:
     driver: bridge

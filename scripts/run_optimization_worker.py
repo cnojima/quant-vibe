@@ -2,6 +2,16 @@
 """
 Optimization Worker - Dedicated service for running parameter optimizations.
 
+⚠️ DEPRECATED: This script uses the old monolithic OptimizationService.
+Please use the new modular optimization worker instead:
+  python -m optimization.worker
+
+Or if running from scripts directory:
+  python ../src/optimization/worker.py
+
+The new worker uses the modular optimization service with shared
+data loading and caching components for better performance.
+
 This worker runs in a separate container from admin_ui, preventing long-running
 optimizations from blocking the UI.
 
@@ -19,6 +29,7 @@ import signal
 import traceback
 import gc
 import faulthandler
+import warnings
 from pathlib import Path
 
 # Enable faulthandler for segfault debugging
@@ -26,6 +37,17 @@ faulthandler.enable(file=sys.stderr, all_threads=True)
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+# Warn about deprecated usage
+warnings.warn(
+    "\n" + "=" * 70 + "\n"
+    "⚠️  This worker script uses the deprecated OptimizationService.\n"
+    "   Please use: python -m optimization.worker\n"
+    "   See docs/SERVICE_ARCHITECTURE_REFACTOR.md for migration guide.\n"
+    "=" * 70,
+    DeprecationWarning,
+    stacklevel=2
+)
 
 from datetime import datetime
 import redis.asyncio as aioredis

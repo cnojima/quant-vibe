@@ -1,0 +1,31 @@
+# FastAPI and web server
+fastapi==0.109.0
+uvicorn[standard]==0.25.0
+websockets==14.0
+
+# Redis for caching and queue
+redis==5.0.1
+
+# Database
+sqlalchemy==2.0.25
+psycopg2-binary==2.9.9
+
+# Pydantic for data validation
+pydantic==2.5.3
+
+# Data processing
+pandas==2.1.4
+numpy==1.26.3
+
+# HTTP client for service communication
+httpx==0.25.2
+
+# Utilities
+python-dotenv==1.0.0
+pyyaml==6.0.1
+
+# Logging
+structlog==24.1.0
+
+# vendors
+massive>=2.0.0

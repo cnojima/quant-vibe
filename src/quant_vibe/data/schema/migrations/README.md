@@ -48,7 +48,7 @@ psql -h 192.168.100.197 -p 5432 -U quantvibe -d options_data < src/quant_vibe/da
 After running this migration, backtests will automatically be persisted to PostgreSQL when using:
 
 ```python
-from quant_vibe.utils import save_backtest_to_db
+from backtest.utils import save_backtest_to_db
 
 save_backtest_to_db(
     backtest_id="strategy_20251230_143022",

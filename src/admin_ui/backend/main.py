@@ -28,7 +28,7 @@ from admin_ui.backend.redis_client import (
 )
 from admin_ui.backend.api import (
     auth,
-    backtests,
+    backtests_new as backtests,
     config,
     live,
     notifications,
