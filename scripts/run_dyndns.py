@@ -98,11 +98,19 @@ def main():
         try:
             while True:
                 try:
-                    # Check if update needed and perform if necessary
-                    success = client.update_if_changed(
-                        record_type=record_type,
-                        ttl=ttl,
-                    )
+                    if update_count % 100 == 0 and update_count > 0:
+                        logger.info("Re-testing API connectivity...")
+                        if not client.ping():
+                            logger.error("Lost API connectivity, exiting")
+                            sys.exit(1)
+                        logger.info("API connectivity OK")
+                        success = client.force_update(record_type=record_type, ttl=ttl)
+                    else:
+                        # Check if update needed and perform if necessary
+                        success = client.update_if_changed(
+                            record_type=record_type,
+                            ttl=ttl,
+                        )
 
                     if success:
                         update_count += 1
