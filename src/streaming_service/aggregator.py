@@ -130,12 +130,12 @@ class BarAggregator:
             ask_size=latest_quote.get('ask_size'),
             vwap=self._calculate_vwap(quotes),
             transactions=len(quotes),
-            implied_volatility=self._to_decimal(latest_quote.get('iv')),
-            delta=self._to_decimal(latest_quote.get('delta')),
-            gamma=self._to_decimal(latest_quote.get('gamma')),
-            theta=self._to_decimal(latest_quote.get('theta')),
-            vega=self._to_decimal(latest_quote.get('vega')),
-            rho=self._to_decimal(latest_quote.get('rho')),
+            implied_volatility=self._to_decimal_iv(latest_quote.get('iv')),
+            delta=self._to_decimal_greek(latest_quote.get('delta')),
+            gamma=self._to_decimal_greek(latest_quote.get('gamma')),
+            theta=self._to_decimal_greek(latest_quote.get('theta')),
+            vega=self._to_decimal_greek(latest_quote.get('vega')),
+            rho=self._to_decimal_greek(latest_quote.get('rho')),
             data_source='schwabdev_stream',
         )
 
@@ -234,6 +234,49 @@ class BarAggregator:
             Decimal or None
         """
         return Decimal(str(value)) if value is not None else None
+
+    def _to_decimal_iv(self, value: any) -> Optional[Decimal]:
+        """Convert implied volatility value to Decimal or None.
+
+        Handles Schwab API sentinel values:
+        - -999.0 indicates unavailable/undefined IV
+
+        Args:
+            value: IV value to convert
+
+        Returns:
+            Decimal or None if sentinel value or None
+        """
+        if value is None:
+            return None
+        # Check for Schwab's sentinel value for unavailable IV
+        if float(value) == -999.0:
+            return None
+        # IV should be non-negative
+        if float(value) < 0:
+            return None
+        return Decimal(str(value))
+
+    def _to_decimal_greek(self, value: any) -> Optional[Decimal]:
+        """Convert Greek value to Decimal or None.
+
+        Handles Schwab API sentinel values:
+        - -999.0 or -999 indicates unavailable/undefined Greek value
+
+        Args:
+            value: Greek value to convert
+
+        Returns:
+            Decimal or None if sentinel value or None
+        """
+        if value is None:
+            return None
+        # Check for Schwab's sentinel value
+        float_val = float(value)
+        if float_val == -999.0 or float_val == -999:
+            return None
+        # Greeks can be negative (e.g., theta), so no sign check
+        return Decimal(str(value))
 
     def get_buffered_symbol_count(self) -> int:
         """Get number of symbols currently buffered.
