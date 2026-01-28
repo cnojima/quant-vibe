@@ -1,7 +1,8 @@
 """Helper functions for backtest scripts."""
 
 import os
-from datetime import datetime
+import pickle
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Tuple, Optional, TYPE_CHECKING
 
@@ -297,6 +298,90 @@ def load_options_backtest_data(
 
     finally:
         ts_store.close()
+
+
+def load_options_backtest_data_daily(
+    underlying_ticker: str,
+    trade_date: datetime,
+    min_dte: int,
+    max_dte: int,
+    timeframe: str = "1min",
+    cache_enabled: bool = True,
+    db_profile: Optional[str] = None,
+    redis_client: Optional[Any] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Load single day of backtest data with Redis caching.
+
+    This function loads options and underlying data for a single trading day,
+    with optional Redis caching to speed up repeated backtests on the same data.
+
+    Args:
+        underlying_ticker: Underlying ticker symbol (e.g., 'SPX')
+        trade_date: Trading date (will be converted to market hours)
+        min_dte: Minimum days to expiration
+        max_dte: Maximum days to expiration
+        timeframe: Time aggregation (default: "1min")
+        cache_enabled: Whether to use Redis caching (default: True)
+        db_profile: Database profile ("local" or "remote")
+        redis_client: Optional Redis client for caching
+
+    Returns:
+        Tuple of (options_data, underlying_data) DataFrames
+
+    Example:
+        ```python
+        # Load data for single day with caching
+        options, underlying = load_options_backtest_data_daily(
+            'SPX',
+            trade_date=datetime(2024, 1, 15),
+            min_dte=0,
+            max_dte=45,
+            timeframe="5min"
+        )
+        ```
+    """
+    # Convert to market hours for this day
+    market_open = trade_date.replace(hour=14, minute=30, second=0, microsecond=0)  # 9:30 AM ET in UTC
+    market_close = trade_date.replace(hour=21, minute=0, second=0, microsecond=0)  # 4:00 PM ET in UTC
+
+    # Create cache key for this specific day
+    cache_key = f"backtest:{underlying_ticker}:{trade_date.date()}:{min_dte}-{max_dte}:{timeframe}"
+
+    # Try to get from cache if enabled
+    if cache_enabled and redis_client is not None:
+        try:
+            cached = redis_client.get(cache_key)
+            if cached:
+                logger.info(f"Using cached data for {trade_date.date()}")
+                return pickle.loads(cached)
+        except Exception as e:
+            logger.warning(f"Cache read failed, loading from database: {e}")
+
+    # Load from database
+    options_data, underlying_data = load_options_backtest_data(
+        underlying_ticker=underlying_ticker,
+        start_date=market_open,
+        end_date=market_close,
+        min_dte=min_dte,
+        max_dte=max_dte,
+        verbose=False,  # Less verbose for daily loading
+        db_profile=db_profile,
+        timeframe=timeframe,
+    )
+
+    # Cache for next time if enabled (1 week TTL)
+    if cache_enabled and redis_client is not None:
+        try:
+            redis_client.setex(
+                cache_key,
+                timedelta(days=7),
+                pickle.dumps((options_data, underlying_data))
+            )
+            logger.debug(f"Cached data for {trade_date.date()}")
+        except Exception as e:
+            logger.warning(f"Cache write failed: {e}")
+
+    return options_data, underlying_data
 
 
 def save_backtest_results(

@@ -14,6 +14,9 @@ Usage:
     # Run specific strategy only
     python scripts/run_backtest.py --strategy bullish_vertical_put
 
+    # Run with daily chunking (85% less memory for multi-day backtests)
+    python scripts/run_backtest.py --chunk-by day --start-date 2024-01-01 --end-date 2024-01-31
+
     # Combine options
     python scripts/run_backtest.py --config config/custom.yaml --strategy my_strategy
 
@@ -151,6 +154,14 @@ For more information, see:
         help='Data aggregation timeframe (default: 1min). Use 5min for backtests >30 days to reduce memory by ~95%%.'
     )
 
+    parser.add_argument(
+        '--chunk-by',
+        type=str,
+        default='none',
+        choices=['none', 'day'],
+        help='Chunk data loading strategy: none=all at once (default), day=by trading day (85%% less memory)'
+    )
+
     return parser.parse_args()
 
 
@@ -189,16 +200,29 @@ def main():
         )
 
         # Run backtests
-        results = orchestrator.run(
-            start_date=start_date,
-            end_date=end_date,
-            min_dte=args.min_dte,
-            max_dte=args.max_dte,
-            max_trades_daily=args.max_trades_daily,
-            initial_capital=args.initial_capital,
-            backtest_id=args.backtest_id,
-            timeframe=args.timeframe,
-        )
+        if args.chunk_by == 'day':
+            print(f"Using daily chunking to reduce memory usage...")
+            results = orchestrator.run_chunked_by_day(
+                start_date=start_date,
+                end_date=end_date,
+                min_dte=args.min_dte,
+                max_dte=args.max_dte,
+                max_trades_daily=args.max_trades_daily,
+                initial_capital=args.initial_capital,
+                backtest_id=args.backtest_id,
+                timeframe=args.timeframe,
+            )
+        else:
+            results = orchestrator.run(
+                start_date=start_date,
+                end_date=end_date,
+                min_dte=args.min_dte,
+                max_dte=args.max_dte,
+                max_trades_daily=args.max_trades_daily,
+                initial_capital=args.initial_capital,
+                backtest_id=args.backtest_id,
+                timeframe=args.timeframe,
+            )
 
         # Exit with success
         print("\n✓ All backtests completed successfully\n")

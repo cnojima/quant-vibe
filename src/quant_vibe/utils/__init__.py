@@ -2,6 +2,7 @@
 
 from .backtest_helpers import (
     load_options_backtest_data,
+    load_options_backtest_data_daily,
     save_backtest_results,
     save_backtest_to_db,
     setup_backtest_output,
@@ -42,6 +43,7 @@ __all__ = [
     "get_mark_price_from_row",
     "is_utc_aware",
     "load_options_backtest_data",
+    "load_options_backtest_data_daily",
     "make_utc_datetime",
     "normalize_option_ticker",
     "now_utc",

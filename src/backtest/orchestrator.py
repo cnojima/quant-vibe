@@ -6,9 +6,11 @@ data loading, execution, and reporting.
 """
 
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, time
 from quant_vibe.utils import now_utc
 from typing import Any, Dict, List, Optional
+import pandas as pd
+import pickle
 
 from .config_loader import BacktestConfig
 from .reporter import BacktestReporter
@@ -67,6 +69,58 @@ class BacktestOrchestrator:
         self.logger.info(f"Configuration: {config_path}")
         self.logger.info(f"Initial Capital: ${self.config.get_initial_capital():,.2f}")
         self.logger.info(f"Output Directory: {self.config.get_output_dir()}")
+
+    def get_trading_days(self, start_date: datetime, end_date: datetime) -> List[datetime]:
+        """
+        Get trading days between two dates using pandas market calendars.
+
+        Args:
+            start_date: Start date (datetime)
+            end_date: End date (datetime)
+
+        Returns:
+            List of trading days as datetime objects
+        """
+        try:
+            import pandas_market_calendars as mcal
+            import pytz
+
+            # Get NYSE calendar
+            nyse = mcal.get_calendar('NYSE')
+
+            # Get trading schedule
+            schedule = nyse.schedule(start_date=start_date, end_date=end_date)
+
+            # Convert to list of datetime objects
+            trading_days = []
+            for date in schedule.index:
+                # Convert to datetime with UTC timezone
+                dt = pd.Timestamp(date).to_pydatetime()
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=pytz.UTC)
+                trading_days.append(dt)
+
+            return trading_days
+
+        except ImportError:
+            # Fallback to simple weekday filter if pandas_market_calendars not available
+            self.logger.warning("pandas_market_calendars not available, using simple weekday filter")
+            import pytz
+
+            trading_days = []
+            current_date = start_date.date() if isinstance(start_date, datetime) else start_date
+            end_dt = end_date.date() if isinstance(end_date, datetime) else end_date
+
+            while current_date <= end_dt:
+                # Skip weekends (Monday = 0, Sunday = 6)
+                if current_date.weekday() < 5:
+                    # Create datetime with market open time in UTC
+                    dt = datetime.combine(current_date, time(14, 30))  # 9:30 AM ET in UTC
+                    dt = dt.replace(tzinfo=pytz.UTC)
+                    trading_days.append(dt)
+                current_date += timedelta(days=1)
+
+            return trading_days
 
     def _get_strategies_to_run(self) -> List[Dict[str, Any]]:
         """Get list of strategies to run based on config and filter."""
@@ -402,6 +456,318 @@ class BacktestOrchestrator:
         self._print_summary()
 
         return results
+
+    def run_chunked_by_day(
+        self,
+        start_date=None,
+        end_date=None,
+        min_dte=None,
+        max_dte=None,
+        max_trades_daily=None,
+        initial_capital=None,
+        backtest_id=None,
+        timeframe=None
+    ) -> List[Dict[str, Any]]:
+        """
+        Run backtests chunked by trading day to minimize memory usage.
+
+        This method loads data one trading day at a time instead of loading
+        all data at once. This significantly reduces memory usage for multi-day
+        backtests while maintaining the same functionality.
+
+        Args:
+            start_date: Optional start date override (datetime)
+            end_date: Optional end date override (datetime)
+            min_dte: Optional minimum DTE override (int)
+            max_dte: Optional maximum DTE override (int)
+            max_trades_daily: Optional max trades per day override (int)
+            initial_capital: Optional initial capital override (float)
+            backtest_id: Optional backtest ID for database storage (str)
+            timeframe: Optional timeframe override (str): "1min", "5min", "15min", "1hour", "daily"
+
+        Returns:
+            List of result dictionaries for each strategy
+        """
+        self.start_time = now_utc()
+
+        # Get strategies to run
+        strategies_config = self._get_strategies_to_run()
+        self.logger.info(f"Strategies to run: {[s['name'] for s in strategies_config]}")
+
+        # Get date range (same logic as regular run)
+        if start_date is None or end_date is None:
+            config_start, config_end = self.config.get_date_range()
+            if config_start is not None and config_end is not None:
+                start_date = config_start
+                end_date = config_end
+                self.logger.info("Using custom date range from config")
+            else:
+                preset = self.config.get_date_preset()
+                self.logger.info(f"Using date preset: {preset}")
+                start_date, end_date = get_date_range()
+        else:
+            self.logger.info("Using date range from command line")
+
+        self.logger.info(f"Start: {start_date}")
+        self.logger.info(f"End: {end_date}")
+
+        # Get other parameters
+        if min_dte is None:
+            min_dte = self.config.get_min_dte()
+        if max_dte is None:
+            max_dte = self.config.get_max_dte()
+
+        self.logger.info(f"DTE Range: {min_dte} - {max_dte}")
+
+        if initial_capital is None:
+            initial_capital = self.config.get_initial_capital()
+        else:
+            self.logger.info(f"Overriding initial capital: ${initial_capital:,.2f}")
+
+        self.logger.info(f"Initial Capital: ${initial_capital:,.2f}")
+
+        if timeframe is None:
+            timeframe = self.config.get_timeframe()
+        else:
+            self.logger.info(f"Overriding timeframe: {timeframe}")
+
+        self.logger.info(f"Data Timeframe: {timeframe}")
+
+        # Get trading days
+        trading_days = self.get_trading_days(start_date, end_date)
+        self.logger.info(f"Trading days to process: {len(trading_days)}")
+
+        # Initialize results storage for each strategy
+        strategy_results = {}
+        for strategy_config in strategies_config:
+            strategy_name = strategy_config['name']
+            strategy_params = strategy_config.get('params', {})
+
+            # Override max_trades_daily if provided via CLI
+            if max_trades_daily is not None:
+                strategy_params = strategy_params.copy()
+                strategy_params['max_trades_daily'] = max_trades_daily
+
+            # Initialize tracking for this strategy
+            strategy_results[strategy_name] = {
+                'name': strategy_name,
+                'params': strategy_params,
+                'all_trades': [],
+                'all_equity_curve': [],
+                'current_capital': initial_capital,
+                'active_position': None,  # Track position across days
+                'strategy_instance': None,  # Keep strategy instance alive
+                'output_dir': None,
+                'timestamp': None
+            }
+
+            # Create strategy instance once
+            strategy_results[strategy_name]['strategy_instance'] = self._load_strategy(
+                strategy_name,
+                strategy_params
+            )
+
+            # Setup output for this strategy (once)
+            output_dir, timestamp, tee = setup_backtest_output(
+                strategy_name=strategy_name,
+                base_dir=str(self.config.get_output_dir())
+            )
+            strategy_results[strategy_name]['output_dir'] = output_dir
+            strategy_results[strategy_name]['timestamp'] = timestamp
+            if tee:
+                tee.close()  # We'll handle logging differently for chunked mode
+
+        # Process each trading day
+        for day_idx, trade_date in enumerate(trading_days):
+            self.logger.info("=" * 70)
+            self.logger.info(f"PROCESSING DAY {day_idx + 1}/{len(trading_days)}: {trade_date.date()}")
+            self.logger.info("=" * 70)
+
+            # Set market hours for this day
+            import pytz
+            market_open = trade_date.replace(hour=14, minute=30, second=0, microsecond=0)  # 9:30 AM ET in UTC
+            market_close = trade_date.replace(hour=21, minute=0, second=0, microsecond=0)  # 4:00 PM ET in UTC
+
+            # Check if it's a half day (early close at 1:00 PM ET)
+            # You can expand this with actual holiday calendar
+            # For now, just process normal days
+
+            # Load single day of data
+            self.logger.info(f"Loading data for {trade_date.date()}...")
+            try:
+                options_data, underlying_data = load_options_backtest_data(
+                    underlying_ticker=self.config.get_underlying_ticker(),
+                    start_date=market_open,
+                    end_date=market_close,
+                    min_dte=int(min_dte),
+                    max_dte=int(max_dte),
+                    verbose=False,  # Less verbose for daily chunks
+                    db_profile=self.config.get_db_profile(),
+                    timeframe=timeframe,
+                )
+
+                if options_data.empty or underlying_data.empty:
+                    self.logger.warning(f"No data for {trade_date.date()}, skipping...")
+                    continue
+
+                self.logger.info(f"Loaded {len(options_data):,} options bars, {len(underlying_data):,} underlying bars")
+
+            except Exception as e:
+                self.logger.error(f"Error loading data for {trade_date.date()}: {e}")
+                continue
+
+            # Run each strategy for this day
+            for strategy_name, strategy_info in strategy_results.items():
+                self.logger.info(f"Running {strategy_name} for {trade_date.date()}...")
+
+                strategy = strategy_info['strategy_instance']
+
+                # Restore active position if exists from previous day
+                if strategy_info['active_position'] is not None:
+                    strategy.active_position = strategy_info['active_position']
+                    self.logger.info(f"Restored active position from previous day")
+
+                # Create engine for this day
+                engine = OptionsBacktestEngine(
+                    initial_capital=strategy_info['current_capital']
+                )
+
+                # Run single day backtest
+                try:
+                    day_results = engine.run(
+                        strategy=strategy,
+                        underlying_data=underlying_data,
+                        options_data=options_data,
+                        start_date=market_open,
+                        end_date=market_close,
+                    )
+
+                    # Accumulate results
+                    strategy_info['all_trades'].extend(day_results['trades'])
+
+                    # Add equity curve (adjusting timestamps if needed)
+                    if not day_results['equity_curve'].empty:
+                        strategy_info['all_equity_curve'].append(day_results['equity_curve'])
+
+                    # Update current capital for next day
+                    if not day_results['equity_curve'].empty:
+                        if 'portfolio_value' in day_results['equity_curve'].columns:
+                            strategy_info['current_capital'] = day_results['equity_curve']['portfolio_value'].iloc[-1]
+                        elif 'equity' in day_results['equity_curve'].columns:
+                            strategy_info['current_capital'] = day_results['equity_curve']['equity'].iloc[-1]
+
+                    # Save active position for next day
+                    strategy_info['active_position'] = strategy.active_position
+
+                    self.logger.info(f"Day trades: {len(day_results['trades'])}, "
+                                   f"Capital: ${strategy_info['current_capital']:,.2f}")
+
+                except Exception as e:
+                    self.logger.error(f"Error running {strategy_name} for {trade_date.date()}: {e}")
+                    continue
+
+            # Free memory after each day
+            del options_data, underlying_data
+
+        # Compile final results for each strategy
+        final_results = []
+        for strategy_name, strategy_info in strategy_results.items():
+            self.logger.info("=" * 70)
+            self.logger.info(f"COMPILING RESULTS: {strategy_name.upper()}")
+            self.logger.info("=" * 70)
+
+            # Combine equity curves
+            if strategy_info['all_equity_curve']:
+                combined_equity = pd.concat(strategy_info['all_equity_curve'], ignore_index=True)
+            else:
+                combined_equity = pd.DataFrame()
+
+            # Create final results dictionary
+            results = {
+                'trades': strategy_info['all_trades'],
+                'equity_curve': combined_equity,
+                'final_capital': strategy_info['current_capital']
+            }
+
+            # Generate reports
+            reporter = BacktestReporter()
+
+            if self.config.should_print_trade_details():
+                self.logger.info("=" * 70)
+                self.logger.info("TRADE DETAILS")
+                self.logger.info("=" * 70)
+                # Convert trades list to DataFrame if needed
+                trades_df = pd.DataFrame(results["trades"]) if results["trades"] else pd.DataFrame()
+                reporter.print_trade_details(trades_df)
+
+            if self.config.should_print_educational_metrics():
+                self.logger.info("=" * 70)
+                self.logger.info("EDUCATIONAL METRICS")
+                self.logger.info("=" * 70)
+                reporter.print_educational_metrics(
+                    trades_df,
+                    results["equity_curve"],
+                    initial_capital,
+                )
+
+            # Save results
+            if self.config.should_auto_save_results():
+                self.logger.info("=" * 70)
+                self.logger.info("SAVING RESULTS")
+                self.logger.info("=" * 70)
+
+                # Convert trades list to DataFrame for saving
+                results_for_save = {
+                    'trades': trades_df,  # Use the already-converted DataFrame
+                    'equity_curve': results['equity_curve'],
+                    'final_capital': results['final_capital']
+                }
+
+                saved_files = save_backtest_results(
+                    results=results_for_save,
+                    strategy_name=strategy_name,
+                    output_dir=strategy_info['output_dir'],
+                    timestamp=strategy_info['timestamp'],
+                    verbose=True,
+                )
+
+                self.logger.info("Results saved to:")
+                for file_type, file_path in saved_files.items():
+                    self.logger.info(f"  {file_type}: {file_path}")
+
+                # Save to database
+                db_backtest_id = backtest_id if backtest_id else f"{strategy_name}_{strategy_info['timestamp']}"
+                try:
+                    save_backtest_to_db(
+                        backtest_id=db_backtest_id,
+                        strategy_name=strategy_name,
+                        start_date=start_date,
+                        end_date=end_date,
+                        initial_capital=initial_capital,
+                        results=results_for_save,  # Use the converted results
+                        parameters=strategy_info['params'],
+                        max_positions=1,
+                        verbose=True,
+                        db_profile=self.config.get_db_profile(),
+                    )
+                except Exception as e:
+                    self.logger.error(f"Failed to save to database: {e}")
+
+            final_results.append({
+                'strategy_name': strategy_name,
+                'results': results,
+                'output_dir': strategy_info['output_dir'],
+                'timestamp': strategy_info['timestamp'],
+                'initial_capital': initial_capital,
+            })
+
+        self.end_time = now_utc()
+        self.results = final_results
+
+        # Print summary
+        self._print_summary()
+
+        return final_results
 
     def _print_summary(self) -> None:
         """Print summary of all backtests."""
