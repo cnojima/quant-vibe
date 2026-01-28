@@ -891,7 +891,7 @@ class TimescaleStore:
     ) -> None:
         """Update backtest metrics after completion."""
         allowed_fields = [
-            "final_capital", "total_return", "max_drawdown", "sharpe_ratio",
+            "final_capital", "total_return", "total_return_pct", "max_drawdown", "sharpe_ratio",
             "total_trades", "winning_trades", "losing_trades", "avg_win",
             "avg_loss", "profit_factor", "win_rate"
         ]
