@@ -157,7 +157,7 @@ class OptimizationRepository:
 
         except SQLAlchemyError as e:
             logger.error(f"[Repository] Error creating optimization run: {e}")
-            return False
+            raise  # Re-raise to let caller handle with full error details
 
     async def update_optimization_status(
         self,
@@ -697,13 +697,21 @@ class OptimizationRepository:
                 for run in query.all():
                     runs.append({
                         "optimization_id": run.optimization_id,
-                        "strategy_name": run.strategy_name,
                         "status": run.status,
                         "total_combinations": run.total_combinations,
                         "progress_current": run.progress_current,
                         "created_at": run.created_at.isoformat(),
                         "started_at": run.started_at.isoformat() if run.started_at else None,
                         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+                        # Nested request object for frontend compatibility
+                        "request": {
+                            "strategy_name": run.strategy_name,
+                            "optimization_type": run.optimization_type,
+                            "train_start_date": run.train_start_date.isoformat() if run.train_start_date else None,
+                            "train_end_date": run.train_end_date.isoformat() if run.train_end_date else None,
+                            "test_start_date": run.test_start_date.isoformat() if run.test_start_date else None,
+                            "test_end_date": run.test_end_date.isoformat() if run.test_end_date else None,
+                        },
                     })
 
                 return runs

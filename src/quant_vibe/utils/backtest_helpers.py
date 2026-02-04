@@ -300,6 +300,206 @@ def load_options_backtest_data(
         ts_store.close()
 
 
+def load_options_backtest_data_chunked(
+    underlying_ticker: str,
+    start_date: datetime,
+    end_date: datetime,
+    min_dte: int = 0,
+    max_dte: int = 45,
+    verbose: bool = True,
+    db_profile: Optional[str] = None,
+    timeframe: str = "5min",
+    chunk_days: int = 7,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Load backtest data in chunks to avoid query timeouts.
+
+    For large date ranges, the LATERAL JOIN query can timeout. This function
+    splits the date range into smaller chunks (default 7 days), loads each
+    separately, and concatenates the results.
+
+    Args:
+        underlying_ticker: Underlying ticker symbol (e.g., 'SPX')
+        start_date: Start date for data loading
+        end_date: End date for data loading
+        min_dte: Minimum days to expiration (default: 0)
+        max_dte: Maximum days to expiration (default: 45)
+        verbose: Print progress information (default: True)
+        db_profile: Database profile ("local" or "remote")
+        timeframe: Time aggregation (default: "5min")
+        chunk_days: Number of days per chunk (default: 7)
+
+    Returns:
+        Tuple of (options_data, underlying_data) DataFrames
+
+    Example:
+        ```python
+        # Load 3 months of data in weekly chunks
+        options_data, underlying_data = load_options_backtest_data_chunked(
+            underlying_ticker="SPX",
+            start_date=datetime(2024, 3, 1),
+            end_date=datetime(2024, 6, 1),
+            min_dte=0,
+            max_dte=45,
+            timeframe="5min",
+            chunk_days=7,  # Load 1 week at a time
+        )
+        ```
+    """
+    # Determine database profile from environment variable if not explicitly provided
+    if db_profile is None:
+        use_remote = os.getenv("USE_REMOTE_TIMESCALE", "false").lower() == "true"
+        db_profile = "remote" if use_remote else "local"
+
+    # Create TimescaleStore based on profile
+    if db_profile == "remote":
+        ts_store = TimescaleStore(
+            host=os.getenv("REMOTE_TIMESCALE_HOST"),
+            port=int(os.getenv("REMOTE_TIMESCALE_PORT", "5432")),
+            database=os.getenv("REMOTE_TIMESCALE_DB"),
+            user=os.getenv("REMOTE_TIMESCALE_USER"),
+            password=os.getenv("REMOTE_TIMESCALE_PASSWORD"),
+        )
+    else:
+        ts_store = TimescaleStore()
+
+    # Convert to UTC market hours
+    start_dt = market_hours(start_date)[0]  # Market open time
+    end_dt = market_hours(end_date)[1]  # Market close time
+
+    # Generate chunk date ranges
+    chunks = []
+    current_start = start_dt
+    while current_start < end_dt:
+        current_end = min(current_start + timedelta(days=chunk_days), end_dt)
+        chunks.append((current_start, current_end))
+        current_start = current_end
+
+    if verbose:
+        logger.info("=" * 70)
+        logger.info("LOADING DATA (CHUNKED)")
+        logger.info("=" * 70)
+        logger.info(f"Date range: {start_dt.date()} to {end_dt.date()}")
+        logger.info(f"Chunk size: {chunk_days} days ({len(chunks)} chunks)")
+        logger.info(f"Timeframe: {timeframe}")
+        logger.info("")
+
+    # Load each chunk
+    options_chunks = []
+    underlying_chunks = []
+
+    try:
+        for i, (chunk_start, chunk_end) in enumerate(chunks):
+            if verbose:
+                logger.info(f"Loading chunk {i+1}/{len(chunks)}: {chunk_start.date()} to {chunk_end.date()}...")
+
+            # Load options data for this chunk (skip LATERAL JOIN for speed)
+            try:
+                options_chunk = ts_store.get_options_for_backtest(
+                    chunk_start,
+                    chunk_end,
+                    underlying_ticker,
+                    min_dte=min_dte,
+                    max_dte=max_dte,
+                    timeframe=timeframe,
+                    skip_underlying_join=True,  # Fast path - join in Python
+                )
+
+                if not options_chunk.empty:
+                    options_chunk = _convert_decimals_to_float(options_chunk)
+                    options_chunks.append(options_chunk)
+                    if verbose:
+                        logger.info(f"  ✓ {len(options_chunk):,} options bars")
+
+            except Exception as e:
+                logger.warning(f"  ⚠ Chunk {i+1} options failed: {e}")
+
+            # Load underlying data for this chunk
+            try:
+                underlying_chunk = ts_store.get_underlying_bars(
+                    ticker=underlying_ticker,
+                    start_date=chunk_start,
+                    end_date=chunk_end,
+                )
+
+                if not underlying_chunk.empty:
+                    underlying_chunk = _convert_decimals_to_float(underlying_chunk)
+                    underlying_chunks.append(underlying_chunk)
+
+            except Exception as e:
+                logger.warning(f"  ⚠ Chunk {i+1} underlying failed: {e}")
+
+        # Concatenate all chunks
+        if options_chunks:
+            options_data = pd.concat(options_chunks, ignore_index=True)
+            # Remove duplicates that might occur at chunk boundaries
+            options_data = options_data.drop_duplicates(
+                subset=['timestamp', 'option_ticker'], keep='first'
+            )
+        else:
+            options_data = pd.DataFrame()
+
+        if underlying_chunks:
+            underlying_data = pd.concat(underlying_chunks, ignore_index=False)
+            # Remove duplicates at chunk boundaries
+            underlying_data = underlying_data[~underlying_data.index.duplicated(keep='first')]
+            # Ensure it has timestamp index
+            if 'timestamp' in underlying_data.columns:
+                underlying_data = underlying_data.set_index('timestamp')
+        else:
+            underlying_data = pd.DataFrame()
+
+        # Join underlying prices using merge_asof (much faster than SQL LATERAL JOIN)
+        if not options_data.empty and not underlying_data.empty:
+            if verbose:
+                logger.info("Joining underlying prices using merge_asof...")
+
+            # Prepare underlying data for merge_asof
+            underlying_for_merge = underlying_data.reset_index()[['timestamp', 'close']].copy()
+            underlying_for_merge = underlying_for_merge.rename(columns={'close': 'underlying_price'})
+            underlying_for_merge = underlying_for_merge.sort_values('timestamp')
+
+            # Sort options by timestamp for merge_asof
+            options_data = options_data.sort_values('timestamp')
+
+            # Use merge_asof to find nearest underlying price within tolerance
+            options_data = pd.merge_asof(
+                options_data,
+                underlying_for_merge,
+                on='timestamp',
+                direction='nearest',
+                tolerance=pd.Timedelta('120s'),  # 2 minute tolerance
+            )
+
+            # Calculate strike_distance if underlying_price is available
+            if 'underlying_price' in options_data.columns:
+                options_data['strike_distance'] = abs(
+                    options_data['strike_price'] - options_data['underlying_price']
+                )
+
+            if verbose:
+                matched = options_data['underlying_price'].notna().sum()
+                total = len(options_data)
+                logger.info(f"  ✓ Matched {matched:,}/{total:,} ({matched/total*100:.1f}%) with underlying prices")
+
+        if verbose:
+            logger.info("")
+            logger.info(f"✅ Total: {len(options_data):,} options bars, {len(underlying_data):,} underlying bars")
+            if not options_data.empty:
+                logger.info(f"   Date range: {options_data['timestamp'].min()} to {options_data['timestamp'].max()}")
+
+        if options_data.empty:
+            raise ValueError(
+                f"No {underlying_ticker} options data found for the specified date range!\n"
+                f"   Requested: {start_date.date()} to {end_date.date()}\n"
+                f"   Data may not exist for this period."
+            )
+
+        return options_data, underlying_data
+
+    finally:
+        ts_store.close()
+
+
 def load_options_backtest_data_daily(
     underlying_ticker: str,
     trade_date: datetime,

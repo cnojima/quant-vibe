@@ -34,7 +34,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from quant_vibe.logging import get_logger
 from quant_vibe.strategies.registry import StrategyRegistry
-from quant_vibe.utils import load_options_backtest_data, now_utc
+from quant_vibe.utils import load_options_backtest_data, load_options_backtest_data_chunked, now_utc
 from quant_vibe.utils.timestamp_utils import to_utc
 from backtest import ParameterOptimizer
 
@@ -393,17 +393,36 @@ class OptimizationService:
         # Cache miss - load from database
         logger.info(f"Cache MISS for {ticker}, loading from database...")
 
-        # Load data (sync operation)
-        options_data, underlying_data = await asyncio.to_thread(
-            load_options_backtest_data,
-            underlying_ticker=ticker,
-            start_date=start_date,
-            end_date=end_date,
-            min_dte=min_dte,
-            max_dte=max_dte,
-            timeframe=timeframe,
-            verbose=True,
-        )
+        # Calculate date range to decide on loading strategy
+        date_range_days = (end_date - start_date).days
+
+        # Always use chunked loading to avoid query timeouts and OOM
+        # Recent expiration weeks can have 1M+ rows per day
+        if date_range_days > 1:
+            logger.info(f"Using chunked loading for {date_range_days} day range (1-day chunks)...")
+            options_data, underlying_data = await asyncio.to_thread(
+                load_options_backtest_data_chunked,
+                underlying_ticker=ticker,
+                start_date=start_date,
+                end_date=end_date,
+                min_dte=min_dte,
+                max_dte=max_dte,
+                timeframe=timeframe,
+                verbose=True,
+                chunk_days=1,  # 1-day chunks to avoid OOM on high-volume periods
+            )
+        else:
+            # Load data directly for smaller ranges (sync operation)
+            options_data, underlying_data = await asyncio.to_thread(
+                load_options_backtest_data,
+                underlying_ticker=ticker,
+                start_date=start_date,
+                end_date=end_date,
+                min_dte=min_dte,
+                max_dte=max_dte,
+                timeframe=timeframe,
+                verbose=True,
+            )
 
         # Cache in Redis (use binary client for pickled data)
         try:

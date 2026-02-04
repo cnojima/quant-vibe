@@ -61,6 +61,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         min_bid_ask_spread_pct: float = 10.0,  # maximum bid/ask spread percentage
         max_trades_daily: int = 1,  # maximum trades per day
         stop_loss_pct: Optional[float] = None,
+        execution_interval_minutes: int = 1,  # only execute on N-minute boundaries (1=every bar, 5=5min bars)
         **kwargs  # Accept any additional parameters from base class
     ) -> None:
         """
@@ -79,6 +80,8 @@ class BullishVerticalPutStrategy(OptionsStrategy):
             min_volume: Minimum volume per contract for liquidity filter (default: 50)
             min_bid_ask_spread_pct: Maximum bid/ask spread percentage (default: 10%)
             max_trades_daily: Maximum trades allowed per day (default: 1)
+            execution_interval_minutes: Only check entry signals on N-minute boundaries (default: 1)
+                Set to 5 for smoother 5-minute bar behavior in live trading.
             **kwargs: Additional parameters passed to OptionsStrategy base class
         """
         super().__init__(
@@ -100,9 +103,11 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         self.spread_width = spread_width
         self.pullback_amount = pullback_amount
         self.min_bid_ask_spread_pct = min_bid_ask_spread_pct
+        self.execution_interval_minutes = execution_interval_minutes
 
         # State tracking
         self.market_open_time: Optional[datetime] = None
+        self.last_execution_time: Optional[datetime] = None
         self.opening_high: Optional[float] = None
         self.opening_low: Optional[float] = None
         self.opening_mean: Optional[float] = None
@@ -124,6 +129,7 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         self.is_bullish = False
         self.observation_complete = False
         self.last_monitoring_log_time = None
+        self.last_execution_time = None
 
     def analyze_market(
         self,
@@ -287,6 +293,17 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         5. Haven't traded today yet (only 1 position per day)
         6. Sufficient options liquidity
         """
+        # Check execution interval - only process on N-minute boundaries
+        # This allows the strategy to behave like it's using 5-min bars in live trading
+        if self.execution_interval_minutes > 1:
+            if current_time.minute % self.execution_interval_minutes != 0:
+                return False
+            # Also ensure we don't double-process the same interval
+            if self.last_execution_time is not None:
+                time_since_last = (current_time - self.last_execution_time).total_seconds()
+                if time_since_last < self.execution_interval_minutes * 60:
+                    return False
+
         current_price = market_analysis.get('current_price', 0)
         pullback_threshold = market_analysis.get('pullback_threshold')
 
@@ -330,6 +347,9 @@ class BullishVerticalPutStrategy(OptionsStrategy):
         logger.info(f"Pullback Threshold: ${pullback_threshold:.2f}")
         logger.info(f"Pullback Amount: ${pullback_threshold - current_price:.2f} ({((pullback_threshold - current_price) / current_price * 100):.2f}%)")
         logger.info(f"Time: {current_time_et.strftime('%H:%M:%S %Z')}")
+
+        # Update last execution time for interval tracking
+        self.last_execution_time = current_time
 
         return True
 

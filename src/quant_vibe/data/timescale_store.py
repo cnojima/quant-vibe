@@ -349,6 +349,7 @@ class TimescaleStore:
         timeframe: str = "5min",
         additional_filters: Optional[str] = None,
         timestamp_tolerance_seconds: int = 120,
+        skip_underlying_join: bool = False,
     ) -> pd.DataFrame:
         """Get options data optimized for backtesting with DTE and filtering.
 
@@ -357,6 +358,9 @@ class TimescaleStore:
                 options bars and underlying bars for matching. Default is 120 seconds
                 (±2 minutes). Uses LATERAL JOIN to find closest underlying timestamp
                 within this window.
+            skip_underlying_join: If True, skip the LATERAL JOIN for underlying prices.
+                Use this for bulk loading when you'll join with underlying data separately
+                in Python (much faster for large datasets).
         """
         table_map = {
             "1min": "options_bars",
@@ -425,63 +429,98 @@ class TimescaleStore:
         # Use appropriate timestamp column name based on timeframe
         timestamp_col = "timestamp" if timeframe == "1min" else "bucket"
 
-        query = f"""
-        WITH filtered_options AS (
+        params = [start_date, end_date, underlying_ticker, min_dte, max_dte]
+
+        if skip_underlying_join:
+            # Fast path: simple query without LATERAL JOIN
+            # Underlying prices will be joined in Python using merge_asof
+            query = f"""
             SELECT DISTINCT
                 {columns},
-                (ob.expiration_date::date - ob.{timestamp_col}::date) as dte,
-                ub.close as underlying_price,
-                ABS(ob.strike_price - ub.close) as strike_distance,
-                ABS(EXTRACT(EPOCH FROM (ub.timestamp - ob.{timestamp_col}))) as time_diff_seconds
+                (ob.expiration_date::date - ob.{timestamp_col}::date) as dte
             FROM {table_name} ob
-            LEFT JOIN LATERAL (
-                SELECT
-                    timestamp,
-                    close,
-                    ticker
-                FROM underlying_bars
-                WHERE ticker = ob.underlying_ticker
-                  AND timestamp >= ob.{timestamp_col} - INTERVAL '{timestamp_tolerance_seconds} seconds'
-                  AND timestamp <= ob.{timestamp_col} + INTERVAL '{timestamp_tolerance_seconds} seconds'
-                ORDER BY ABS(EXTRACT(EPOCH FROM (timestamp - ob.{timestamp_col})))
-                LIMIT 1
-            ) ub ON TRUE
             WHERE ob.{timestamp_col} >= %s
                 AND ob.{timestamp_col} <= %s
                 AND ob.underlying_ticker = %s
                 AND (ob.expiration_date::date - ob.{timestamp_col}::date) >= %s
                 AND (ob.expiration_date::date - ob.{timestamp_col}::date) <= %s
-                AND ub.timestamp IS NOT NULL
-        """
+            """
 
-        params = [start_date, end_date, underlying_ticker, min_dte, max_dte]
+            # Add optional filters (no strike_delta since we don't have underlying price)
+            if contract_types:
+                query += f" AND ob.contract_type IN ({','.join(['%s'] * len(contract_types))})"
+                params.extend(contract_types)
 
-        # Add optional filters
-        if contract_types:
-            query += f" AND ob.contract_type IN ({','.join(['%s'] * len(contract_types))})"
-            params.extend(contract_types)
+            if min_volume > 0:
+                query += " AND ob.volume >= %s"
+                params.append(min_volume)
 
-        if min_volume > 0:
-            query += " AND ob.volume >= %s"
-            params.append(min_volume)
+            if min_bid > 0:
+                query += " AND ob.bid >= %s"
+                params.append(min_bid)
 
-        if min_bid > 0:
-            # All tables now use "bid" column name
-            query += " AND ob.bid >= %s"
-            params.append(min_bid)
+            if additional_filters:
+                query += f" AND {additional_filters}"
 
-        if strike_delta > 0:
-            query += " AND ABS(ob.strike_price - ub.close) <= %s"
-            params.append(strike_delta)
+            query += """
+            ORDER BY timestamp, strike_price, contract_type
+            """
+        else:
+            # Original path with LATERAL JOIN (slower but includes underlying_price)
+            query = f"""
+            WITH filtered_options AS (
+                SELECT DISTINCT
+                    {columns},
+                    (ob.expiration_date::date - ob.{timestamp_col}::date) as dte,
+                    ub.close as underlying_price,
+                    ABS(ob.strike_price - ub.close) as strike_distance,
+                    ABS(EXTRACT(EPOCH FROM (ub.timestamp - ob.{timestamp_col}))) as time_diff_seconds
+                FROM {table_name} ob
+                LEFT JOIN LATERAL (
+                    SELECT
+                        timestamp,
+                        close,
+                        ticker
+                    FROM underlying_bars
+                    WHERE ticker = ob.underlying_ticker
+                      AND timestamp >= ob.{timestamp_col} - INTERVAL '{timestamp_tolerance_seconds} seconds'
+                      AND timestamp <= ob.{timestamp_col} + INTERVAL '{timestamp_tolerance_seconds} seconds'
+                    ORDER BY ABS(EXTRACT(EPOCH FROM (timestamp - ob.{timestamp_col})))
+                    LIMIT 1
+                ) ub ON TRUE
+                WHERE ob.{timestamp_col} >= %s
+                    AND ob.{timestamp_col} <= %s
+                    AND ob.underlying_ticker = %s
+                    AND (ob.expiration_date::date - ob.{timestamp_col}::date) >= %s
+                    AND (ob.expiration_date::date - ob.{timestamp_col}::date) <= %s
+                    AND ub.timestamp IS NOT NULL
+            """
 
-        if additional_filters:
-            query += f" AND {additional_filters}"
+            # Add optional filters
+            if contract_types:
+                query += f" AND ob.contract_type IN ({','.join(['%s'] * len(contract_types))})"
+                params.extend(contract_types)
 
-        query += """
-        )
-        SELECT * FROM filtered_options
-        ORDER BY timestamp, strike_price, contract_type
-        """
+            if min_volume > 0:
+                query += " AND ob.volume >= %s"
+                params.append(min_volume)
+
+            if min_bid > 0:
+                query += " AND ob.bid >= %s"
+                params.append(min_bid)
+
+            if strike_delta > 0:
+                query += " AND ABS(ob.strike_price - ub.close) <= %s"
+                params.append(strike_delta)
+
+            if additional_filters:
+                query += f" AND {additional_filters}"
+
+            query += """
+            )
+            SELECT * FROM filtered_options
+            ORDER BY timestamp, strike_price, contract_type
+            """
 
         df = pd.read_sql(
             query,

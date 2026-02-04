@@ -222,25 +222,26 @@ class OptimizationService:
         total_combinations = self.count_permutations(param_grid)
 
         # Create database record with retry
-        success = await self.retry_policy.execute(
-            self.repository.create_optimization_run,
-            optimization_id=optimization_id,
-            strategy_name=strategy_name,
-            param_grid=param_grid,
-            train_start_date=train_start_date,
-            train_end_date=train_end_date,
-            total_combinations=total_combinations,
-            optimization_type=optimization_type,
-            test_start_date=test_start_date,
-            test_end_date=test_end_date,
-            initial_capital=initial_capital,
-            fixed_params=fixed_params,
-            underlying_ticker=underlying_ticker,
-            timeframe=timeframe,
-        )
-
-        if not success:
-            raise ValueError("Failed to create optimization run in database")
+        try:
+            await self.retry_policy.execute(
+                self.repository.create_optimization_run,
+                optimization_id=optimization_id,
+                strategy_name=strategy_name,
+                param_grid=param_grid,
+                train_start_date=train_start_date,
+                train_end_date=train_end_date,
+                total_combinations=total_combinations,
+                optimization_type=optimization_type,
+                test_start_date=test_start_date,
+                test_end_date=test_end_date,
+                initial_capital=initial_capital,
+                fixed_params=fixed_params,
+                underlying_ticker=underlying_ticker,
+                timeframe=timeframe,
+            )
+        except Exception as e:
+            logger.error(f"[Service] Failed to create optimization: {e}")
+            raise ValueError(f"Failed to create optimization run in database: {e}")
 
         logger.info(
             f"[Service] Created optimization {optimization_id}: "
@@ -411,26 +412,28 @@ class OptimizationService:
         Args:
             optimization_id: Optimization ID
         """
-        # Cancel in executor
-        cancelled = self.executor.cancel_optimization(optimization_id)
+        # Try to cancel in executor (if actively running)
+        cancelled_in_executor = self.executor.cancel_optimization(optimization_id)
 
-        if cancelled:
+        if cancelled_in_executor:
             # Cancel in progress tracker
             await self.progress_tracker.cancel_progress(optimization_id)
-
-            # Update database status
-            await self.repository.update_optimization_status(
-                optimization_id, "cancelled"
-            )
 
             # Cancel task if running
             task = self._running_tasks.get(optimization_id)
             if task and not task.done():
                 task.cancel()
 
-            logger.info(f"[Service] Cancelled optimization {optimization_id}")
+            logger.info(f"[Service] Cancelled running optimization {optimization_id}")
         else:
-            logger.warning(f"[Service] Optimization {optimization_id} not found for cancellation")
+            logger.info(f"[Service] Optimization {optimization_id} not in executor (may be stale)")
+
+        # Always update database status to cancelled
+        # This handles cases where the worker crashed and the optimization is stuck
+        await self.repository.update_optimization_status(
+            optimization_id, "cancelled", "Cancelled by user"
+        )
+        logger.info(f"[Service] Updated optimization {optimization_id} status to cancelled")
 
     # ============================================================================
     # Status and Results
@@ -509,6 +512,32 @@ class OptimizationService:
             "results": sorted_results,
             "summary": summary,
         }
+
+    # ============================================================================
+    # History and Listing
+    # ============================================================================
+
+    async def get_all_optimizations(
+        self,
+        status_filter: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Get all optimization runs.
+
+        Args:
+            status_filter: Optional status filter
+            limit: Maximum number of runs
+
+        Returns:
+            List of optimization run dictionaries
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.repository.get_all_optimizations,
+            status_filter,
+            limit,
+        )
 
     # ============================================================================
     # Health Checks

@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
@@ -202,12 +202,16 @@ async def get_param_grid(
     """
     try:
         client = get_optimization_client()
-        param_grid = await client.generate_param_grid(strategy_name)
-        total_combinations = await client.count_permutations(param_grid)
+        result = await client.generate_param_grid(strategy_name)
+
+        # Extract actual param_grid from client response
+        # Client returns {"strategy_name": ..., "param_grid": {...}, "total_combinations": ...}
+        actual_param_grid = result.get("param_grid", result)
+        total_combinations = result.get("total_combinations") or await client.count_permutations(actual_param_grid)
 
         return ParamGridResponse(
             strategy_name=strategy_name,
-            param_grid=param_grid,
+            param_grid=actual_param_grid,
             total_combinations=total_combinations,
         )
 
@@ -232,16 +236,19 @@ async def generate_param_grid(
     """
     try:
         client = get_optimization_client()
-        param_grid = await client.generate_param_grid(
+        result = await client.generate_param_grid(
             strategy_name=request.strategy_name,
             custom_ranges=request.custom_ranges,
             optimize_only=request.optimize_only,
         )
-        total_combinations = await client.count_permutations(param_grid)
+
+        # Extract actual param_grid from client response
+        actual_param_grid = result.get("param_grid", result)
+        total_combinations = result.get("total_combinations") or await client.count_permutations(actual_param_grid)
 
         return ParamGridResponse(
             strategy_name=request.strategy_name,
-            param_grid=param_grid,
+            param_grid=actual_param_grid,
             total_combinations=total_combinations,
         )
 
@@ -295,11 +302,15 @@ async def get_fixed_params(
     """
     try:
         client = get_optimization_client()
-        fixed_params = await client.get_fixed_params(strategy_name)
+        result = await client.get_fixed_params(strategy_name)
+
+        # Extract actual fixed_params from client response
+        # Client returns {"strategy_name": ..., "fixed_params": {...}}
+        actual_fixed_params = result.get("fixed_params", result)
 
         return FixedParamsResponse(
             strategy_name=strategy_name,
-            fixed_params=fixed_params,
+            fixed_params=actual_fixed_params,
         )
 
     except Exception as e:
@@ -620,16 +631,28 @@ async def get_queue_status(
 
 @router.get("/history")
 async def get_optimization_history(
+    status: Optional[str] = Query(None, description="Filter by status (pending, running, completed, failed)"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of runs to return"),
     current_user: User = Depends(get_current_user),
 ):
     """
     Get list of all optimization runs.
 
     Args:
+        status: Optional status filter
+        limit: Maximum number of runs
         current_user: Authenticated user
 
     Returns:
         List of optimization runs
     """
-    # TODO: Query optimization_runs table for all runs
-    raise HTTPException(status_code=501, detail="Not implemented yet - query DB for history")
+    try:
+        client = get_optimization_client()
+        runs = await client.get_all_optimizations(
+            status_filter=status,
+            limit=limit,
+        )
+        return runs
+    except Exception as e:
+        logger.error(f"[API] Error getting optimization history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

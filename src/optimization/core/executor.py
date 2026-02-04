@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import pandas as pd
 
 from quant_vibe.logging import get_logger
-from quant_vibe.utils import load_options_backtest_data, now_utc
+from quant_vibe.utils import load_options_backtest_data, load_options_backtest_data_chunked, now_utc
 from backtest import ParameterOptimizer
 
 from .cache_manager import OptimizationCacheManager
@@ -269,26 +269,48 @@ class OptimizationExecutor:
         # Note: load_options_backtest_data uses db_profile (not connection string)
         # It defaults to using environment variables for database connection
         try:
-            # Add timeout using asyncio (30 seconds for query)
             import asyncio
             loop = asyncio.get_event_loop()
-            options_df, underlying_df = await asyncio.wait_for(
-                loop.run_in_executor(
+
+            # Calculate date range to decide on loading strategy
+            date_range_days = (end_date - start_date).days
+
+            # Always use chunked loading to avoid query timeouts and OOM
+            # Recent expiration weeks can have 1M+ rows per day
+            if date_range_days > 1:
+                logger.info(f"[Executor] Using chunked loading for {date_range_days} day range...")
+                options_df, underlying_df = await loop.run_in_executor(
                     None,
-                    load_options_backtest_data,
+                    load_options_backtest_data_chunked,
                     underlying_ticker,
                     start_date,
                     end_date,
                     min_dte,
                     max_dte,
-                    False,  # verbose
+                    True,   # verbose
                     None,   # db_profile
-                    timeframe
-                ),
-                timeout=30.0  # 30 second timeout
-            )
+                    timeframe,
+                    1,      # chunk_days (1-day to avoid OOM on high-volume periods)
+                )
+            else:
+                # Add timeout using asyncio (60 seconds for smaller ranges)
+                options_df, underlying_df = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        load_options_backtest_data,
+                        underlying_ticker,
+                        start_date,
+                        end_date,
+                        min_dte,
+                        max_dte,
+                        False,  # verbose
+                        None,   # db_profile
+                        timeframe
+                    ),
+                    timeout=60.0  # 60 second timeout for smaller ranges
+                )
         except asyncio.TimeoutError:
-            raise TimeoutError(f"Database query timed out after 30 seconds. This may indicate too large a date range or database performance issues.")
+            raise TimeoutError(f"Database query timed out. Try using a shorter date range or chunked loading.")
         except Exception as e:
             logger.error(f"[Executor] Error loading data: {e}")
             raise

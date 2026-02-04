@@ -192,6 +192,28 @@ class OptimizationClient:
             response.raise_for_status()
             return response.json()
 
+    async def count_permutations(self, param_grid: Dict[str, List[Any]]) -> int:
+        """Count total parameter combinations in a grid.
+
+        Args:
+            param_grid: Parameter grid (dict of param name to list of values)
+
+        Returns:
+            Total number of combinations
+        """
+        # Handle case where generate_param_grid returns a response dict
+        if isinstance(param_grid, dict) and "param_grid" in param_grid:
+            param_grid = param_grid["param_grid"]
+
+        if not param_grid:
+            return 0
+
+        count = 1
+        for values in param_grid.values():
+            if isinstance(values, list):
+                count *= len(values)
+        return count
+
     # ============================================================================
     # Optimization Execution Methods
     # ============================================================================
@@ -418,6 +440,39 @@ class OptimizationClient:
             response = await self._http_client.post(
                 f"{self.api_base_url}/api/optimization/cache/clear",
                 json={"cache_key": cache_key} if cache_key else {},
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def get_all_optimizations(
+        self,
+        status_filter: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Get all optimization runs.
+
+        Args:
+            status_filter: Optional status filter (pending, running, completed, failed)
+            limit: Maximum number of runs to return
+
+        Returns:
+            List of optimization run dictionaries
+        """
+        if self.mode == "direct":
+            service = await self._get_service()
+            return await service.get_all_optimizations(
+                status_filter=status_filter,
+                limit=limit,
+            )
+
+        else:
+            # HTTP mode
+            params = {"limit": limit}
+            if status_filter:
+                params["status"] = status_filter
+            response = await self._http_client.get(
+                f"{self.api_base_url}/api/optimization/history",
+                params=params,
             )
             response.raise_for_status()
             return response.json()

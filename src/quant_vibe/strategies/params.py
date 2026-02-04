@@ -99,6 +99,12 @@ class BullishVerticalPutParams(BaseStrategyParams):
         le=100.0,
         description="Maximum bid/ask spread percentage"
     )
+    execution_interval_minutes: int = Field(
+        default=1,
+        ge=1,
+        le=60,
+        description="Only check entry signals on N-minute boundaries (1=every bar, 5=5min bars for smoother live trading)"
+    )
 
 
 class BullishVerticalCallParams(BaseStrategyParams):
