@@ -24,6 +24,15 @@ class TokenServiceConfig:
     host: str = "0.0.0.0"
     port: int = 8100
 
+    # Lockout configuration
+    max_consecutive_failures: int = 5
+    lockout_on_non_retryable: bool = True
+
+    # Retry configuration for token refresh
+    refresh_max_retries: int = 3
+    refresh_backoff_base: float = 2.0
+    refresh_max_backoff: float = 30.0
+
     # Redis settings
     redis_host: Optional[str] = None
     redis_port: int = 6379
@@ -54,6 +63,14 @@ class TokenServiceConfig:
             refresh_interval_minutes=int(os.getenv("TOKEN_REFRESH_INTERVAL_MINUTES", "14")),
             host=os.getenv("TOKEN_SERVICE_HOST", "0.0.0.0"),
             port=int(os.getenv("TOKEN_SERVICE_PORT", "8100")),
+            # Lockout configuration
+            max_consecutive_failures=int(os.getenv("TOKEN_MAX_CONSECUTIVE_FAILURES", "5")),
+            lockout_on_non_retryable=os.getenv("TOKEN_LOCKOUT_ON_NON_RETRYABLE", "true").lower() == "true",
+            # Retry configuration
+            refresh_max_retries=int(os.getenv("TOKEN_REFRESH_MAX_RETRIES", "3")),
+            refresh_backoff_base=float(os.getenv("TOKEN_REFRESH_BACKOFF_BASE", "2.0")),
+            refresh_max_backoff=float(os.getenv("TOKEN_REFRESH_MAX_BACKOFF", "30.0")),
+            # Redis settings
             redis_host=os.getenv("REDIS_HOST"),
             redis_port=int(os.getenv("REDIS_PORT", "6379")),
             redis_db=int(os.getenv("REDIS_DB", "0")),

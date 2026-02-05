@@ -1,7 +1,12 @@
-"""Centralized OAuth token manager for Schwab API."""
+"""Centralized OAuth token manager for Schwab API.
+
+Includes lockout protection to prevent excessive API calls when tokens
+are fundamentally invalid (expired refresh token, revoked access).
+"""
 
 import sqlite3
 import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -9,6 +14,7 @@ from typing import Optional, Dict, Any
 import schwabdev
 from quant_vibe.logging import get_logger
 from quant_vibe.utils.timestamp_utils import now_utc
+from token_service.errors import TokenLockoutError, classify_error, is_non_retryable
 
 
 class TokenInfo:
@@ -77,14 +83,25 @@ class TokenInfo:
 
 
 class CentralizedTokenManager:
-    """Centralized token manager for Schwab API OAuth tokens."""
+    """Centralized token manager for Schwab API OAuth tokens.
+
+    Includes lockout protection to prevent excessive API calls when tokens
+    are fundamentally invalid. Lockout triggers on:
+    - Consecutive refresh failures exceeding threshold
+    - Non-retryable errors (invalid/revoked tokens)
+    """
 
     def __init__(
         self,
         api_key: str,
         api_secret: str,
         callback_url: str,
-        tokens_db_path: str
+        tokens_db_path: str,
+        max_consecutive_failures: int = 5,
+        lockout_on_non_retryable: bool = True,
+        refresh_max_retries: int = 3,
+        refresh_backoff_base: float = 2.0,
+        refresh_max_backoff: float = 30.0,
     ):
         self.api_key = api_key
         self.api_secret = api_secret
@@ -95,6 +112,22 @@ class CentralizedTokenManager:
         self.client = None
         self._client_init_error = None
         self.last_refresh: Optional[datetime] = None
+
+        # Lockout configuration
+        self._max_consecutive_failures = max_consecutive_failures
+        self._lockout_on_non_retryable = lockout_on_non_retryable
+
+        # Retry configuration
+        self._refresh_max_retries = refresh_max_retries
+        self._refresh_backoff_base = refresh_backoff_base
+        self._refresh_max_backoff = refresh_max_backoff
+
+        # Lockout state
+        self._consecutive_failures: int = 0
+        self._lockout_triggered: bool = False
+        self._lockout_triggered_at: Optional[datetime] = None
+        self._last_error_type: Optional[str] = None
+        self._last_error_message: Optional[str] = None
 
         # Ensure token directory exists
         Path(tokens_db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -216,7 +249,28 @@ class CentralizedTokenManager:
         )
 
     def refresh_token(self) -> bool:
-        """Refresh OAuth token using schwabdev client."""
+        """Refresh OAuth token with exponential backoff and lockout protection.
+
+        Implements retry logic with exponential backoff for transient errors.
+        Triggers lockout on non-retryable errors or consecutive failures.
+
+        Returns:
+            True if refresh succeeded, False otherwise
+
+        Raises:
+            TokenLockoutError: If service is in lockout state
+        """
+        # Check lockout state first (outside lock to allow status checks)
+        if self._lockout_triggered:
+            self.logger.error(
+                f"Token refresh blocked - service is in LOCKOUT state "
+                f"(triggered at {self._lockout_triggered_at})"
+            )
+            raise TokenLockoutError(
+                f"Service is in lockout state since {self._lockout_triggered_at}. "
+                "Manual re-authentication required."
+            )
+
         with self._lock:
             if not self.client:
                 self.logger.error(
@@ -226,15 +280,154 @@ class CentralizedTokenManager:
                 )
                 return False
 
-            try:
-                self.logger.info("Refreshing Schwab OAuth token...")
-                self.client.update_tokens()
-                self.last_refresh = now_utc()
-                self.logger.info("Token refresh successful")
-                return True
-            except Exception as e:
-                self.logger.error(f"Token refresh failed: {e}", exc_info=True)
-                return False
+            last_exception = None
+            attempts_made = 0
+
+            for attempt in range(self._refresh_max_retries):
+                attempts_made = attempt + 1
+                try:
+                    self.logger.info(
+                        f"Refreshing Schwab OAuth token "
+                        f"(attempt {attempts_made}/{self._refresh_max_retries})..."
+                    )
+                    self.client.update_tokens()
+
+                    # Success - reset failure tracking
+                    self._consecutive_failures = 0
+                    self._last_error_type = None
+                    self._last_error_message = None
+                    self.last_refresh = now_utc()
+
+                    self.logger.info("Token refresh successful")
+                    return True
+
+                except Exception as e:
+                    last_exception = e
+                    error_type = classify_error(e)
+                    self._last_error_type = error_type
+                    self._last_error_message = str(e)
+
+                    self.logger.warning(
+                        f"Token refresh attempt {attempts_made} failed: {e} "
+                        f"(classified as {error_type})"
+                    )
+
+                    # Non-retryable errors should not retry
+                    if error_type == "non_retryable":
+                        self.logger.error(
+                            f"Non-retryable error detected - stopping retry attempts: {e}"
+                        )
+                        break
+
+                    # Calculate backoff for retryable errors (skip on last attempt)
+                    if attempt < self._refresh_max_retries - 1:
+                        backoff = min(
+                            self._refresh_backoff_base ** attempt,
+                            self._refresh_max_backoff
+                        )
+                        self.logger.info(f"Waiting {backoff:.1f}s before retry...")
+                        time.sleep(backoff)
+
+            # All retries exhausted or non-retryable error encountered
+            self._consecutive_failures += 1
+            self.logger.error(
+                f"Token refresh failed after {attempts_made} attempt(s). "
+                f"Consecutive failures: {self._consecutive_failures}/{self._max_consecutive_failures}"
+            )
+
+            # Check if lockout should be triggered
+            self._check_and_trigger_lockout()
+
+            return False
+
+    def _check_and_trigger_lockout(self) -> None:
+        """Check conditions and trigger lockout if necessary."""
+        should_lockout = False
+        reason = ""
+
+        # Lockout on consecutive failures threshold
+        if self._consecutive_failures >= self._max_consecutive_failures:
+            should_lockout = True
+            reason = (
+                f"Exceeded {self._max_consecutive_failures} consecutive failures "
+                f"(last error: {self._last_error_message})"
+            )
+
+        # Immediate lockout on non-retryable errors
+        if self._lockout_on_non_retryable and self._last_error_type == "non_retryable":
+            should_lockout = True
+            reason = f"Non-retryable error: {self._last_error_message}"
+
+        if should_lockout:
+            self._trigger_lockout(reason)
+
+    def _trigger_lockout(self, reason: str) -> None:
+        """Trigger lockout state and cleanup.
+
+        This deletes the tokens database and invalidates the client to
+        prevent any further API calls with invalid tokens.
+
+        Args:
+            reason: Human-readable reason for the lockout
+        """
+        self.logger.critical(f"LOCKOUT TRIGGERED: {reason}")
+
+        self._lockout_triggered = True
+        self._lockout_triggered_at = now_utc()
+
+        # Delete tokens database to prevent stale token usage
+        self._delete_tokens_db()
+
+        # Invalidate the schwabdev client
+        self.client = None
+        self._client_init_error = f"lockout: {reason}"
+
+        self.logger.critical(
+            "Token service is now in LOCKOUT state. "
+            "Manual re-authentication required via Admin UI or scripts/authorize_schwab.py"
+        )
+
+    def _delete_tokens_db(self) -> None:
+        """Delete the tokens database file to prevent stale token usage."""
+        try:
+            tokens_path = Path(self.tokens_db_path)
+            if tokens_path.exists():
+                tokens_path.unlink()
+                self.logger.info(f"Deleted tokens database: {self.tokens_db_path}")
+            else:
+                self.logger.info("Tokens database already deleted or does not exist")
+        except Exception as e:
+            self.logger.error(f"Failed to delete tokens database: {e}")
+
+    def is_locked_out(self) -> bool:
+        """Check if service is in lockout state.
+
+        Returns:
+            True if service is locked out, False otherwise
+        """
+        return self._lockout_triggered
+
+    def clear_lockout(self) -> None:
+        """Clear lockout state for manual recovery.
+
+        Note: This only clears the lockout flag. Tokens must still be
+        re-obtained via OAuth flow before service can resume normal operation.
+        """
+        self.logger.info("Clearing lockout state...")
+        self._lockout_triggered = False
+        self._lockout_triggered_at = None
+        self._consecutive_failures = 0
+        self._last_error_type = None
+        self._last_error_message = None
+        self._client_init_error = None
+
+        # Attempt to reinitialize client (will fail if tokens db doesn't exist)
+        self._initialize_client()
+
+        self.logger.info(
+            "Lockout cleared. Please complete OAuth re-authentication "
+            "before service can resume normal operation."
+        )
 
     def get_access_token(self) -> Optional[str]:
         """Get current access token."""
@@ -265,7 +458,7 @@ class CentralizedTokenManager:
         return False
 
     def get_status(self) -> Dict[str, Any]:
-        """Get comprehensive token status."""
+        """Get comprehensive token status including lockout state."""
         token_info = self.get_token_info()
 
         if not token_info:
@@ -273,9 +466,8 @@ class CentralizedTokenManager:
             if self._client_init_error:
                 status["client_init_error"] = self._client_init_error
                 status["requires_oauth"] = True
-            return status
-
-        status = {"has_token": True, **token_info.to_dict()}
+        else:
+            status = {"has_token": True, **token_info.to_dict()}
 
         if self.last_refresh:
             status["last_refresh"] = self.last_refresh.isoformat()
@@ -284,4 +476,35 @@ class CentralizedTokenManager:
         if self._client_init_error:
             status["client_init_error"] = self._client_init_error
 
+        # Add lockout information
+        status["is_locked_out"] = self._lockout_triggered
+        if self._lockout_triggered:
+            status["lockout_triggered_at"] = (
+                self._lockout_triggered_at.isoformat()
+                if self._lockout_triggered_at else None
+            )
+        status["consecutive_failures"] = self._consecutive_failures
+        status["last_error_type"] = self._last_error_type
+        status["last_error_message"] = self._last_error_message
+
         return status
+
+    def get_lockout_status(self) -> Dict[str, Any]:
+        """Get detailed lockout status.
+
+        Returns:
+            Dictionary with lockout state details
+        """
+        return {
+            "is_locked_out": self._lockout_triggered,
+            "lockout_triggered_at": (
+                self._lockout_triggered_at.isoformat()
+                if self._lockout_triggered_at else None
+            ),
+            "consecutive_failures": self._consecutive_failures,
+            "max_consecutive_failures": self._max_consecutive_failures,
+            "last_error_type": self._last_error_type,
+            "last_error_message": self._last_error_message,
+            "lockout_on_non_retryable": self._lockout_on_non_retryable,
+            "requires_reauth": self._lockout_triggered,
+        }

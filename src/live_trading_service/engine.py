@@ -39,11 +39,12 @@ from quant_vibe.utils import now_utc
 
 # Import token service client
 try:
-    from token_service.client import TokenServiceClient
+    from token_service.client import TokenServiceClient, TokenLockoutError
     TOKEN_SERVICE_AVAILABLE = True
 except ImportError:
     TOKEN_SERVICE_AVAILABLE = False
     TokenServiceClient = None
+    TokenLockoutError = None
 
 load_dotenv()
 
@@ -306,15 +307,31 @@ class LiveTradingEngine:
                 try:
                     self.token_service_client = TokenServiceClient(
                         base_url=self.token_service_url,
-                        logger=self.logger
                     )
                     health = self.token_service_client.health_check()
+
+                    # Check for lockout state
+                    if health.get("is_locked_out"):
+                        self.logger.critical("      ❌ TOKEN SERVICE IS IN LOCKOUT STATE!")
+                        self.logger.critical("      Tokens are invalid - manual re-authentication required.")
+                        self.logger.critical("      Trading CANNOT proceed until lockout is cleared.")
+                        self.logger.critical("      Steps to recover:")
+                        self.logger.critical("        1. POST /token/clear-lockout")
+                        self.logger.critical("        2. python scripts/authorize_schwab.py")
+                        self.logger.critical("        3. Restart services")
+                        raise RuntimeError("Token service is in lockout state - cannot start trading")
+
                     if health.get("status") == "healthy":
                         self.logger.info("      ✓ Token service connected")
+                    elif health.get("status") == "lockout":
+                        self.logger.critical("      ❌ Token service is in LOCKOUT state!")
+                        raise RuntimeError("Token service lockout - manual re-authentication required")
                     else:
                         self.logger.warning(f"      ⚠️ Token service unhealthy: {health}")
                         self.logger.warning("      Falling back to local token management")
                         self.token_service_client = None
+                except RuntimeError:
+                    raise  # Re-raise lockout errors
                 except Exception as e:
                     self.logger.warning(f"      ⚠️ Failed to connect to token service: {e}")
                     self.logger.warning("      Falling back to local token management")
@@ -1440,6 +1457,23 @@ class LiveTradingEngine:
                 "Data feed has not received updates in 5+ minutes",
                 severity='warning'
             )
+
+        # Check token service lockout status (for real trading mode)
+        if self.token_service_client and self.trading_mode == 'real':
+            try:
+                if self.token_service_client.is_locked_out():
+                    self.logger.critical("❌ TOKEN SERVICE LOCKOUT DETECTED!")
+                    self.logger.critical("Tokens are invalid - manual re-authentication required.")
+                    self.state_store.log_event(
+                        EventType.ENGINE_ERROR,
+                        "Token service lockout - manual intervention required",
+                        severity='critical'
+                    )
+                    # Optionally stop the engine to prevent issues
+                    self.logger.critical("Stopping engine due to token lockout...")
+                    self.stop()
+            except Exception as e:
+                self.logger.warning(f"Could not check token lockout status: {e}")
 
         # TODO: Add more health checks
         # - Check account connection

@@ -31,6 +31,7 @@ from streaming_service.underlying_aggregator import UnderlyingBarAggregator
 try:
     from token_service.client import (
         TokenExpiredError,
+        TokenLockoutError,
         TokenNotFoundError,
         TokenServiceClient,
     )
@@ -40,6 +41,7 @@ except ImportError:
     TokenServiceClient = None
     TokenNotFoundError = None
     TokenExpiredError = None
+    TokenLockoutError = None
 
 
 class StreamingService:
@@ -720,14 +722,24 @@ class StreamingService:
         self.logger.info("="*70)
 
     def _verify_token(self) -> bool:
-        """Verify token availability.
+        """Verify token availability and lockout status.
 
         Returns:
-            True if token is available, False otherwise
+            True if token is available and service is not locked out, False otherwise
         """
         self.logger.info("Verifying authentication token...")
 
         try:
+            # Check lockout status first
+            if self.token_service_client.is_locked_out():
+                self.logger.critical("TOKEN SERVICE IS IN LOCKOUT STATE!")
+                self.logger.critical("Tokens are invalid - manual re-authentication required.")
+                self.logger.critical("Steps to recover:")
+                self.logger.critical("  1. Clear lockout: POST /token/clear-lockout")
+                self.logger.critical("  2. Re-authenticate: python scripts/authorize_schwab.py")
+                self.logger.critical("  3. Restart services")
+                return False
+
             status = self.token_service_client.get_token_status()
             if status.get("has_token"):
                 self.logger.info("Token service has valid token")
@@ -736,6 +748,10 @@ class StreamingService:
             self.logger.error("Token service has no token!")
             self.logger.error("Please authenticate using: python scripts/schwab_auth.py")
             self.logger.error("Then restart the token service: docker-compose restart token_service")
+            return False
+
+        except TokenLockoutError as e:
+            self.logger.critical(f"Token service lockout detected: {e}")
             return False
 
         except Exception as e:

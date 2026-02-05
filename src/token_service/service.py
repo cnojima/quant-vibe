@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, status
 import uvicorn
 
 from token_service.config import TokenServiceConfig
+from token_service.errors import TokenLockoutError
 from token_service.manager import CentralizedTokenManager
 from quant_vibe.logging import setup_normalized_logging
 from quant_vibe.messaging import RedisMessageBroker
@@ -109,6 +110,12 @@ async def _check_and_refresh_token():
         logger.warning("Token manager not initialized - skipping auto-refresh")
         return
 
+    # Check lockout state before attempting refresh
+    if token_manager.is_locked_out():
+        logger.error("Token service is in LOCKOUT state - skipping auto-refresh")
+        _publish_lockout_status()
+        return
+
     if not token_manager.needs_refresh(threshold_minutes=5):
         token_info = token_manager.get_token_info()
         if token_info:
@@ -116,14 +123,74 @@ async def _check_and_refresh_token():
         return
 
     logger.info("Token needs refresh - refreshing now")
-    success = token_manager.refresh_token()
 
-    if success:
-        logger.info("Auto-refresh successful")
-        _publish_token_event("token.refreshed", {"timestamp": token_manager.last_refresh.isoformat(), "status": "success"})
-    else:
-        logger.error("Auto-refresh failed")
-        _publish_token_event("token.refresh_failed", {"timestamp": None, "status": "failed"})
+    try:
+        success = token_manager.refresh_token()
+
+        if success:
+            logger.info("Auto-refresh successful")
+            _publish_token_event("token.refreshed", {
+                "timestamp": token_manager.last_refresh.isoformat(),
+                "status": "success"
+            })
+        else:
+            logger.error("Auto-refresh failed")
+            _publish_token_event("token.refresh_failed", {
+                "timestamp": now_utc().isoformat(),
+                "status": "failed",
+                "consecutive_failures": token_manager._consecutive_failures,
+            })
+
+            # Check if lockout was triggered by this failure
+            if token_manager.is_locked_out():
+                _publish_lockout_event()
+
+    except TokenLockoutError as e:
+        logger.critical(f"Token lockout triggered: {e}")
+        _publish_lockout_event()
+
+
+def _publish_lockout_event():
+    """Publish lockout event to Redis."""
+    if not message_broker or not config.enable_redis:
+        return
+
+    try:
+        lockout_status = token_manager.get_lockout_status()
+        message_broker.publish(
+            "token.lockout",
+            {
+                "service": "token_service",
+                "timestamp": now_utc().isoformat(),
+                "lockout_triggered_at": lockout_status.get("lockout_triggered_at"),
+                "reason": lockout_status.get("last_error_message"),
+                "error_type": lockout_status.get("last_error_type"),
+                "consecutive_failures": lockout_status.get("consecutive_failures"),
+                "requires_reauth": True,
+            },
+        )
+        logger.critical("Lockout event published to Redis on topic: token.lockout")
+    except Exception as e:
+        logger.error(f"Failed to publish lockout event: {e}")
+
+
+def _publish_lockout_status():
+    """Publish current lockout status to Redis (for periodic heartbeat)."""
+    if not message_broker or not config.enable_redis:
+        return
+
+    try:
+        lockout_status = token_manager.get_lockout_status()
+        message_broker.publish(
+            "token.lockout_status",
+            {
+                "service": "token_service",
+                "timestamp": now_utc().isoformat(),
+                **lockout_status,
+            },
+        )
+    except Exception as e:
+        logger.error(f"Failed to publish lockout status: {e}")
 
 
 def _publish_token_event(topic: str, data: dict):
@@ -181,8 +248,19 @@ async def _initialize_service():
             api_secret=config.schwab_api_secret,
             callback_url=config.schwab_callback_url,
             tokens_db_path=config.tokens_db_path,
+            # Lockout configuration
+            max_consecutive_failures=config.max_consecutive_failures,
+            lockout_on_non_retryable=config.lockout_on_non_retryable,
+            # Retry configuration
+            refresh_max_retries=config.refresh_max_retries,
+            refresh_backoff_base=config.refresh_backoff_base,
+            refresh_max_backoff=config.refresh_max_backoff,
         )
         logger.info("Token manager initialized")
+        logger.info(
+            f"Lockout config: max_failures={config.max_consecutive_failures}, "
+            f"lockout_on_non_retryable={config.lockout_on_non_retryable}"
+        )
     except Exception as e:
         logger.error(f"Failed to initialize token manager: {e}")
         logger.error("Service will start but token operations will not be available")
@@ -271,11 +349,23 @@ async def health_check():
     _ensure_token_manager()
 
     token_status = token_manager.get_status()
+
+    # Determine overall health status
+    if token_manager.is_locked_out():
+        health_status = "lockout"
+    elif not token_status.get("has_token", False):
+        health_status = "unhealthy"
+    elif token_status.get("is_access_token_expired", True):
+        health_status = "degraded"
+    else:
+        health_status = "healthy"
+
     return {
-        "status": "healthy",
+        "status": health_status,
         "service": "token_service",
         "has_token": token_status.get("has_token", False),
         "token_expired": token_status.get("is_access_token_expired", True),
+        "is_locked_out": token_manager.is_locked_out(),
     }
 
 
@@ -290,6 +380,13 @@ async def get_token_status():
 async def get_access_token():
     """Get current access token."""
     _ensure_token_manager()
+
+    # Check lockout first
+    if token_manager.is_locked_out():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Token service is in LOCKOUT state - manual re-authentication required"
+        )
 
     token_info = token_manager.get_token_info()
     if not token_info:
@@ -316,11 +413,34 @@ async def refresh_token():
     _ensure_token_manager()
 
     logger.info("Manual token refresh requested")
-    success = token_manager.refresh_token()
+
+    try:
+        success = token_manager.refresh_token()
+    except TokenLockoutError as e:
+        logger.critical(f"Token refresh blocked by lockout: {e}")
+        _publish_lockout_event()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Token service is in LOCKOUT state: {e}"
+        )
 
     if not success:
         logger.error("Manual token refresh failed")
-        _publish_token_event("token.refresh_failed", {"timestamp": None, "status": "failed", "manual": True})
+        _publish_token_event("token.refresh_failed", {
+            "timestamp": now_utc().isoformat(),
+            "status": "failed",
+            "manual": True,
+            "consecutive_failures": token_manager._consecutive_failures,
+        })
+
+        # Check if lockout was triggered
+        if token_manager.is_locked_out():
+            _publish_lockout_event()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Token refresh failed and lockout triggered - manual re-authentication required"
+            )
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Token refresh failed - check service logs"
@@ -336,6 +456,67 @@ async def refresh_token():
         "success": True,
         "message": "Token refreshed successfully",
         "token_status": token_manager.get_status(),
+    }
+
+
+@app.get("/token/lockout-status")
+async def get_lockout_status():
+    """Get current lockout status.
+
+    Returns detailed information about the lockout state, including
+    when it was triggered, the reason, and consecutive failure count.
+    """
+    _ensure_token_manager()
+    return token_manager.get_lockout_status()
+
+
+@app.post("/token/clear-lockout")
+async def clear_lockout():
+    """Clear lockout state for manual recovery.
+
+    This only clears the lockout flag. Tokens must still be re-obtained
+    via OAuth flow before service can resume normal operation.
+
+    Steps after clearing lockout:
+    1. Complete OAuth re-authentication via Admin UI or scripts/authorize_schwab.py
+    2. Restart the token service to reinitialize with new tokens
+    """
+    _ensure_token_manager()
+
+    if not token_manager.is_locked_out():
+        return {
+            "success": False,
+            "message": "Service is not in lockout state",
+            "is_locked_out": False,
+        }
+
+    logger.info("Manual lockout clear requested")
+    token_manager.clear_lockout()
+
+    # Publish lockout cleared event
+    if message_broker and config.enable_redis:
+        try:
+            message_broker.publish(
+                "token.lockout_cleared",
+                {
+                    "service": "token_service",
+                    "timestamp": now_utc().isoformat(),
+                    "cleared_by": "manual_api_call",
+                },
+            )
+            logger.info("Lockout cleared event published to Redis")
+        except Exception as e:
+            logger.error(f"Failed to publish lockout cleared event: {e}")
+
+    return {
+        "success": True,
+        "message": "Lockout cleared. Please complete OAuth re-authentication.",
+        "is_locked_out": False,
+        "next_steps": [
+            "1. Use Admin UI OAuth flow, or",
+            "2. Run: python scripts/authorize_schwab.py",
+            "3. Restart token service after re-authentication",
+        ],
     }
 
 
