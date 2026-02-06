@@ -20,7 +20,7 @@ class TokenServiceConfig:
     tokens_db_path: str
 
     # Service settings
-    refresh_interval_minutes: int = 14
+    refresh_interval_minutes: int = 1440  # Default to 24 hours
     host: str = "0.0.0.0"
     port: int = 8100
 

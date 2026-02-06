@@ -102,7 +102,7 @@ class StreamingService:
             raise RuntimeError("Token service URL not configured")
 
     def _initialize_token_service(self):
-        """Initialize token service client."""
+        """Initialize token service client and ensure valid tokens."""
         self.logger.info(f"  Token Mode: Centralized (via {self.config.token_service_url})")
 
         try:
@@ -111,15 +111,92 @@ class StreamingService:
             )
 
             health = self.token_service_client.health_check()
-            if health.get("status") == "healthy":
-                self.logger.info("  Token service connected")
+            status = health.get("status")
+
+            if status == "healthy":
+                self.logger.info("  Token service connected - tokens valid")
+            elif status == "degraded":
+                # Token expired but can be refreshed - trigger refresh and wait
+                self.logger.warning("  Token service degraded (token expired)")
+                self.logger.info("  Triggering token refresh...")
+                self._wait_for_valid_token()
+            elif status == "lockout":
+                # Service is locked out - manual intervention required
+                self.logger.critical("  TOKEN SERVICE IS IN LOCKOUT STATE!")
+                self.logger.critical("  Tokens are invalid - manual re-authentication required.")
+                self.logger.critical("  Steps to recover:")
+                self.logger.critical("    1. POST /token/clear-lockout")
+                self.logger.critical("    2. python scripts/authorize_schwab.py")
+                self.logger.critical("    3. Restart services")
+                raise RuntimeError("Token service is in LOCKOUT state - manual re-authentication required")
             else:
+                # unhealthy or unknown status
                 self.logger.error(f"  Token service unhealthy: {health}")
                 raise RuntimeError(f"Token service unhealthy: {health}")
 
+        except RuntimeError:
+            raise  # Re-raise our RuntimeErrors
         except Exception as e:
             self.logger.error(f"  Failed to connect to token service: {e}")
             raise RuntimeError(f"Failed to connect to token service: {e}")
+
+    def _wait_for_valid_token(self, max_wait_seconds: int = 120, poll_interval: int = 5):
+        """Wait for token service to have valid tokens.
+
+        Triggers a refresh and polls until tokens are valid or timeout.
+
+        Args:
+            max_wait_seconds: Maximum time to wait for valid tokens
+            poll_interval: Seconds between status checks
+
+        Raises:
+            RuntimeError: If tokens don't become valid within timeout
+        """
+        import time
+
+        # Trigger a manual refresh
+        try:
+            self.logger.info("  Requesting token refresh from token service...")
+            refresh_result = self.token_service_client.refresh_token()
+            if refresh_result:
+                self.logger.info("  Token refresh successful")
+                return
+        except Exception as e:
+            self.logger.warning(f"  Token refresh request failed: {e}")
+
+        # Poll for valid tokens
+        self.logger.info(f"  Waiting for valid tokens (max {max_wait_seconds}s)...")
+        start_time = time.time()
+
+        while time.time() - start_time < max_wait_seconds:
+            try:
+                health = self.token_service_client.health_check()
+                status = health.get("status")
+
+                if status == "healthy":
+                    self.logger.info("  Tokens are now valid")
+                    return
+                elif status == "lockout":
+                    raise RuntimeError("Token service entered LOCKOUT state - manual re-authentication required")
+                elif status == "unhealthy":
+                    raise RuntimeError("Token service unhealthy - no tokens available")
+
+                # Still degraded, keep waiting
+                elapsed = int(time.time() - start_time)
+                self.logger.info(f"  Still waiting for valid tokens... ({elapsed}s/{max_wait_seconds}s)")
+
+            except RuntimeError:
+                raise
+            except Exception as e:
+                self.logger.warning(f"  Error checking token status: {e}")
+
+            time.sleep(poll_interval)
+
+        # Timeout reached
+        raise RuntimeError(
+            f"Timeout waiting for valid tokens after {max_wait_seconds}s. "
+            "Token service may need manual intervention."
+        )
 
     def _initialize_components(self):
         """Initialize service components."""
