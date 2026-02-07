@@ -490,6 +490,13 @@ Examples:
         help='Batch size for database inserts (default: 1000)'
     )
 
+    parser.add_argument(
+        '--no-greeks',
+        action='store_true',
+        default=False,
+        help='Skip Greeks enrichment (run backfill_stream_greeks.py manually later)'
+    )
+
     args = parser.parse_args()
 
     # Parse dates
