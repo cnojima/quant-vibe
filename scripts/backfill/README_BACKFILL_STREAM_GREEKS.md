@@ -16,26 +16,26 @@ Fill in missing Greeks, strike price, and implied volatility for existing stream
 ### 1. Check What Needs Backfilling
 
 ```bash
-python scripts/backfill_stream_greeks.py --stats-only
+python scripts/backfill/backfill_stream_greeks.py --stats-only
 ```
 
 ### 2. Dry Run (Preview Changes)
 
 ```bash
-python scripts/backfill_stream_greeks.py --dry-run
+python scripts/backfill/backfill_stream_greeks.py --dry-run
 ```
 
 ### 3. Run Backfill
 
 ```bash
 # Backfill all missing data
-python scripts/backfill_stream_greeks.py
+python scripts/backfill/backfill_stream_greeks.py
 
 # Backfill specific date range
-python scripts/backfill_stream_greeks.py --start 2025-12-10 --end 2025-12-17
+python scripts/backfill/backfill_stream_greeks.py --start 2025-12-10 --end 2025-12-17
 
 # Limit to 1000 records (for testing)
-python scripts/backfill_stream_greeks.py --limit 1000
+python scripts/backfill/backfill_stream_greeks.py --limit 1000
 ```
 
 ## How It Works
@@ -82,7 +82,7 @@ Fields updated **only if NULL** (never overrides existing data):
 ## All Options
 
 ```bash
-python scripts/backfill_stream_greeks.py [OPTIONS]
+python scripts/backfill/backfill_stream_greeks.py [OPTIONS]
 
 Options:
   --stats-only              Show statistics only, don't backfill
@@ -98,7 +98,7 @@ Options:
 
 ### Example 1: Check Status
 ```bash
-$ python scripts/backfill_stream_greeks.py --stats-only
+$ python scripts/backfill/backfill_stream_greeks.py --stats-only
 
 ======================================================================
 STREAMING DATA STATISTICS
@@ -115,7 +115,7 @@ Records with missing data: 45,203 (36.0%)
 
 ### Example 2: Dry Run
 ```bash
-$ python scripts/backfill_stream_greeks.py --dry-run --limit 100
+$ python scripts/backfill/backfill_stream_greeks.py --dry-run --limit 100
 
 ✓ Found 100 records needing enrichment
 ✓ Cached 412 contracts from option chain
@@ -127,7 +127,7 @@ Would have updated: 98 records
 
 ### Example 3: Backfill Last Week
 ```bash
-$ python scripts/backfill_stream_greeks.py --start 2025-12-10 --end 2025-12-17
+$ python scripts/backfill/backfill_stream_greeks.py --start 2025-12-10 --end 2025-12-17
 
 ✓ Found 12,458 records needing enrichment
   Date range: 2025-12-10 06:30:00 to 2025-12-16 14:13:00
@@ -145,7 +145,7 @@ Cache coverage:
 
 ### Example 4: Test with Small Batch
 ```bash
-$ python scripts/backfill_stream_greeks.py --limit 10
+$ python scripts/backfill/backfill_stream_greeks.py --limit 10
 
 ✓ Found 10 records needing enrichment
 ✓ Cached 412 contracts
@@ -176,7 +176,7 @@ All data is already complete! ✅
 
 ```bash
 # Verify
-python scripts/backfill_stream_greeks.py --stats-only
+python scripts/backfill/backfill_stream_greeks.py --stats-only
 ```
 
 ### High skip rate
@@ -248,16 +248,16 @@ LIMIT 10;
 
 ```bash
 # 1. Check current status
-python scripts/backfill_stream_greeks.py --stats-only
+python scripts/backfill/backfill_stream_greeks.py --stats-only
 
 # 2. Test with dry run
-python scripts/backfill_stream_greeks.py --dry-run --limit 100
+python scripts/backfill/backfill_stream_greeks.py --dry-run --limit 100
 
 # 3. Run full backfill
-python scripts/backfill_stream_greeks.py
+python scripts/backfill/backfill_stream_greeks.py
 
 # 4. Verify results
-python scripts/backfill_stream_greeks.py --stats-only
+python scripts/backfill/backfill_stream_greeks.py --stats-only
 ```
 
 ### Scheduled Maintenance
@@ -266,7 +266,7 @@ Add to cron for weekly maintenance:
 
 ```bash
 # Every Sunday at 2 AM
-0 2 * * 0 cd /path/to/quant-vibe && source venv/bin/activate && python scripts/backfill_stream_greeks.py >> logs/backfill.log 2>&1
+0 2 * * 0 cd /path/to/quant-vibe && source venv/bin/activate && python scripts/backfill/backfill_stream_greeks.py >> logs/backfill.log 2>&1
 ```
 
 ## Related Documentation
