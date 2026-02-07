@@ -9,10 +9,9 @@ Runs as a daemon and updates DNS when public IP changes.
 import os
 import sys
 import time
-from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Add src to path for Docker container
+sys.path.insert(0, "/app/src")
 
 from dotenv import load_dotenv
 

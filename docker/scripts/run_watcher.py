@@ -2,10 +2,9 @@
 """Run the watcher service for monitoring system health."""
 
 import sys
-from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Add src to path for Docker container
+sys.path.insert(0, "/app/src")
 
 from watcher_service.watcher import WatcherService
 
