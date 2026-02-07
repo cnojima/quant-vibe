@@ -32,12 +32,11 @@ import time
 import signal
 import argparse
 import multiprocessing as mp
-from pathlib import Path
 from typing import Dict
 import yaml
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add src to path for Docker container
+sys.path.insert(0, "/app/src")
 
 from quant_vibe.logging.unified_logging import get_logger
 

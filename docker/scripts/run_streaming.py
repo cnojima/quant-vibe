@@ -27,10 +27,9 @@ Usage:
 
 import sys
 import argparse
-from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Add src to path for Docker container
+sys.path.insert(0, "/app/src")
 
 from streaming_service import StreamingService, StreamingConfig
 
